@@ -1,0 +1,13 @@
+{
+  "name": "video-scripter",
+  "version": "0.1.0",
+  "description": "Short-video script creator for 视频号 / 抖音 / TikTok / Instagram / YouTube with a pluggable LLM gateway",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs",
+    "test": "node --test"
+  }
+}

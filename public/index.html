@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Video Scripter</title>
+  <meta name="color-scheme" content="light dark">
+  <script src="theme.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">▶</span>
+      <div>
+        <h1>Video Scripter</h1>
+        <p>Short-video scripts for 视频号 · 抖音 · TikTok · Instagram · YouTube</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button id="gatewayChip" class="chip-btn" type="button" title="LLM gateway settings">
+        <span class="dot" id="gatewayDot"></span><span id="gatewayLabel">Loading…</span>
+      </button>
+      <button id="openSettings" class="btn" type="button">LLM settings</button>
+      <button id="themeToggle" class="btn" type="button"></button>
+      <button id="langToggle" class="btn" type="button" aria-label="Switch language / 切换语言"></button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <form id="briefForm" class="panel brief" autocomplete="off">
+      <h2>Brief</h2>
+
+      <label class="field">
+        <span>Topic <em>required</em></span>
+        <textarea id="topic" rows="3" required placeholder="What is the video about? e.g. 为什么企业买了大模型却用不起来 / Why most people quit learning to code in week three"></textarea>
+      </label>
+
+      <fieldset class="field">
+        <legend>Platforms</legend>
+        <div class="platform-group"><span class="group-label">中文</span><div id="platformsZh" class="chips"></div></div>
+        <div class="platform-group"><span class="group-label">English</span><div id="platformsEn" class="chips"></div></div>
+      </fieldset>
+
+      <div class="row">
+        <label class="field">
+          <span>Structure</span>
+          <select id="framework"></select>
+        </label>
+        <label class="field narrow">
+          <span>Length</span>
+          <select id="duration"></select>
+        </label>
+      </div>
+      <p id="frameworkBlurb" class="hint"></p>
+
+      <fieldset class="field">
+        <legend>Visual style <em>pick one, or two to blend</em></legend>
+        <div id="styleGroups"></div>
+        <p id="styleHint" class="hint"></p>
+      </fieldset>
+
+      <label class="field">
+        <span>Key message</span>
+        <input id="keyMessage" type="text" placeholder="The one thing the viewer should remember">
+      </label>
+      <div class="row">
+        <label class="field">
+          <span>Audience</span>
+          <input id="audience" type="text" placeholder="e.g. 中小企业老板 / first-time founders">
+        </label>
+        <label class="field">
+          <span>Tone</span>
+          <input id="tone" type="text" placeholder="e.g. 冷静专业 / blunt and funny">
+        </label>
+      </div>
+      <div class="row">
+        <label class="field">
+          <span>Brand or creator</span>
+          <input id="brand" type="text" placeholder="Who is speaking, what is being offered">
+        </label>
+        <label class="field">
+          <span>Call to action</span>
+          <input id="cta" type="text" placeholder="e.g. 转给负责数字化的合伙人 / follow for part 2">
+        </label>
+      </div>
+
+      <details class="field">
+        <summary>Reference material</summary>
+        <textarea id="reference" rows="6" placeholder="Paste facts, quotes, notes or an article. The script will only use figures and quotes that appear here or in the brief."></textarea>
+      </details>
+
+      <label class="check">
+        <input id="ttsReady" type="checkbox">
+        <span>Voiceover is for text-to-speech (spell out numbers and symbols)</span>
+      </label>
+
+      <label class="check">
+        <input id="autoImages" type="checkbox">
+        <span>Also generate an image for every scene (uses the image model in LLM settings)</span>
+      </label>
+
+      <label class="field inline-field">
+        <span>Images per scene</span>
+        <select id="imageCount" aria-label="Images per scene">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Written by</span>
+        <select id="llm" aria-label="Gateway and model"></select>
+      </label>
+
+      <div class="form-actions">
+        <button id="generate" class="btn primary" type="submit">Generate scripts</button>
+        <button id="stop" class="btn" type="button" hidden>Stop</button>
+      </div>
+      <p id="formError" class="error" role="alert" hidden></p>
+    </form>
+
+    <section class="panel output">
+      <div class="output-head">
+        <div id="tabs" class="tabs" role="tablist"></div>
+        <select id="history" class="history" aria-label="History"><option value="">History</option></select>
+      </div>
+      <div id="result" class="result">
+        <div class="empty">
+          <p class="empty-title">No script yet</p>
+          <p>Fill in the brief, pick one or more platforms, and generate. Each platform gets its own script, written for how that platform's audience watches.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="settings" class="dialog wide">
+    <form id="settingsForm" method="dialog" autocomplete="off">
+      <h2>LLM gateways</h2>
+      <p class="hint">Save a gateway for each provider or account, then choose which one writes your scripts. Keys are stored on this machine in <code>data/gateway.json</code> and are never sent back to the browser.</p>
+
+      <div class="gw-layout">
+        <aside class="gw-side">
+          <div id="profileList" class="gw-list"></div>
+          <button id="newProfile" class="btn small" type="button">+ New gateway</button>
+        </aside>
+
+        <div class="gw-form">
+          <h3 id="gwFormTitle" class="gw-title"></h3>
+          <div class="row">
+            <label class="field">
+              <span>Name</span>
+              <input id="profileName" type="text" maxlength="60" placeholder="e.g. DeepSeek work account">
+            </label>
+            <label class="field">
+              <span>Provider</span>
+              <select id="provider"></select>
+            </label>
+          </div>
+          <label class="field">
+            <span>BASE_URL_API</span>
+            <input id="baseUrl" type="url" placeholder="https://api.example.com/v1" spellcheck="false">
+          </label>
+          <label class="field">
+            <span>API_KEY</span>
+            <input id="apiKey" type="password" placeholder="" spellcheck="false" autocomplete="new-password">
+          </label>
+          <p id="keyHint" class="hint"></p>
+          <div class="field">
+            <span>Default model</span>
+            <div class="inline">
+              <input id="model" type="text" placeholder="model name" spellcheck="false" aria-label="Default model">
+              <button id="listModels" class="btn" type="button">List available models</button>
+            </div>
+          </div>
+          <div id="modelBox" class="model-box" hidden>
+            <div class="model-box-head">
+              <span id="modelCount"></span>
+              <input id="modelFilter" type="search" placeholder="Filter" aria-label="Filter models">
+            </div>
+            <div id="modelList" class="model-list"></div>
+          </div>
+
+          <details id="mediaSettings" class="field media-settings">
+            <summary>Images and videos <span id="mediaSummary" class="hint"></span></summary>
+            <p class="hint">Scene images and clips are made by separate models, often at a different address. Give each its own BASE_URL_API and model; leave a model blank to turn that off. A blank base URL or key uses the gateway's.</p>
+            <fieldset class="media-group">
+              <legend>Images</legend>
+              <label class="field">
+                <span>BASE_URL_API</span>
+                <input id="imageBaseUrl" type="url" placeholder="Same as the gateway above" spellcheck="false">
+              </label>
+              <div class="row">
+                <label class="field">
+                  <span>Model</span>
+                  <input id="imageModel" type="text" list="imageModelOptions" placeholder="e.g. gpt-image-1" spellcheck="false">
+                </label>
+                <label class="field narrow">
+                  <span>Size</span>
+                  <input id="imageSize" type="text" placeholder="e.g. 1024x1536" spellcheck="false">
+                </label>
+              </div>
+              <datalist id="imageModelOptions"></datalist>
+              <div class="media-models">
+                <button id="imageList" class="btn small" type="button">List available image models</button>
+                <span id="imageListNote" class="hint"></span>
+              </div>
+              <div id="imageModelList" class="model-list" hidden></div>
+              <label class="field">
+                <span>API_KEY <em>optional</em></span>
+                <input id="imageKey" type="password" spellcheck="false" autocomplete="new-password">
+              </label>
+            </fieldset>
+            <fieldset class="media-group">
+              <legend>Videos</legend>
+              <label class="field">
+                <span>BASE_URL_API</span>
+                <input id="videoBaseUrl" type="url" placeholder="Same as the gateway above" spellcheck="false">
+              </label>
+              <div class="row">
+                <label class="field">
+                  <span>Model</span>
+                  <input id="videoModel" type="text" list="videoModelOptions" placeholder="e.g. sora-2" spellcheck="false">
+                </label>
+                <label class="field narrow">
+                  <span>Size</span>
+                  <input id="videoSize" type="text" placeholder="e.g. 720x1280" spellcheck="false">
+                </label>
+              </div>
+              <datalist id="videoModelOptions"></datalist>
+              <div class="media-models">
+                <button id="videoList" class="btn small" type="button">List available video models</button>
+                <span id="videoListNote" class="hint"></span>
+              </div>
+              <div id="videoModelList" class="model-list" hidden></div>
+              <label class="field">
+                <span>API_KEY <em>optional</em></span>
+                <input id="videoKey" type="password" spellcheck="false" autocomplete="new-password">
+              </label>
+            </fieldset>
+          </details>
+
+          <label class="check">
+            <input id="useGateway" type="checkbox">
+            <span>Use this gateway to write scripts</span>
+          </label>
+
+          <p id="settingsStatus" class="status" role="status" hidden></p>
+
+          <div class="dialog-actions">
+            <button id="testGateway" class="btn" type="button">Test connection</button>
+            <button id="deleteProfile" class="btn danger" type="button">Delete</button>
+            <span class="spacer"></span>
+            <button id="cancelSettings" class="btn" type="button">Close</button>
+            <button id="saveSettings" class="btn primary" type="submit">Save</button>
+          </div>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
