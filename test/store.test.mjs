@@ -266,6 +266,15 @@ test('accounts, access rules, gateways, scripts, media, usage and activity', asy
   assert.equal((await admin.call('POST', '/api/admin/users/logout', { id: carlId })).status, 200);
   assert.equal((await carl.call('GET', '/api/history')).status, 401);
 
+  // "Generate images with the script" is off until the user turns it on, and is remembered on their account.
+  await carl.call('POST', '/api/auth/login', { email: 'carl.r@example.test', password: 'carl-reset-pass-9' });
+  assert.equal((await carl.call('GET', '/api/auth/me')).body.user.prefs.autoImages, undefined);
+  assert.equal((await carl.call('POST', '/api/auth/prefs', { autoImages: true, role: 'admin' })).body.prefs.autoImages, true);
+  r = await carl.call('GET', '/api/auth/me');
+  assert.deepEqual([r.body.user.prefs.autoImages, r.body.user.role], [true, 'user']); // only the known preference is stored
+  assert.equal((await carl.call('POST', '/api/auth/prefs', { autoImages: false })).body.prefs.autoImages, false);
+  assert.equal((await anon.call('POST', '/api/auth/prefs', { autoImages: true })).status, 401);
+
   // A user changes their own name and password; the session they are using carries on, others end.
   const carl2 = client();
   await carl.call('POST', '/api/auth/login', { email: 'carl.r@example.test', password: 'carl-reset-pass-9' });

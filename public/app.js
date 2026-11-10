@@ -226,7 +226,7 @@ function restoreForm() {
   if (Array.isArray(data.platforms)) document.querySelectorAll('input[name="platform"]').forEach((i) => (i.checked = data.platforms.includes(i.value)));
   if (data.framework) $('framework').value = data.framework;
   $('ttsReady').checked = Boolean(data.ttsReady);
-  $('autoImages').checked = Boolean(data.autoImages);
+  // autoImages is not restored from this browser's saved brief: it is remembered on the user's account (see buildForm).
   $('imageCount').value = ['2', '3'].includes(String(data.imageCount)) ? String(data.imageCount) : '1';
   setStyles(Array.isArray(data.styles) ? data.styles : []);
   if (state.meta.imageModes.some((m) => m.id === data.imageMode)) $('imageMode').value = data.imageMode;
@@ -256,6 +256,13 @@ function buildForm() {
   );
   $('briefForm').addEventListener('input', refreshSummaries);
   restoreForm();
+  // "Also generate an image for every scene": off unless this user last left it on. Kept on their account,
+  // so it is the same on every device and is not inherited from someone else who used this browser.
+  $('autoImages').checked = state.user.prefs?.autoImages === true;
+  $('autoImages').addEventListener('change', (e) => {
+    state.user.prefs = { ...state.user.prefs, autoImages: e.target.checked };
+    api('/api/auth/prefs', { method: 'POST', body: { autoImages: e.target.checked } }).catch((err) => toast(err.message));
+  });
   refreshSummaries();
   refreshBlurb();
 }

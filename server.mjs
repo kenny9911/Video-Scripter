@@ -145,6 +145,15 @@ const routes = {
     json(res, 200, { user: publicUser(next) });
   }),
 
+  // Remember a choice on the user's account, so it follows them to any browser.
+  'POST /api/auth/prefs': route('user', async (req, res, user) => {
+    const { autoImages } = await readJson(req);
+    const next = await db.update('users', user.id, (u) => {
+      if (typeof autoImages === 'boolean') u.prefs = { ...u.prefs, autoImages };
+    });
+    json(res, 200, { prefs: next.prefs || {} });
+  }),
+
   // Change your own password. Every other session of yours ends; this one is renewed.
   'POST /api/auth/password': route('user', async (req, res, user) => {
     const { current, password } = await readJson(req);
