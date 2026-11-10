@@ -2,148 +2,214 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Video Scripter</title>
+  <meta name="description" content="Write short-video scripts for 视频号, 抖音, TikTok, Instagram and YouTube, with scene images and clips.">
   <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#18181b">
   <script src="theme.js"></script>
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body data-view="brief">
+  <a class="skip-link" href="#result">Skip to the script</a>
+
   <header class="topbar">
     <div class="brand">
-      <span class="logo" aria-hidden="true">▶</span>
-      <div>
+      <span class="logo" data-icon="logo" data-icon-size="16" aria-hidden="true"></span>
+      <div class="brand-text">
         <h1>Video Scripter</h1>
-        <p>Short-video scripts for 视频号 · 抖音 · TikTok · Instagram · YouTube</p>
+        <p class="tagline">Short-video scripts for 视频号 · 抖音 · TikTok · Instagram · YouTube</p>
       </div>
     </div>
     <div class="topbar-actions">
       <button id="gatewayChip" class="chip-btn" type="button" title="LLM gateway settings">
         <span class="dot" id="gatewayDot"></span><span id="gatewayLabel">Loading…</span>
       </button>
-      <button id="openSettings" class="btn" type="button">LLM settings</button>
-      <button id="themeToggle" class="btn" type="button"></button>
-      <button id="langToggle" class="btn" type="button" aria-label="Switch language / 切换语言"></button>
+      <button id="openHistory" class="icon-btn labelled desktop-only" type="button" data-icon="clock"><span>History</span><span id="historyCount" class="count" hidden></span></button>
+      <button id="openSettings" class="icon-btn labelled desktop-only" type="button" data-icon="settings"><span>LLM settings</span></button>
+      <button id="themeToggle" class="icon-btn" type="button"></button>
+      <button id="langToggle" class="icon-btn text" type="button" aria-label="Switch language / 切换语言"></button>
     </div>
   </header>
 
+  <div id="demoBanner" class="banner" role="status" hidden>
+    <span class="banner-text" data-icon="info">Demo mode: scripts are placeholder text until you connect a model.</span>
+    <button id="demoConnect" class="btn small" type="button">Connect a model</button>
+  </div>
+
   <main class="layout">
-    <form id="briefForm" class="panel brief" autocomplete="off">
-      <h2>Brief</h2>
+    <form id="briefForm" class="brief" autocomplete="off" aria-label="Brief">
+      <div class="brief-scroll">
+        <section class="card">
+          <h2 class="card-title"><span class="step">1</span>Your video</h2>
+          <label class="field">
+            <span>Topic <em>required</em></span>
+            <textarea id="topic" rows="3" required placeholder="What is the video about? e.g. 为什么企业买了大模型却用不起来 / Why most people quit learning to code in week three"></textarea>
+          </label>
+          <div id="topicIdeas" class="ideas" hidden>
+            <span class="hint">Need an idea?</span>
+            <div id="topicIdeaList" class="chips"></div>
+          </div>
 
-      <label class="field">
-        <span>Topic <em>required</em></span>
-        <textarea id="topic" rows="3" required placeholder="What is the video about? e.g. 为什么企业买了大模型却用不起来 / Why most people quit learning to code in week three"></textarea>
-      </label>
+          <fieldset class="field">
+            <legend>Platforms</legend>
+            <div class="platform-group"><span class="group-label">中文</span><div id="platformsZh" class="chips"></div></div>
+            <div class="platform-group"><span class="group-label">English</span><div id="platformsEn" class="chips"></div></div>
+          </fieldset>
+        </section>
 
-      <fieldset class="field">
-        <legend>Platforms</legend>
-        <div class="platform-group"><span class="group-label">中文</span><div id="platformsZh" class="chips"></div></div>
-        <div class="platform-group"><span class="group-label">English</span><div id="platformsEn" class="chips"></div></div>
-      </fieldset>
+        <section class="card">
+          <h2 class="card-title"><span class="step">2</span>Structure</h2>
+          <div class="row">
+            <label class="field">
+              <span>Structure</span>
+              <select id="framework"></select>
+            </label>
+            <label class="field narrow">
+              <span>Length</span>
+              <select id="duration"></select>
+            </label>
+          </div>
+          <p id="frameworkBlurb" class="hint"></p>
+        </section>
 
-      <div class="row">
-        <label class="field">
-          <span>Structure</span>
-          <select id="framework"></select>
-        </label>
-        <label class="field narrow">
-          <span>Length</span>
-          <select id="duration"></select>
-        </label>
+        <details class="card fold" id="lookCard">
+          <summary class="card-title"><span class="step">3</span><span class="fold-title">Look and images</span><span id="lookSummary" class="fold-summary"></span></summary>
+          <div class="fold-body">
+            <fieldset class="field">
+              <legend>Visual style <em>pick one, or two to blend</em></legend>
+              <div id="styleGroups"></div>
+              <p id="styleHint" class="hint"></p>
+            </fieldset>
+
+            <label class="check">
+              <input id="autoImages" type="checkbox">
+              <span>Also generate an image for every scene (uses the image model in LLM settings)</span>
+            </label>
+
+            <div class="field">
+              <span>Images per scene</span>
+              <div class="inline-field">
+                <select id="imageCount" aria-label="Images per scene">
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                </select>
+                <select id="imageMode" aria-label="How the images of a scene differ"></select>
+              </div>
+              <p id="imageModeHint" class="hint"></p>
+            </div>
+          </div>
+        </details>
+
+        <details class="card fold" id="detailsCard">
+          <summary class="card-title"><span class="step">4</span><span class="fold-title">Details</span><span id="detailsSummary" class="fold-summary"></span></summary>
+          <div class="fold-body">
+            <label class="field">
+              <span>Key message</span>
+              <input id="keyMessage" type="text" placeholder="The one thing the viewer should remember">
+            </label>
+            <div class="row">
+              <label class="field">
+                <span>Audience</span>
+                <input id="audience" type="text" placeholder="e.g. 中小企业老板 / first-time founders">
+              </label>
+              <label class="field">
+                <span>Tone</span>
+                <input id="tone" type="text" placeholder="e.g. 冷静专业 / blunt and funny">
+              </label>
+            </div>
+            <div class="row">
+              <label class="field">
+                <span>Brand or creator</span>
+                <input id="brand" type="text" placeholder="Who is speaking, what is being offered">
+              </label>
+              <label class="field">
+                <span>Call to action</span>
+                <input id="cta" type="text" placeholder="e.g. 转给负责数字化的合伙人 / follow for part 2">
+              </label>
+            </div>
+            <label class="field">
+              <span>Reference material</span>
+              <textarea id="reference" rows="5" placeholder="Paste facts, quotes, notes or an article. The script will only use figures and quotes that appear here or in the brief."></textarea>
+            </label>
+            <label class="check">
+              <input id="ttsReady" type="checkbox">
+              <span>Voiceover is for text-to-speech (spell out numbers and symbols)</span>
+            </label>
+          </div>
+        </details>
       </div>
-      <p id="frameworkBlurb" class="hint"></p>
 
-      <fieldset class="field">
-        <legend>Visual style <em>pick one, or two to blend</em></legend>
-        <div id="styleGroups"></div>
-        <p id="styleHint" class="hint"></p>
-      </fieldset>
-
-      <label class="field">
-        <span>Key message</span>
-        <input id="keyMessage" type="text" placeholder="The one thing the viewer should remember">
-      </label>
-      <div class="row">
-        <label class="field">
-          <span>Audience</span>
-          <input id="audience" type="text" placeholder="e.g. 中小企业老板 / first-time founders">
+      <div class="brief-footer">
+        <p id="formError" class="error" role="alert" hidden></p>
+        <label class="field model-pick">
+          <span>Written by</span>
+          <select id="llm" aria-label="Gateway and model"></select>
         </label>
-        <label class="field">
-          <span>Tone</span>
-          <input id="tone" type="text" placeholder="e.g. 冷静专业 / blunt and funny">
-        </label>
+        <div class="form-actions">
+          <button id="generate" class="btn cta" type="submit" data-icon="sparkles"><span id="generateLabel">Generate scripts</span></button>
+          <button id="stop" class="btn" type="button" data-icon="stop" hidden><span>Stop</span></button>
+        </div>
       </div>
-      <div class="row">
-        <label class="field">
-          <span>Brand or creator</span>
-          <input id="brand" type="text" placeholder="Who is speaking, what is being offered">
-        </label>
-        <label class="field">
-          <span>Call to action</span>
-          <input id="cta" type="text" placeholder="e.g. 转给负责数字化的合伙人 / follow for part 2">
-        </label>
-      </div>
-
-      <details class="field">
-        <summary>Reference material</summary>
-        <textarea id="reference" rows="6" placeholder="Paste facts, quotes, notes or an article. The script will only use figures and quotes that appear here or in the brief."></textarea>
-      </details>
-
-      <label class="check">
-        <input id="ttsReady" type="checkbox">
-        <span>Voiceover is for text-to-speech (spell out numbers and symbols)</span>
-      </label>
-
-      <label class="check">
-        <input id="autoImages" type="checkbox">
-        <span>Also generate an image for every scene (uses the image model in LLM settings)</span>
-      </label>
-
-      <label class="field inline-field">
-        <span>Images per scene</span>
-        <select id="imageCount" aria-label="Images per scene">
-          <option value="1">1</option>
-          <option value="2">2</option>
-          <option value="3">3</option>
-        </select>
-      </label>
-
-      <label class="field">
-        <span>Written by</span>
-        <select id="llm" aria-label="Gateway and model"></select>
-      </label>
-
-      <div class="form-actions">
-        <button id="generate" class="btn primary" type="submit">Generate scripts</button>
-        <button id="stop" class="btn" type="button" hidden>Stop</button>
-      </div>
-      <p id="formError" class="error" role="alert" hidden></p>
     </form>
 
-    <section class="panel output">
+    <section class="output" aria-label="Script">
       <div class="output-head">
         <div id="tabs" class="tabs" role="tablist"></div>
-        <select id="history" class="history" aria-label="History"><option value="">History</option></select>
       </div>
-      <div id="result" class="result">
+      <div id="result" class="result" tabindex="-1">
         <div class="empty">
+          <span class="empty-art" data-icon="script" data-icon-size="28" aria-hidden="true"></span>
           <p class="empty-title">No script yet</p>
           <p>Fill in the brief, pick one or more platforms, and generate. Each platform gets its own script, written for how that platform's audience watches.</p>
+          <ol class="empty-steps">
+            <li><span class="step">1</span>Describe the video</li>
+            <li><span class="step">2</span>Pick platforms and a structure</li>
+            <li><span class="step">3</span>Generate, then add images</li>
+          </ol>
+          <button id="emptyToBrief" class="btn primary mobile-only" type="button">Start a brief</button>
         </div>
       </div>
     </section>
   </main>
 
+  <nav class="bottom-nav" aria-label="Main">
+    <button class="nav-btn" type="button" data-nav="brief" data-icon="edit" data-icon-size="22"><span>Brief</span></button>
+    <button class="nav-btn" type="button" data-nav="script" data-icon="script" data-icon-size="22"><span>Script</span><span id="navBusy" class="nav-dot" hidden></span></button>
+    <button class="nav-btn" type="button" data-nav="history" data-icon="clock" data-icon-size="22"><span>History</span></button>
+    <button class="nav-btn" type="button" data-nav="settings" data-icon="settings" data-icon-size="22"><span>Settings</span></button>
+  </nav>
+
+  <dialog id="historyDialog" class="dialog drawer" aria-labelledby="historyTitle">
+    <div class="dialog-shell">
+      <header class="dialog-head">
+        <h2 id="historyTitle">History</h2>
+        <button id="closeHistory" class="icon-btn" type="button" aria-label="Close" data-icon="x"></button>
+      </header>
+      <div class="dialog-body">
+        <label class="search" data-icon="search">
+          <input id="historySearch" type="search" placeholder="Search scripts" aria-label="Search scripts">
+        </label>
+        <div id="historyList" class="history-list"></div>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="settings" class="dialog wide">
     <form id="settingsForm" method="dialog" autocomplete="off">
-      <h2>LLM gateways</h2>
+      <header class="dialog-head">
+        <h2>LLM gateways</h2>
+        <button id="closeSettingsX" class="icon-btn" type="button" aria-label="Close" data-icon="x"></button>
+      </header>
+      <div class="dialog-body">
       <p class="hint">Save a gateway for each provider or account, then choose which one writes your scripts. Keys are stored on this machine in <code>data/gateway.json</code> and are never sent back to the browser.</p>
 
       <div class="gw-layout">
         <aside class="gw-side">
           <div id="profileList" class="gw-list"></div>
-          <button id="newProfile" class="btn small" type="button">+ New gateway</button>
+          <button id="newProfile" class="btn" type="button" data-icon="plus"><span>New gateway</span></button>
         </aside>
 
         <div class="gw-form">
@@ -203,7 +269,7 @@
               </div>
               <datalist id="imageModelOptions"></datalist>
               <div class="media-models">
-                <button id="imageList" class="btn small" type="button">List available image models</button>
+                <button id="imageList" class="btn" type="button">List available image models</button>
                 <span id="imageListNote" class="hint"></span>
               </div>
               <div id="imageModelList" class="model-list" hidden></div>
@@ -230,7 +296,7 @@
               </div>
               <datalist id="videoModelOptions"></datalist>
               <div class="media-models">
-                <button id="videoList" class="btn small" type="button">List available video models</button>
+                <button id="videoList" class="btn" type="button">List available video models</button>
                 <span id="videoListNote" class="hint"></span>
               </div>
               <div id="videoModelList" class="model-list" hidden></div>
@@ -246,17 +312,19 @@
             <span>Use this gateway to write scripts</span>
           </label>
 
-          <p id="settingsStatus" class="status" role="status" hidden></p>
-
-          <div class="dialog-actions">
-            <button id="testGateway" class="btn" type="button">Test connection</button>
-            <button id="deleteProfile" class="btn danger" type="button">Delete</button>
-            <span class="spacer"></span>
-            <button id="cancelSettings" class="btn" type="button">Close</button>
-            <button id="saveSettings" class="btn primary" type="submit">Save</button>
-          </div>
         </div>
       </div>
+      </div>
+      <footer class="dialog-foot">
+        <p id="settingsStatus" class="status" role="status" hidden></p>
+        <div class="dialog-actions">
+          <button id="testGateway" class="btn" type="button">Test connection</button>
+          <button id="deleteProfile" class="btn danger" type="button">Delete</button>
+          <span class="spacer"></span>
+          <button id="cancelSettings" class="btn" type="button">Close</button>
+          <button id="saveSettings" class="btn primary" type="submit">Save</button>
+        </div>
+      </footer>
     </form>
   </dialog>
 

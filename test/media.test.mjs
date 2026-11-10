@@ -109,3 +109,27 @@ test('package names are safe on every file system and keep Chinese titles', asyn
   const ts = new Date(2026, 10, 10, 9, 30).getTime();
   assert.equal(packageName({ ts, platformId: 'douyin', script: { title: 'AI 落地的三个坑' } }), '2026-11-10_douyin_AI-落地的三个坑');
 });
+
+test('multi-image modes plan a distinct shot for each image', async () => {
+  const { planShots, IMAGE_MODES, SHOT_LABELS } = await import('../src/shots.mjs');
+  const ids = (mode, n, styles) => planShots(mode, n, styles).map((s) => s.id);
+  assert.deepEqual(ids('sequence', 3), ['start', 'middle', 'end']);
+  assert.deepEqual(ids('sequence', 2), ['start', 'end']);
+  assert.deepEqual(ids('coverage', 3), ['wide', 'medium', 'close']);
+  assert.deepEqual(ids('broll', 2), ['hero', 'detail']);
+  assert.deepEqual(ids('variations', 3), ['', '', '']);
+  assert.deepEqual(ids('coverage', 1), ['']); // one image is always the scene as written
+  assert.deepEqual(ids('nonsense', 9), ['', '', '']); // capped at three
+  assert.deepEqual(ids('styles', 3, ['ink', 'clay']), ['style-ink', 'style-clay', 'blend']);
+  assert.deepEqual(ids('styles', 2, ['ink']), ['', '']); // needs two styles
+  for (const m of IMAGE_MODES) for (const n of [2, 3]) for (const s of planShots(m.id, n, ['ink', 'clay'])) assert.ok(!s.id || s.id.startsWith('style-') || SHOT_LABELS[s.id], s.id);
+
+  const scene = { visual: 'A barista pours milk', camera: 'handheld medium shot', styleIds: ['ink', 'clay'] };
+  const [wide, , close] = planShots('coverage', 3).map((shot) => buildVisualPrompt(scene, 'image', scene.styleIds, shot));
+  assert.ok(!wide.includes('handheld medium shot') && /wide establishing shot/.test(wide) && /Image 1 of a set of 3/.test(wide));
+  assert.match(close, /tight close-up[\s\S]*Image 3 of a set of 3/);
+  const [start] = planShots('sequence', 2).map((shot) => buildVisualPrompt(scene, 'image', scene.styleIds, shot));
+  assert.ok(start.includes('handheld medium shot') && /first frame of this scene/.test(start)); // timing keeps the scene's camera
+  const [a, , blend] = planShots('styles', 3, scene.styleIds).map((shot) => buildVisualPrompt(scene, 'image', scene.styleIds, shot));
+  assert.ok(/Visual style: Chinese ink wash/.test(a) && !a.includes('clay') && /blend of two styles/.test(blend));
+});

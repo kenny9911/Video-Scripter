@@ -1,6 +1,7 @@
 // Video Scripter front end. Plain ES modules, no build step.
 
 import { t, lang, setLang, applyI18n } from './i18n.js';
+import { icon, hydrateIcons } from './icons.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -84,6 +85,24 @@ function voNodes(text) {
   return out;
 }
 
+// ---------- Views ----------
+// On a phone the brief and the script are separate views switched from the bottom bar;
+// on a wide screen both are visible and this only moves the highlight.
+
+const isMobile = () => matchMedia('(max-width: 899px)').matches;
+
+function setView(view) {
+  document.body.dataset.view = view;
+  for (const b of document.querySelectorAll('.nav-btn')) {
+    if (b.dataset.nav === view) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  }
+  if (isMobile()) scrollTo({ top: 0 });
+}
+
+/** A button with an icon and a label, the way every action in the app is drawn. */
+const iconBtn = (name, label, attrs = {}) => h('button', { class: 'btn', type: 'button', ...attrs }, icon(name, 16), h('span', {}, label));
+
 // ---------- Brief form ----------
 
 function selectedPlatforms() {
@@ -104,6 +123,25 @@ function setStyles(ids) {
     : !b
       ? `${a.name[lang]}: ${t(a.blurb)}`
       : t('Blend: {a} leads, mixed with {b}.', { a: a.name[lang], b: b.name[lang] });
+  if ($('imageMode').options.length) refreshImageMode();
+  refreshSummaries();
+}
+
+/** The mode only matters with two or three images; "Style comparison" also needs two styles picked. */
+function refreshImageMode() {
+  const many = Number($('imageCount').value) > 1;
+  const mode = state.meta.imageModes.find((m) => m.id === $('imageMode').value);
+  for (const o of $('imageMode').options) o.disabled = (state.meta.imageModes.find((m) => m.id === o.value).needsStyles || 0) > state.styleIds.length;
+  $('imageMode').hidden = !many;
+  $('imageModeHint').hidden = !many;
+  $('imageModeHint').textContent = !mode ? '' : (mode.needsStyles || 0) > state.styleIds.length ? t('Pick two visual styles above to compare them. Until then this makes alternatives.') : mode.blurb[lang];
+}
+
+/** Caption for one image of a set: "Wide", "Start", a style name, or nothing for a plain take. */
+function shotLabel(id) {
+  if (!id) return '';
+  if (id.startsWith('style-')) return styleOf(id.slice(6))?.name[lang] || '';
+  return state.meta.shotLabels[id]?.[lang] || '';
 }
 
 function buildStyles() {
@@ -133,6 +171,20 @@ function buildStyles() {
   setStyles([]);
 }
 
+const IDEAS = {
+  en: ['Why most people quit learning to code in week three', '3 pricing mistakes that quietly kill small cafés', 'What a 5-minute morning routine actually changes'],
+  zh: ['为什么企业买了大模型却用不起来', '小餐馆定价最容易踩的三个坑', '普通人学 AI 最该先学的一件事'],
+};
+
+/** One-line summaries on the folded brief sections, and topic ideas while the topic is empty. */
+function refreshSummaries() {
+  const look = [styleNames(state.styleIds) || t('No style'), $('autoImages').checked && t('{n} per scene', { n: $('imageCount').value })].filter(Boolean);
+  $('lookSummary').textContent = look.join(' · ');
+  const filled = ['keyMessage', 'audience', 'tone', 'brand', 'cta', 'reference'].filter((f) => $(f).value.trim()).length + ($('ttsReady').checked ? 1 : 0);
+  $('detailsSummary').textContent = filled ? t('{n} filled', { n: filled }) : t('Optional');
+  $('topicIdeas').hidden = Boolean($('topic').value.trim());
+}
+
 function refreshDurations() {
   const sel = $('duration');
   const keep = sel.value;
@@ -153,7 +205,7 @@ function refreshBlurb() {
 
 function saveForm() {
   const data = Object.fromEntries(FIELDS.map((f) => [f, $(f).value]));
-  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: $('duration').value, ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, styles: state.styleIds });
+  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: $('duration').value, ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: state.styleIds });
   try {
     localStorage.setItem(FORM_KEY, JSON.stringify(data));
   } catch {}
@@ -172,6 +224,8 @@ function restoreForm() {
   $('autoImages').checked = Boolean(data.autoImages);
   $('imageCount').value = ['2', '3'].includes(String(data.imageCount)) ? String(data.imageCount) : '1';
   setStyles(Array.isArray(data.styles) ? data.styles : []);
+  if (state.meta.imageModes.some((m) => m.id === data.imageMode)) $('imageMode').value = data.imageMode;
+  refreshImageMode();
   refreshDurations();
   $('duration').value = data.duration || '';
 }
@@ -186,7 +240,18 @@ function buildForm() {
   $('framework').addEventListener('change', refreshBlurb);
   refreshDurations();
   buildStyles();
+  $('imageMode').append(...state.meta.imageModes.map((m) => h('option', { value: m.id }, m.name[lang])));
+  $('imageCount').addEventListener('change', refreshImageMode);
+  $('imageMode').addEventListener('change', refreshImageMode);
+  refreshImageMode();
+  $('topicIdeaList').replaceChildren(
+    ...IDEAS[lang].map((idea) =>
+      h('button', { class: 'chip', type: 'button', onclick: () => (($('topic').value = idea), refreshSummaries(), saveForm(), $('topic').focus()) }, idea),
+    ),
+  );
+  $('briefForm').addEventListener('input', refreshSummaries);
   restoreForm();
+  refreshSummaries();
   refreshBlurb();
 }
 
@@ -259,6 +324,7 @@ async function generate(platformIds) {
     platformIds = selectedPlatforms();
     state.active = platformIds[0];
   }
+  setView('script');
   setBusy(true);
   await Promise.all(platformIds.map((id) => runPlatform(id, brief)));
   setBusy(Object.values(state.runs).some((r) => r.status === 'running'));
@@ -266,8 +332,9 @@ async function generate(platformIds) {
 
 function setBusy(busy) {
   $('generate').disabled = busy;
-  $('generate').textContent = busy ? t('Generating…') : t('Generate scripts');
+  $('generateLabel').textContent = busy ? t('Generating…') : t('Generate scripts');
   $('stop').hidden = !busy;
+  $('navBusy').hidden = !busy;
 }
 
 // ---------- History ----------
@@ -299,23 +366,49 @@ async function pushHistory(platformId, run) {
 function openHistory(entry) {
   const media = {};
   for (const [sceneId, kinds] of Object.entries(entry.media || {})) {
-    media[sceneId] = Object.fromEntries(Object.entries(kinds).map(([kind, m]) => [kind, { status: 'done', urls: m.urls?.length ? m.urls : [m.url] }]));
+    media[sceneId] = Object.fromEntries(Object.entries(kinds).map(([kind, m]) => [kind, { status: 'done', urls: m.urls?.length ? m.urls : [m.url], shots: m.shots }]));
   }
   state.runs = { [entry.platformId]: { status: 'done', raw: '', brief: null, plan: entry.plan, script: entry.script, historyId: entry.id, media, styleIds: entry.brief?.styleIds || [] } };
   state.active = entry.platformId;
+  setView('script');
   render();
 }
 
 function renderHistory() {
-  const list = state.history;
-  $('history').replaceChildren(
-    h('option', { value: '' }, list.length ? t('History ({n})', { n: list.length }) : t('History')),
-    ...list.map((e) => {
-      const when = new Date(e.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-      return h('option', { value: e.id }, `${platformOf(e.platformId)?.name || e.platformId} · ${(e.script.title || e.brief?.topic || '').slice(0, 28)} · ${when}`);
-    }),
+  const q = $('historySearch').value.trim().toLowerCase();
+  const list = state.history.filter((e) => !q || `${e.script.title} ${e.brief?.topic || ''} ${platformOf(e.platformId)?.name || ''}`.toLowerCase().includes(q));
+  $('historyCount').textContent = state.history.length;
+  $('historyCount').hidden = !state.history.length;
+  $('historyList').replaceChildren(
+    ...(list.length
+      ? list.map((e) => {
+          const when = new Date(e.ts).toLocaleString(lang === 'zh' ? 'zh-CN' : [], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+          const media = Object.values(e.media || {});
+          const images = media.reduce((n, m) => n + (m.image ? m.image.urls?.length || 1 : 0), 0);
+          const videos = media.filter((m) => m.video).length;
+          const thumb = media.find((m) => m.image)?.image.url;
+          return h(
+            'button',
+            { class: 'history-item', type: 'button', onclick: () => (openHistory(e), $('historyDialog').close()) },
+            thumb ? h('img', { class: 'history-thumb', src: thumb, alt: '', loading: 'lazy' }) : h('span', { class: 'history-thumb' }, icon('script', 16)),
+            h(
+              'span',
+              { class: 'history-main' },
+              h('span', { class: 'history-title' }, e.script.title || e.brief?.topic || t('Untitled script')),
+              h(
+                'span',
+                { class: 'history-sub' },
+                h('b', {}, platformOf(e.platformId)?.name || e.platformId),
+                h('span', {}, when),
+                h('span', {}, t('{n} scenes', { n: e.script.scenes.length })),
+                images > 0 && h('span', {}, t('{n} images', { n: images })),
+                videos > 0 && h('span', {}, t('{n} videos', { n: videos })),
+              ),
+            ),
+          );
+        })
+      : [h('p', { class: 'hint' }, state.history.length ? t('No script matches that search.') : t('Scripts you generate are saved here automatically.'))]),
   );
-  $('history').hidden = !list.length;
 }
 
 // ---------- Export ----------
@@ -349,11 +442,11 @@ const fileStem = (platformId, run) => `${platformId}-${(run.script.title || 'scr
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Returns the image URLs: as many as "Images per scene" asks for (fewer if some failed). */
+/** Returns { urls, shots }: as many images as "Images per scene" asks for (fewer if some failed), related as the chosen mode says. */
 async function makeImage(body) {
-  const r = await api('/api/media/image', { method: 'POST', body: { ...body, count: Number($('imageCount').value) || 1 } });
+  const r = await api('/api/media/image', { method: 'POST', body: { ...body, count: Number($('imageCount').value) || 1, mode: $('imageMode').value } });
   if (r.warning) toast(t('Made {n} of {total} images: {error}', { n: r.urls.length, total: r.requested, error: r.warning }));
-  return r.urls;
+  return r;
 }
 
 /** Start the job, then poll until the provider finishes and the server has saved the file. */
@@ -380,10 +473,11 @@ async function startMedia(run, sc, kind) {
   const body = { ...sc, historyId: run.historyId, sceneId: sc.id, styleIds: run.styleIds?.length ? run.styleIds : state.styleIds };
   paint();
   try {
-    m.urls = kind === 'image' ? await makeImage(body) : [await makeVideo(body, (p) => ((m.note = p ? ` ${Math.round(p)}%` : ''), paint()))];
+    if (kind === 'image') ({ urls: m.urls, shots: m.shots } = await makeImage(body));
+    else m.urls = [await makeVideo(body, (p) => ((m.note = p ? ` ${Math.round(p)}%` : ''), paint()))];
     m.status = 'done';
     const entry = state.history.find((e) => e.id === run.historyId);
-    if (entry) ((entry.media ??= {})[sc.id] ??= {})[kind] = { url: m.urls[0], urls: m.urls };
+    if (entry) ((entry.media ??= {})[sc.id] ??= {})[kind] = { url: m.urls[0], urls: m.urls, shots: m.shots };
   } catch (err) {
     m.status = 'error';
     m.error = err.message;
@@ -421,10 +515,11 @@ function sceneMedia(run, sc) {
           h(
             'div',
             { class: 'shots' },
-            m.urls.map((url) =>
+            m.urls.map((url, i) =>
               h(
                 'div',
                 { class: 'shot' },
+                shotLabel(m.shots?.[i]) && h('span', { class: 'shot-label' }, `${i + 1} · ${shotLabel(m.shots[i])}`),
                 kind === 'image' ? h('img', { src: url, alt: t('Generated image for scene {n}', { n: sc.id }), loading: 'lazy' }) : h('video', { src: url, controls: true, playsinline: true, preload: 'metadata' }),
                 h('a', { class: 'btn small', href: url, download: url.split('/').pop().split('?')[0] || `scene-${sc.id}`, target: '_blank', rel: 'noopener' }, t('Save')),
               ),
@@ -434,7 +529,7 @@ function sceneMedia(run, sc) {
         h(
           'div',
           { class: 'actions' },
-          g[kind].ready && h('button', { class: 'btn small', type: 'button', disabled: busy, onclick: () => startMedia(run, sc, kind) }, label),
+          g[kind].ready && iconBtn(busy ? 'refresh' : kind, label, { class: 'btn small', disabled: busy, onclick: () => startMedia(run, sc, kind) }),
         ),
       );
     });
@@ -467,11 +562,22 @@ async function downloadPackage(platformId, run, btn) {
 
 // ---------- Rendering ----------
 
+/** How far the model has got, read from the partial reply. */
+const scenesSoFar = (raw) => (raw.match(/"voiceover"\s*:/g) || []).length;
+
+function progressNote(run) {
+  if (!run.plan) return t('Contacting the model…');
+  const n = scenesSoFar(run.raw);
+  return n ? t('Writing scene {n}…', { n }) : t('Planning the hook and structure…');
+}
+
 function updateStream(run) {
   const pre = document.querySelector('.stream');
   if (!pre) return render();
   pre.textContent = run.raw;
   pre.scrollTop = pre.scrollHeight;
+  const title = document.querySelector('.progress-title');
+  if (title) title.textContent = progressNote(run);
 }
 
 function renderTabs() {
@@ -507,7 +613,7 @@ function renderScript(platformId, run) {
   const count = zh
     ? `${voText.replace(/[\s\p{P}]/gu, '').length} 字`
     : t('{n} words', { n: voText.split(/\s+/).filter(Boolean).length });
-  const metaLine = [platformOf(platformId).name, `${s.scenes.at(-1).end}s`, t('{n} scenes', { n: s.scenes.length }), t('voiceover {count}', { count }), run.plan && `${run.plan.model}`, styleNames(run.styleIds)].filter(Boolean).join(' · ');
+  const meta = [platformOf(platformId).name, `${s.scenes.at(-1).end}s`, t('{n} scenes', { n: s.scenes.length }), t('voiceover {count}', { count }), run.plan && `${run.plan.model}`, styleNames(run.styleIds)].filter(Boolean);
 
   return h(
     'div',
@@ -515,15 +621,15 @@ function renderScript(platformId, run) {
     h(
       'div',
       { class: 'script-head' },
-      h('div', {}, h('h2', {}, s.title), h('p', { class: 'logline' }, s.logline), h('p', { class: 'meta' }, metaLine)),
+      h('div', {}, h('h2', {}, s.title), h('p', { class: 'logline' }, s.logline), h('div', { class: 'meta' }, meta.map((m) => h('span', {}, m)))),
       h(
         'div',
         { class: 'actions' },
-        h('button', { class: 'btn', type: 'button', onclick: () => copy(toMarkdown(platformId, run), t('Script copied as Markdown')) }, t('Copy Markdown')),
-        h('button', { class: 'btn', type: 'button', onclick: () => download(`${fileStem(platformId, run)}.md`, toMarkdown(platformId, run), 'text/markdown') }, '.md'),
-        h('button', { class: 'btn', type: 'button', onclick: () => download(`${fileStem(platformId, run)}.json`, JSON.stringify({ platform: platformId, brief: run.brief, ...s }, null, 2), 'application/json') }, '.json'),
-        run.historyId && h('button', { class: 'btn', type: 'button', title: t('Script files plus every generated image and video'), onclick: (e) => downloadPackage(platformId, run, e.currentTarget) }, t('Download .zip')),
-        run.brief && h('button', { class: 'btn', type: 'button', onclick: () => generate([platformId]) }, t('Regenerate')),
+        run.historyId && iconBtn('package', t('Download .zip'), { class: 'btn primary', title: t('Script files plus every generated image and video'), onclick: (e) => downloadPackage(platformId, run, e.currentTarget) }),
+        iconBtn('copy', t('Copy Markdown'), { onclick: () => copy(toMarkdown(platformId, run), t('Script copied as Markdown')) }),
+        iconBtn('download', '.md', { onclick: () => download(`${fileStem(platformId, run)}.md`, toMarkdown(platformId, run), 'text/markdown') }),
+        iconBtn('download', '.json', { onclick: () => download(`${fileStem(platformId, run)}.json`, JSON.stringify({ platform: platformId, brief: run.brief, ...s }, null, 2), 'application/json') }),
+        run.brief && iconBtn('refresh', t('Regenerate'), { onclick: () => generate([platformId]) }),
       ),
     ),
 
@@ -601,14 +707,23 @@ function render() {
   if (run.status === 'running') {
     const note = run.plan ? t('Writing for {platform} with {model} · target about {budget} {unit} of voiceover', { platform: platformOf(state.active).name, model: run.plan.model, budget: run.plan.budget, unit: run.plan.unit }) : t('Contacting the model…');
     const pre = h('pre', { class: 'stream' }, run.raw);
-    box.replaceChildren(h('p', { class: 'stream-note' }, note), pre);
-    pre.scrollTop = pre.scrollHeight;
+    box.replaceChildren(
+      h(
+        'div',
+        { class: 'progress', role: 'status', 'aria-live': 'polite' },
+        h('div', { class: 'progress-head' }, h('span', { class: 'spin' }), h('p', { class: 'progress-title' }, progressNote(run))),
+        h('div', { class: 'progress-bar' }, h('i')),
+        h('p', { class: 'stream-note' }, note),
+        h('div', { class: 'skeleton', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')),
+        h('details', { class: 'raw' }, h('summary', {}, t('Show the raw reply')), pre),
+      ),
+    );
     return;
   }
   box.replaceChildren(
     h('p', { class: 'error', role: 'alert' }, run.error),
-    h('div', { class: 'actions', style: 'margin:12px 0' }, h('button', { class: 'btn', type: 'button', onclick: () => generate([state.active]) }, t('Try again')), h('button', { class: 'btn', type: 'button', onclick: openSettings }, t('LLM settings'))),
-    run.raw && h('pre', { class: 'stream' }, run.raw),
+    h('div', { class: 'actions', style: 'margin:14px 0' }, iconBtn('refresh', t('Try again'), { class: 'btn primary', onclick: () => generate([state.active]) }), iconBtn('settings', t('LLM settings'), { onclick: openSettings }), iconBtn('edit', t('Edit the brief'), { class: 'btn mobile-only', onclick: () => setView('brief') })),
+    run.raw && h('details', { class: 'raw' }, h('summary', {}, t('Show the raw reply')), h('pre', { class: 'stream' }, run.raw)),
   );
 }
 
@@ -636,6 +751,7 @@ function renderGateway() {
     ),
   );
   $('llm').value = `${g.id}::${g.model}`;
+  $('demoBanner').hidden = !mock;
   if (state.runs[state.active]?.status === 'done') render(); // scene image / video buttons follow the gateway in use
 }
 
@@ -948,8 +1064,10 @@ function wireTheme() {
   const root = document.documentElement;
   const isDark = () => (root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches);
   const label = () => {
-    $('themeToggle').textContent = isDark() ? t('☀ Light') : t('☾ Dark');
-    $('themeToggle').setAttribute('aria-label', t(isDark() ? 'Switch to light mode' : 'Switch to dark mode'));
+    const text = t(isDark() ? 'Switch to light mode' : 'Switch to dark mode');
+    $('themeToggle').replaceChildren(icon(isDark() ? 'sun' : 'moon'));
+    $('themeToggle').setAttribute('aria-label', text);
+    $('themeToggle').title = text;
   };
   $('themeToggle').addEventListener('click', () => {
     root.dataset.theme = isDark() ? 'light' : 'dark';
@@ -966,6 +1084,8 @@ function wireTheme() {
 
 async function boot() {
   applyI18n();
+  hydrateIcons();
+  wireShell();
   [state.meta, state.gateway] = await Promise.all([api('/api/meta'), api('/api/gateway/config')]);
   buildForm();
   wireSettings();
@@ -988,11 +1108,27 @@ async function boot() {
   });
   $('briefForm').addEventListener('change', saveForm);
   $('stop').addEventListener('click', () => Object.values(state.runs).forEach((r) => r.status === 'running' && r.abort.abort()));
-  $('history').addEventListener('change', (e) => {
-    const entry = state.history.find((x) => x.id === e.target.value);
-    e.target.value = '';
-    if (entry) openHistory(entry);
-  });
+}
+
+/** Navigation, the history drawer, and dialog behaviour shared by both dialogs. */
+function wireShell() {
+  const showHistory = () => (($('historySearch').value = ''), renderHistory(), $('historyDialog').showModal());
+  $('openHistory').addEventListener('click', showHistory);
+  $('closeHistory').addEventListener('click', () => $('historyDialog').close());
+  $('historySearch').addEventListener('input', renderHistory);
+  $('closeSettingsX').addEventListener('click', () => $('settings').close());
+  $('demoConnect').addEventListener('click', () => openSettings());
+  $('emptyToBrief').addEventListener('click', () => setView('brief'));
+  for (const b of document.querySelectorAll('.nav-btn')) {
+    b.addEventListener('click', () => {
+      if (b.dataset.nav === 'history') showHistory();
+      else if (b.dataset.nav === 'settings') openSettings();
+      else setView(b.dataset.nav);
+    });
+  }
+  // A click on the dimmed area around a dialog closes it.
+  for (const d of document.querySelectorAll('dialog')) d.addEventListener('click', (e) => e.target === d && d.close());
+  setView('brief');
 }
 
 boot().catch((err) => {

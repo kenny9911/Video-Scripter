@@ -212,16 +212,21 @@ export function parseScript(raw) {
   };
 }
 
-/** Turn a scene's visual and camera notes into a prompt for an image or video model. */
-export function buildVisualPrompt(scene = {}, kind = 'image', styleIds = scene.styleIds) {
+/**
+ * Turn a scene's visual and camera notes into a prompt for an image or video model.
+ * `shot` (from planShots) places the image within a multi-image set: a moment, a framing, a cutaway or a style.
+ */
+export function buildVisualPrompt(scene = {}, kind = 'image', styleIds = scene.styleIds, shot = null) {
   const visual = clean(scene.visual, 1500);
   if (!visual) throw new Error('This scene has no visual description to generate from');
   const camera = clean(scene.camera, 400);
   return [
     kind === 'video' ? 'Vertical 9:16 shot for a short social video.' : 'Vertical 9:16 still frame from a short social video.',
     visual,
-    camera && `Camera: ${camera}`,
-    styleLook(pickStyles(styleIds)),
+    !shot?.replaceCamera && camera && `Camera: ${camera}`,
+    shot?.directive,
+    styleLook(pickStyles(shot?.styleIds || styleIds)),
+    shot?.set,
     'No captions, subtitles, watermarks or logos.',
   ]
     .filter(Boolean)

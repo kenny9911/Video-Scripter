@@ -10,6 +10,7 @@ import { PLATFORMS } from './src/platforms.mjs';
 import { FRAMEWORKS } from './src/frameworks.mjs';
 import { PROVIDERS } from './src/gateway/providers.mjs';
 import { STYLES, STYLE_GROUPS, MAX_STYLES } from './src/styles.mjs';
+import { IMAGE_MODES, SHOT_LABELS, MAX_IMAGES, planShots } from './src/shots.mjs';
 import { randomUUID } from 'node:crypto';
 import { loadConfig, loadStore, saveStore, mergeConfig, publicStore, validateConfig, enabledModels, mediaTarget } from './src/gateway/config.mjs';
 import { streamChat, completeChat, listModels, request } from './src/gateway/client.mjs';
@@ -89,6 +90,9 @@ const routes = {
       styleGroups: STYLE_GROUPS,
       styles: STYLES.map(({ id, group, name, blurb }) => ({ id, group, name, blurb })),
       maxStyles: MAX_STYLES,
+      imageModes: IMAGE_MODES,
+      shotLabels: SHOT_LABELS,
+      maxImages: MAX_IMAGES,
     });
   },
 
@@ -203,23 +207,25 @@ const routes = {
   // then written to data/media and linked from the history entry `historyId`.
   'POST /api/media/image': async (req, res) => {
     const scene = await readJson(req);
-    const prompt = buildVisualPrompt(scene, 'image');
     const config = await loadConfig();
-    // `count` (1-3) asks for that many alternatives. Each is its own request, since many image models only return one.
-    const count = Math.min(3, Math.max(1, Math.round(Number(scene.count)) || 1));
+    // `count` (1-3) images, related to each other as `mode` says (see src/shots.mjs). Each image is its own
+    // request, since many image models only return one, and each shot has its own prompt.
+    const shots = planShots(scene.mode, scene.count, scene.styleIds);
+    const prompts = shots.map((shot) => buildVisualPrompt(scene, 'image', scene.styleIds, shot)); // throws on a scene with no visual
     const demo = mediaTarget(config, 'image').demo;
     const results = await Promise.allSettled(
-      Array.from({ length: count }, async () => {
+      prompts.map(async (prompt) => {
         const made = await generateImage(config, { prompt, signal: AbortSignal.timeout(180_000) });
         return keep(scene, 'image', made.url, demo, false);
       }),
     );
-    const done = results.filter((r) => r.status === 'fulfilled' && r.value.url).map((r) => r.value);
+    const done = results.map((r, i) => (r.status === 'fulfilled' && r.value.url ? { ...r.value, shot: shots[i].id } : null)).filter(Boolean);
     if (!done.length) throw results.find((r) => r.status === 'rejected')?.reason || new Error('The provider returned no image');
     const urls = done.map((d) => d.url);
-    if (done.every((d) => d.saved)) await linkMedia({ historyId: scene.historyId, sceneId: scene.sceneId, kind: 'image', urls });
+    const labels = done.map((d) => d.shot);
+    if (done.every((d) => d.saved)) await linkMedia({ historyId: scene.historyId, sceneId: scene.sceneId, kind: 'image', urls, shots: labels });
     const failed = results.find((r) => r.status === 'rejected');
-    json(res, 200, { url: urls[0], urls, requested: count, ...(failed && { warning: failed.reason.message }) });
+    json(res, 200, { url: urls[0], urls, shots: labels, requested: shots.length, ...(failed && { warning: failed.reason.message }) });
   },
 
   // Videos take minutes: this starts the job and the page polls /status, which saves the file once it is ready.

@@ -91,6 +91,15 @@ test('gateways can be saved, edited, selected and deleted', async (t) => {
     [1, 2, 3].map((n) => `scene-01_00m00s-00m04s_${n}.svg`),
   );
 
+  // A mode gives each image of the set its own role, shown in the file name.
+  r = await call('POST', '/api/media/image', { ...script.scenes[0], historyId: second.id, sceneId: 1, count: 2, mode: 'sequence' });
+  assert.deepEqual([r.body.urls.length, r.body.shots], [2, ['start', 'end']]);
+  await writeFile(multi, Buffer.from(await (await fetch(`${base}/api/history/package`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: second.id }) })).arrayBuffer()));
+  assert.deepEqual(
+    execFileSync('unzip', ['-Z1', multi], { encoding: 'utf8' }).trim().split('\n').filter((f) => f.includes('/images/')).map((f) => f.split('/').pop()),
+    ['scene-01_00m00s-00m04s_1-start.svg', 'scene-01_00m00s-00m04s_2-end.svg'],
+  );
+
   // The package: one zip, named by date, platform and title, with script files and the scene's image.
   const day = new Date(1000); // the entry's timestamp, in local time
   const root = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}_tiktok_T`;

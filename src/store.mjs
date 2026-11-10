@@ -86,11 +86,11 @@ export async function saveMedia({ historyId, sceneId, kind, source, demo = false
 }
 
 /** Point a scene of a history entry at its current media: `url` is the first file, `urls` all of them (up to 3 images). */
-export async function linkMedia({ historyId, sceneId, kind, urls }) {
+export async function linkMedia({ historyId, sceneId, kind, urls, shots }) {
   if (!historyId || !urls.length) return;
   await update((list) => {
     const entry = list.find((e) => e.id === historyId);
-    if (entry) ((entry.media ??= {})[sceneId] ??= {})[kind] = { url: urls[0], urls, ts: Date.now() };
+    if (entry) ((entry.media ??= {})[sceneId] ??= {})[kind] = { url: urls[0], urls, ...(shots?.some(Boolean) && { shots }), ts: Date.now() };
   });
 }
 
