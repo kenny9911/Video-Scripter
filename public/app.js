@@ -216,23 +216,32 @@ function saveForm() {
   } catch {}
 }
 
+/**
+ * Put a brief back into the form. `data` has the shape saveForm writes. Images per scene is left alone
+ * when `data` does not carry it (a script from the history records its brief, not the image settings).
+ */
+function fillForm(data) {
+  FIELDS.forEach((f) => ($(f).value = data[f] || ''));
+  if (Array.isArray(data.platforms)) document.querySelectorAll('input[name="platform"]').forEach((i) => (i.checked = data.platforms.includes(i.value)));
+  if (state.meta.frameworks.some((f) => f.id === data.framework)) $('framework').value = data.framework;
+  $('ttsReady').checked = Boolean(data.ttsReady);
+  // autoImages is not restored from a saved brief: it is remembered on the user's account (see buildForm).
+  if ('imageCount' in data) $('imageCount').value = ['2', '3'].includes(String(data.imageCount)) ? String(data.imageCount) : '1';
+  setStyles(Array.isArray(data.styles) ? data.styles : []);
+  if (state.meta.imageModes.some((m) => m.id === data.imageMode)) $('imageMode').value = data.imageMode;
+  refreshImageMode();
+  refreshDurations();
+  const duration = String(data.duration || '');
+  $('duration').value = [...$('duration').options].some((o) => o.value === duration) ? duration : ''; // a length the platform no longer offers -> Auto
+  refreshBlurb();
+}
+
 function restoreForm() {
   let data;
   try {
     data = JSON.parse(localStorage.getItem(FORM_KEY) || 'null');
   } catch {}
-  if (!data) return;
-  FIELDS.forEach((f) => ($(f).value = data[f] || ''));
-  if (Array.isArray(data.platforms)) document.querySelectorAll('input[name="platform"]').forEach((i) => (i.checked = data.platforms.includes(i.value)));
-  if (data.framework) $('framework').value = data.framework;
-  $('ttsReady').checked = Boolean(data.ttsReady);
-  // autoImages is not restored from this browser's saved brief: it is remembered on the user's account (see buildForm).
-  $('imageCount').value = ['2', '3'].includes(String(data.imageCount)) ? String(data.imageCount) : '1';
-  setStyles(Array.isArray(data.styles) ? data.styles : []);
-  if (state.meta.imageModes.some((m) => m.id === data.imageMode)) $('imageMode').value = data.imageMode;
-  refreshImageMode();
-  refreshDurations();
-  $('duration').value = data.duration || '';
+  if (data) fillForm(data);
 }
 
 function buildForm() {
@@ -366,12 +375,24 @@ async function loadHistory() {
   renderHistory();
 }
 
+/**
+ * Show a saved script and put the brief it was written from back into the form, so it can be edited and
+ * generated again. Generating always saves a new history entry: the one opened here is never changed.
+ */
 function openHistory(entry) {
   const media = {};
   for (const [sceneId, kinds] of Object.entries(entry.media || {})) {
     media[sceneId] = Object.fromEntries(Object.entries(kinds).map(([kind, m]) => [kind, { status: 'done', urls: m.urls?.length ? m.urls : [m.url], shots: m.shots }]));
   }
-  state.runs = { [entry.platformId]: { status: 'done', raw: '', brief: null, plan: entry.plan, script: entry.script, historyId: entry.id, media, styleIds: entry.brief?.styleIds || [] } };
+  const brief = entry.brief?.topic ? entry.brief : null; // an imported script may have no brief
+  if (brief) {
+    fillForm({ ...brief, platforms: [entry.platformId], framework: brief.frameworkId, styles: brief.styleIds });
+    $('formError').hidden = true;
+    saveForm();
+    toast(t('Brief restored from this script'));
+  }
+  state.runs = { [entry.platformId]: { status: 'done', raw: '', brief, plan: entry.plan, script: entry.script, historyId: entry.id, media, styleIds: entry.brief?.styleIds || [] } };
+  state.teleprompter = {};
   state.active = entry.platformId;
   setView('script');
   render();
@@ -662,7 +683,7 @@ function renderScript(platformId, run) {
         iconBtn('copy', t('Copy Markdown'), { onclick: () => copy(toMarkdown(platformId, run), t('Script copied as Markdown')) }),
         iconBtn('download', '.md', { onclick: () => download(`${fileStem(platformId, run)}.md`, toMarkdown(platformId, run), 'text/markdown') }),
         iconBtn('download', '.json', { onclick: () => download(`${fileStem(platformId, run)}.json`, JSON.stringify({ platform: platformId, brief: run.brief, ...s }, null, 2), 'application/json') }),
-        run.brief && iconBtn('refresh', t('Regenerate'), { onclick: () => generate([platformId]) }),
+        run.brief && iconBtn('refresh', t('Regenerate'), { title: t('Writes a new script from the brief. This one stays in History.'), onclick: () => generate([platformId]) }),
       ),
     ),
 

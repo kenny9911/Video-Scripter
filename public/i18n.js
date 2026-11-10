@@ -307,6 +307,8 @@ const ZH = {
   'Copy Markdown': '复制 Markdown',
   'Script copied as Markdown': '已复制为 Markdown',
   Regenerate: '重新生成',
+  'Writes a new script from the brief. This one stays in History.': '按当前简报重新写一份新脚本，这一份仍保留在历史记录中。',
+  'Brief restored from this script': '已恢复这份脚本的简报',
   'Download .zip': '下载 .zip',
   'Script files plus every generated image and video': '脚本文件，以及所有已生成的图片和视频',
   'Downloaded {name}': '已下载 {name}',

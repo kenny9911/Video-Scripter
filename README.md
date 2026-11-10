@@ -221,7 +221,7 @@ Everything is stored on the server, per user. Where it lives depends on how the 
 | Scripts, users, sessions, usage, activity, gateways | `data/<name>.json` | Postgres table `vs_docs` |
 | Generated images and videos | `data/media/` | Postgres table `vs_blobs` |
 
-Reopening a script from History shows its media again. Redoing an image or video keeps the earlier file and shows the newest. If a provider returns a link instead of a file, the file is downloaded and stored too. Media is private: only its owner and administrators can open it.
+Reopening a script from History shows its media again and puts the brief it was written from back into the form (topic, platform, structure, length, style and details), so you can adjust it and generate again. Generating always saves a new script with its own package; the one you opened is left as it was. Redoing an image or video keeps the earlier file and shows the newest. If a provider returns a link instead of a file, the file is downloaded and stored too. Media is private: only its owner and administrators can open it.
 
 To back up a local install or move it to another machine, copy the `data/` folder.
 
