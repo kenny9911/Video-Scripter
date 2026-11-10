@@ -4,12 +4,33 @@
 
 const KEY = 'video-scripter.lang';
 
+const SUPPORTED = ['en', 'zh'];
+
+/**
+ * Pick the interface language from the browser's ordered preference list: the first entry
+ * we have a translation for wins, so ['fr-FR', 'zh-CN', 'en'] gives 'zh'. English otherwise.
+ */
+export function detectLang(preferred = []) {
+  for (const tag of preferred) {
+    const code = String(tag || '').trim().toLowerCase().split(/[-_]/)[0];
+    if (SUPPORTED.includes(code)) return code;
+  }
+  return 'en';
+}
+
+function browserLanguages() {
+  if (typeof navigator === 'undefined') return [];
+  return navigator.languages?.length ? navigator.languages : [navigator.language];
+}
+
+// A language picked with the toggle is remembered; until then every page, starting with
+// log in / sign up, follows the browser.
 function initial() {
   try {
     const saved = localStorage.getItem(KEY);
-    if (saved === 'zh' || saved === 'en') return saved;
+    if (SUPPORTED.includes(saved)) return saved;
   } catch {}
-  return (navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+  return detectLang(browserLanguages());
 }
 
 export const lang = initial();
@@ -139,6 +160,7 @@ const ZH = {
   'Added a gateway': '添加了网关',
   'Changed a gateway': '修改了网关',
   'Deleted a gateway': '删除了网关',
+  'Switched the gateway in use': '切换了使用中的网关',
   'Updated a user': '更新了用户',
   '{made} of {requested} images': '{requested} 张中生成了 {made} 张',
   disabled: '已停用',
@@ -158,6 +180,75 @@ const ZH = {
   'Generating video…': '正在生成视频…',
   'Generating images and video…': '正在生成图片和视频…',
   'Generating image…': '正在生成图片…',
+
+  // Admin page, profile, passwords
+  'Show password': '显示密码',
+  'Hide password': '隐藏密码',
+  Administration: '管理后台',
+  'Back to the app': '返回应用',
+  'Manage users': '管理用户',
+  'Create accounts, change roles, reset passwords, and see what each person has used.': '创建账号、调整角色、重置密码，并查看每个人的用量。',
+  'New user': '新建用户',
+  'Search by name or email': '按姓名或邮箱搜索',
+  'All roles': '全部角色',
+  Administrators: '管理员',
+  Members: '成员',
+  'Any status': '全部状态',
+  'Administrators only': '仅限管理员',
+  'This page is for administrators. Ask one to give you access, or go back to the app.': '此页面仅供管理员使用。请联系管理员开通权限，或返回应用。',
+  Generate: '生成',
+  'At least 8 characters. Send it to the person yourself; it is not emailed.': '至少 8 个字符。请自行把密码发给对方，系统不会发送邮件。',
+  Cancel: '取消',
+  'Create user': '创建用户',
+  'Signed in now': '当前在线',
+  Manage: '管理',
+  'No user matches those filters.': '没有符合筛选条件的用户。',
+  'No users yet.': '还没有用户。',
+  'Disabled (cannot log in)': '已停用（无法登录）',
+  'This is your own account, so its role and status cannot be changed here.': '这是你自己的账号，不能在这里修改角色和状态。',
+  'Save changes': '保存修改',
+  'New password': '新密码',
+  'Current password': '当前密码',
+  'Change password': '修改密码',
+  'Password set. Send it to {name} yourself; they have been logged out everywhere.': '密码已设置。请自行发给 {name}；对方已在所有设备上退出登录。',
+  'Password changed. Your other devices have been logged out.': '密码已修改，其他设备已退出登录。',
+  'Set password': '设置密码',
+  '{n} active sessions': '{n} 个登录中的会话',
+  'Not signed in anywhere.': '目前没有在任何设备登录。',
+  'Logged out everywhere': '已在所有设备退出登录',
+  'Log out everywhere': '在所有设备退出登录',
+  'Delete their {n} scripts and all media': '删除其 {n} 份脚本和全部图片视频',
+  'Move their {n} scripts to my account': '把其 {n} 份脚本转到我的账号',
+  'You cannot delete your own account.': '不能删除自己的账号。',
+  'You cannot delete your own account': '不能删除自己的账号',
+  'Their work': '对方的内容',
+  'Usage and activity records are kept as the audit trail. This cannot be undone.': '用量和活动记录会保留作为审计记录。此操作无法撤销。',
+  'Delete the account {email}? This cannot be undone.': '确定删除账号 {email}？此操作无法撤销。',
+  'User deleted': '用户已删除',
+  'Delete user': '删除用户',
+  'Profile and access': '资料与权限',
+  'Reset password': '重置密码',
+  Sessions: '登录会话',
+  'Usage, all time': '累计用量',
+  'Recent activity': '最近活动',
+  'Delete account': '删除账号',
+  'Created {email}': '已创建 {email}',
+  Profile: '个人资料',
+  'Ask an administrator to change your email.': '如需修改邮箱，请联系管理员。',
+  'Changed their name': '修改了姓名',
+  'Changed their password': '修改了密码',
+  'Created a user': '创建了用户',
+  'Reset a user\'s password': '重置了用户密码',
+  'Logged a user out everywhere': '强制用户退出登录',
+  'Deleted a user': '删除了用户',
+  '{n} scripts moved to the administrator': '{n} 份脚本已转给管理员',
+  '{n} scripts deleted': '已删除 {n} 份脚本',
+  'was {email}': '原邮箱 {email}',
+  'Deleted user': '已删除的用户',
+  'The current password is wrong': '当前密码不正确',
+  'There must be at least one active administrator': '至少需要保留一位可用的管理员',
+  'You cannot change your own role or disable your own account': '不能修改自己的角色或停用自己的账号',
+  'That user no longer exists': '该用户已不存在',
 
   // Brief
   Brief: '创作需求',
@@ -261,7 +352,7 @@ const ZH = {
 
   // Gateway settings
   'LLM gateways': '模型网关',
-  'Save a gateway for each provider or account, then choose which one writes your scripts. Keys are stored on this machine in': '为每个服务商或账号保存一个网关，再选择用哪一个来写脚本。密钥保存在本机的',
+  'Save a gateway for each provider or account, then choose which one writes everyone’s scripts. Keys are stored on this machine in': '为每个服务商或账号保存一个网关，再选择所有人用哪一个来写脚本。密钥保存在本机的',
   'and are never sent back to the browser.': '中，绝不会回传到浏览器。',
   '+ New gateway': '+ 新建网关',
   'New gateway': '新建网关',
@@ -286,7 +377,7 @@ const ZH = {
   'Demo mode returns placeholder text so you can try the interface. Pick a provider to write real scripts.': '演示模式只返回占位文字，方便试用界面。选择一个服务商才能写出真实脚本。',
   'Leave the key blank to keep the saved one.': '密钥留空则继续使用已保存的密钥。',
   'Changing the provider or base URL clears the saved key, so a key is never sent to a different service.': '更改服务商或接口地址会清除已保存的密钥，避免密钥被发送到其他服务。',
-  'Use this gateway to write scripts': '用这个网关写脚本',
+  'Use this gateway for everyone’s scripts': '所有人都用这个网关写脚本',
   'Test connection': '测试连接',
   Delete: '删除',
   Close: '关闭',
@@ -299,7 +390,10 @@ const ZH = {
   '{n} models available. Tick the ones you want in the “Written by” picker and choose a default, then save.': '共 {n} 个可用模型。勾选要出现在「写作模型」选择器里的模型，选定默认模型，然后保存。',
   'Delete the saved gateway “{name}”? Its API key is removed from this machine.': '删除已保存的网关「{name}」？它的 API 密钥也会从本机移除。',
   'Gateway deleted': '网关已删除',
-  'Saved. This gateway is in use.': '已保存。当前正在使用这个网关。',
+  'Saved. Everyone now writes with this gateway.': '已保存。现在所有人都用这个网关写脚本。',
+  'Everyone now writes with {model}': '现在所有人都用 {model} 写脚本',
+  'Everyone writes with the model you choose here': '这里选的模型对所有人生效',
+  'Chosen by your administrator': '由管理员统一设置',
   'Saved.': '已保存。',
 
   // Images and videos settings

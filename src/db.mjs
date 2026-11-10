@@ -7,7 +7,7 @@
 // A serverless host such as Vercel has no durable disk, so without DATABASE_URL the file backend
 // falls back to a temporary folder there and `storage.durable` is false: the app says so to admins.
 
-import { mkdir, readFile, writeFile, rename, stat } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename, stat, readdir, unlink } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -94,6 +94,12 @@ function fileDb() {
         return null;
       }
     },
+    async delBlobs(prefix) {
+      const dir = path.join(DATA_DIR, 'media');
+      const names = (await readdir(dir).catch(() => [])).filter((n) => n.startsWith(prefix));
+      await Promise.all(names.map((n) => unlink(path.join(dir, n)).catch(() => {})));
+      return names.length;
+    },
     close: async () => {},
   };
 }
@@ -158,6 +164,7 @@ async function postgresDb(url) {
       if (!r) return null;
       return { size: r.bytes.length, read: (start = 0, end = r.bytes.length - 1) => r.bytes.subarray(start, end + 1), bytes: async () => r.bytes };
     },
+    delBlobs: async (prefix) => (await q('DELETE FROM vs_blobs WHERE starts_with(name, $1)', [prefix])).rowCount,
     close: () => pool.end(),
   };
 }
@@ -182,5 +189,7 @@ export const db = {
   putBlob: call('putBlob'),
   /** { size, read(start, end), bytes() } or null. */
   getBlob: call('getBlob'),
+  /** Delete every blob whose name starts with `prefix`; returns how many. */
+  delBlobs: call('delBlobs'),
   close: async () => ready && (await ready).close(),
 };

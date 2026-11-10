@@ -1,9 +1,11 @@
-// Signed-out screen, and the Account dialog: usage, activity log and (for administrators) users.
+// Signed-out screen, and the Account dialog: usage, activity log and your own profile.
+// The helpers exported here are shared with the admin page (admin.js).
 
-import { t, lang, setLang } from './i18n.js';
+import { t, lang } from './i18n.js';
+import { wireLang, enhancePasswords } from './shell.js';
 
 const $ = (id) => document.getElementById(id);
-const el = (tag, attrs = {}, ...children) => {
+export const el = (tag, attrs = {}, ...children) => {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (v == null || v === false) continue;
@@ -14,10 +16,10 @@ const el = (tag, attrs = {}, ...children) => {
   for (const c of children.flat()) if (c != null && c !== false) node.append(c.nodeType ? c : document.createTextNode(String(c)));
   return node;
 };
-const fmt = (n) => Number(n || 0).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US');
-const when = (ts) => (ts ? new Date(ts).toLocaleString(lang === 'zh' ? 'zh-CN' : [], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
+export const fmt = (n) => Number(n || 0).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US');
+export const when = (ts) => (ts ? new Date(ts).toLocaleString(lang === 'zh' ? 'zh-CN' : [], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
 
-async function call(path, options = {}) {
+export async function call(path, options = {}) {
   const res = await fetch(path, { ...options, headers: options.body ? { 'content-type': 'application/json' } : undefined, body: options.body ? JSON.stringify(options.body) : undefined });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(t(data.error) || t('Request failed ({status})', { status: res.status }));
@@ -44,8 +46,8 @@ export function showAuth({ signupOpen }) {
   $('authClosed').hidden = signupOpen;
   $('authTabLogin').addEventListener('click', () => ((mode = 'login'), sync()));
   $('authTabSignup').addEventListener('click', () => ((mode = 'signup'), sync()));
-  $('authLang').textContent = lang === 'zh' ? 'English' : '中文';
-  $('authLang').addEventListener('click', () => setLang(lang === 'zh' ? 'en' : 'zh'));
+  wireLang($('authLang'));
+  enhancePasswords($('authScreen'));
   $('authForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const err = $('authError');
@@ -70,7 +72,7 @@ export function showAuth({ signupOpen }) {
 
 // ---------- Account dialog ----------
 
-const ACTIVITY = {
+export const ACTIVITY = {
   'auth.signup': 'Signed up',
   'auth.login': 'Logged in',
   'auth.login_failed': 'Failed log-in attempt',
@@ -84,16 +86,25 @@ const ACTIVITY = {
   'gateway.create': 'Added a gateway',
   'gateway.update': 'Changed a gateway',
   'gateway.delete': 'Deleted a gateway',
+  'gateway.select': 'Switched the gateway in use',
+  'auth.profile_update': 'Changed their name',
+  'auth.password_change': 'Changed their password',
+  'admin.user_create': 'Created a user',
   'admin.user_update': 'Updated a user',
+  'admin.user_password': "Reset a user's password",
+  'admin.user_logout': 'Logged a user out everywhere',
+  'admin.user_delete': 'Deleted a user',
 };
 const KIND = { script: 'Scripts', image: 'Images', video: 'Videos', test: 'Connection tests' };
 
-function activityDetail(a) {
+export function activityDetail(a) {
   const d = a.detail || {};
   return [
     d.title || d.topic,
     d.gateway,
     d.target && `${d.target}${d.disabled ? ` · ${t('disabled')}` : ''}${d.role ? ` · ${t(d.role === 'admin' ? 'Administrator' : 'Member')}` : ''}`,
+    d.scripts != null && t(d.kept ? '{n} scripts moved to the administrator' : '{n} scripts deleted', { n: d.scripts }),
+    d.was && t('was {email}', { email: d.was }),
     d.made != null && t('{made} of {requested} images', d),
     d.seconds && `${d.seconds}s`,
     d.model,
@@ -104,14 +115,14 @@ function activityDetail(a) {
     .join(' · ');
 }
 
-const table = (head, rows) =>
+export const table = (head, rows) =>
   el(
     'div',
     { class: 'table-wrap' },
     el('table', { class: 'table' }, el('thead', {}, el('tr', {}, head.map(([label, cls]) => el('th', { class: cls || '', scope: 'col' }, label)))), el('tbody', {}, rows.map((cells) => el('tr', {}, cells.map((c, i) => el('td', { class: head[i][1] || '' }, c)))))),
   );
-const block = (title, node) => el('section', {}, el('h3', { class: 'block-title' }, title), node);
-const empty = (text) => el('p', { class: 'hint' }, text);
+export const block = (title, node) => el('section', {}, el('h3', { class: 'block-title' }, title), node);
+export const empty = (text) => el('p', { class: 'hint' }, text);
 const numbers = (g) => [fmt(g.calls), fmt(g.inputTokens), fmt(g.outputTokens), fmt(g.images), fmt(g.videos)];
 const NUM_HEAD = () => [[t('Calls'), 'num'], [t('Tokens in'), 'num'], [t('Tokens out'), 'num'], [t('Images'), 'num'], [t('Videos'), 'num']];
 
@@ -125,7 +136,7 @@ function usageView(u, platformName) {
       [[T.calls, 'Model calls'], [T.inputTokens, 'Tokens in'], [T.outputTokens, 'Tokens out'], [T.images, 'Images'], [T.videos, 'Videos'], [T.failed, 'Failed calls']].map(([n, label]) => el('div', { class: 'stat' }, el('b', {}, fmt(n)), el('span', {}, t(label)))),
     ),
     T.estimated > 0 && empty(t('{n} of these calls had no token count from the provider, so their tokens are estimated from the text.', { n: fmt(T.estimated) })),
-    all && block(t('By user'), u.byUser.length ? table([[t('User'), 'wrap'], ...NUM_HEAD()], u.byUser.map((g) => [el('span', {}, g.name || '—', el('span', { class: 'sub' }, g.email)), ...numbers(g)])) : empty(t('No usage in this period.'))),
+    all && block(t('By user'), u.byUser.length ? table([[t('User'), 'wrap'], ...NUM_HEAD()], u.byUser.map((g) => [el('span', {}, g.name || t('Deleted user'), el('span', { class: 'sub' }, g.email)), ...numbers(g)])) : empty(t('No usage in this period.'))),
     block(
       t('By script'),
       u.byTask.length
@@ -150,7 +161,7 @@ function usageView(u, platformName) {
   ];
 }
 
-const activityView = (a) => [
+export const activityView = (a) => [
   a.items.length
     ? el(
         'div',
@@ -167,43 +178,60 @@ const activityView = (a) => [
     : empty(t('Nothing has happened yet.')),
 ];
 
-function usersView(data, me, reload) {
-  const change = async (u, patch) => {
-    try {
-      await call('/api/admin/users/update', { method: 'POST', body: { id: u.id, ...patch } });
-    } catch (err) {
-      alert(err.message);
-    }
-    reload();
-  };
-  return [
-    table(
-      [[t('User'), 'wrap'], [t('Role'), ''], [t('Status'), ''], [t('Joined'), ''], [t('Last log-in'), ''], [t('Scripts'), 'num'], [t('Model calls'), 'num'], [t('Tokens'), 'num'], [t('Images'), 'num'], ['', '']],
-      data.users.map((u) => {
-        const self = u.id === me.id;
-        const g = u.usage || {};
-        return [
-          el('span', {}, u.name, el('span', { class: 'sub' }, u.email)),
-          el('span', { class: `badge${u.role === 'admin' ? ' accent' : ''}` }, t(u.role === 'admin' ? 'Administrator' : 'Member')),
-          el('span', { class: `badge${u.disabled ? ' bad' : ''}` }, t(u.disabled ? 'Disabled' : 'Active')),
-          when(u.createdAt),
-          when(u.lastLoginAt),
-          fmt(u.scripts),
-          fmt(g.calls),
-          fmt((g.inputTokens || 0) + (g.outputTokens || 0)),
-          fmt(g.images),
-          self
-            ? el('span', { class: 'hint' }, t('You'))
-            : el(
-                'span',
-                { class: 'actions' },
-                el('button', { class: 'btn small', type: 'button', onclick: () => change(u, { role: u.role === 'admin' ? 'user' : 'admin' }) }, t(u.role === 'admin' ? 'Make member' : 'Make administrator')),
-                el('button', { class: `btn small${u.disabled ? '' : ' danger'}`, type: 'button', onclick: () => change(u, { disabled: !u.disabled }) }, t(u.disabled ? 'Enable' : 'Disable')),
-              ),
-        ];
-      }),
-    ),
-  ];
+/** A labelled input. */
+export const field = (label, input, hint) => el('label', { class: 'field' }, el('span', {}, label), input, hint && el('span', { class: 'hint' }, hint));
+/** A status line that a form writes its result into. */
+export function statusLine() {
+  const node = el('p', { class: 'status', role: 'status', hidden: true });
+  const say = (text, kind = '') => ((node.textContent = text), (node.className = `status ${kind}`), (node.hidden = !text));
+  return { node, ok: (text) => say(text, 'ok'), bad: (text) => say(text, 'bad'), clear: () => say('') };
+}
+
+/** Your own name and password. */
+function profileView(user, onRenamed) {
+  const name = el('input', { type: 'text', maxlength: 80, value: user.name, autocomplete: 'name' });
+  const nameStatus = statusLine();
+  const current = el('input', { type: 'password', autocomplete: 'current-password', required: true });
+  const next = el('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: 8 });
+  const pwStatus = statusLine();
+
+  const profile = el(
+    'form',
+    { class: 'form-stack', onsubmit: async (e) => {
+      e.preventDefault();
+      try {
+        const r = await call('/api/auth/profile', { method: 'POST', body: { name: name.value } });
+        onRenamed(r.user);
+        nameStatus.ok(t('Saved.'));
+      } catch (err) {
+        nameStatus.bad(err.message);
+      }
+    } },
+    field(t('Name'), name),
+    field(t('Email'), el('input', { type: 'email', value: user.email, disabled: true }), t('Ask an administrator to change your email.')),
+    nameStatus.node,
+    el('div', { class: 'actions' }, el('button', { class: 'btn primary', type: 'submit' }, t('Save'))),
+  );
+  const password = el(
+    'form',
+    { class: 'form-stack', onsubmit: async (e) => {
+      e.preventDefault();
+      if (next.value.length < 8) return pwStatus.bad(t('The password needs at least 8 characters'));
+      try {
+        await call('/api/auth/password', { method: 'POST', body: { current: current.value, password: next.value } });
+        current.value = next.value = '';
+        pwStatus.ok(t('Password changed. Your other devices have been logged out.'));
+      } catch (err) {
+        pwStatus.bad(err.message);
+      }
+    } },
+    field(t('Current password'), current),
+    field(t('New password'), next, t('At least 8 characters.')),
+    pwStatus.node,
+    el('div', { class: 'actions' }, el('button', { class: 'btn primary', type: 'submit' }, t('Change password'))),
+  );
+  enhancePasswords(password);
+  return [block(t('Profile'), profile), block(t('Change password'), password)];
 }
 
 /** Wire the Account dialog. Returns a function that opens it. */
@@ -216,20 +244,24 @@ export function wireAccount({ user, storage, platformName, openSettings }) {
     const panel = $('accountPanel');
     panel.replaceChildren(empty(t('Loading…')));
     $('accountDays').hidden = tab !== 'usage';
-    $('accountScope').hidden = tab === 'users';
+    $('accountScope').hidden = tab === 'profile';
     try {
       if (tab === 'usage') panel.replaceChildren(...usageView(await call(`/api/usage?scope=${scope()}&days=${$('accountDays').value}`), platformName).filter(Boolean));
       else if (tab === 'activity') panel.replaceChildren(...activityView(await call(`/api/activity?scope=${scope()}&limit=300`)));
-      else panel.replaceChildren(...usersView(await call('/api/admin/users'), user, load));
+      else panel.replaceChildren(...profileView(user, renamed));
     } catch (err) {
       panel.replaceChildren(el('p', { class: 'error', role: 'alert' }, err.message));
     }
   }
 
-  $('accountName').textContent = user.name;
-  $('accountFullName').textContent = user.name;
+  const renamed = (u) => {
+    Object.assign(user, { name: u.name });
+    $('accountName').textContent = user.name;
+    $('accountFullName').textContent = user.name;
+    $('accountAvatar').textContent = (user.name || user.email).trim()[0] || '?';
+  };
+  renamed(user);
   $('accountEmail').textContent = user.email;
-  $('accountAvatar').textContent = (user.name || user.email).trim()[0] || '?';
   $('accountRole').textContent = t(admin ? 'Administrator' : 'Member');
   $('accountRole').classList.toggle('accent', admin);
   $('storageWarning').hidden = !storage || storage.durable;

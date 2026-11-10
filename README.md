@@ -161,7 +161,7 @@ Under **LLM settings** you can save any number of gateways, one per provider or 
 
 ### Models
 
-**List available models** asks the provider which models your key can use. Tick the ones you want to offer and pick a default. The ticked models of every saved gateway appear in the **Written by** picker in the brief, so you can switch gateway and model per script without opening settings.
+**List available models** asks the provider which models your key can use. Tick the ones you want to offer and pick a default. The ticked models of every saved gateway appear in the **Written by** picker in the brief, so an administrator can switch gateway and model without opening settings. The choice applies to everyone.
 
 If a provider has no model list endpoint, type the model name instead.
 
@@ -179,12 +179,28 @@ Each gateway has an **Images and videos** section with a separate BASE_URL_API, 
 ### Accounts
 
 - **Sign up and log in** with an email and a password of at least 8 characters. Sessions last 30 days.
-- **Two roles.** A *member* writes scripts, generates media, and sees their own history, usage and activity. An *administrator* also manages LLM gateways (members never see addresses or keys, only the model picker), and sees and manages every user.
-- **The first administrator** comes from `ADMIN_EMAIL` and `ADMIN_PASSWORD`. Nobody becomes an administrator by signing up; an administrator can promote or disable other users under **Account → Users**.
-- **Each user picks their own model** in the brief. The administrator's "Use this gateway" sets the default for people who have not picked one.
+- **Two roles.** A *member* writes scripts, generates media, and sees their own history, usage and activity. An *administrator* also manages LLM gateways (members never see addresses or keys, only the name and model in use), and sees and manages every user.
+- **The first administrator** comes from `ADMIN_EMAIL` and `ADMIN_PASSWORD`. Nobody becomes an administrator by signing up; administrators manage everyone else on the [admin page](#admin-page).
+- **One gateway and model for everyone.** The administrator chooses it, in LLM settings or with the **Written by** picker in the brief; members see what is in use but cannot change it.
 - Set `ALLOW_SIGNUP=false` to close sign-up.
 
-Not included yet: email verification, password reset, and changing a password from the app.
+- **Your own profile.** Under **Account → Profile** anyone can change their display name and their password. Changing a password logs out their other devices.
+- **Show password.** Every password and API key field has an eye button that shows what was typed.
+
+Not included yet: email verification and self-service password reset by email. An administrator resets a forgotten password.
+
+### Admin page
+
+Administrators get a **Users** page (`/admin.html`, linked from the top bar and from Account). It lists every account with role, status, last log-in, scripts and usage, with search and filters. From there an administrator can:
+
+- **Create a user** with a role and a password (typed or generated). The password is shown once so it can be passed on; nothing is emailed.
+- **Edit** a user's name, email, role and status. A disabled user cannot log in and is logged out at once.
+- **Reset a password**, which logs that user out everywhere.
+- **Log a user out everywhere** without changing the password.
+- **See one user in full:** sessions, all-time usage and their latest activity.
+- **Delete a user**, either deleting their scripts and media or moving them to the administrator's own account. Usage and activity records are kept as the audit trail.
+
+An administrator cannot demote, disable or delete their own account, so there is always at least one.
 
 ### Usage
 
@@ -215,6 +231,7 @@ To back up a local install or move it to another machine, copy the `data/` folde
 
 ```
 script.md                              the full script, in the interface language
+script.html                            the same as a styled page that shows the images and clips; opens offline
 script.json                            brief, plan, script, and a list of the media files
 voiceover.txt                          spoken text only, one scene per paragraph
 images/scene-01_00m00s-00m04s.png      latest image per scene
@@ -309,7 +326,7 @@ src/audit.mjs           usage records (every model call) and the activity log
 src/store.mjs           saved scripts and generated media
 api/index.mjs           serverless entry point (Vercel); vercel.json routes requests to it
 src/package.mjs         the downloadable .zip for one script (src/zip.mjs writes the archive)
-public/                 the web UI
+public/                 the web UI (index.html is the app, admin.html the user administration page)
 test/                   node --test
 ```
 
@@ -349,7 +366,14 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `GET` | `/api/usage?scope=me\|all&days=30` | Usage totals, by script, by model, by user (administrators) and the latest calls |
 | `GET` | `/api/activity?scope=me\|all` | The activity log |
 | `GET` | `/api/admin/users` | Administrators: every user with their totals |
-| `POST` | `/api/admin/users/update` | Administrators: `{ id, role?, disabled? }` |
+| `GET` | `/api/admin/users/detail?id=` | Administrators: one user with sessions, usage and latest activity |
+| `POST` | `/api/admin/users/create` | Administrators: `{ email, password, name?, role? }` |
+| `POST` | `/api/admin/users/update` | Administrators: `{ id, name?, email?, role?, disabled? }` |
+| `POST` | `/api/admin/users/password` | Administrators: `{ id, password }` Sets a password and ends that user's sessions |
+| `POST` | `/api/admin/users/logout` | Administrators: `{ id }` Ends that user's sessions |
+| `POST` | `/api/admin/users/delete` | Administrators: `{ id, scripts?: "transfer" }` Deletes a user and their scripts, or moves the scripts |
+| `POST` | `/api/auth/profile` | `{ name }` Change your own name |
+| `POST` | `/api/auth/password` | `{ current, password }` Change your own password |
 | `GET` | `/api/meta` | Platforms, frameworks and provider presets |
 | `GET` | `/api/gateway/config` | Every saved gateway (keys masked) and the one in use |
 | `PUT` | `/api/gateway/config` | Administrators: create a gateway, or update the one with the given `id`. `activate: true` makes it the default |

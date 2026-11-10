@@ -4,6 +4,7 @@
 //   2026-11-10_douyin_为什么企业买了大模型.zip
 //   └─ 2026-11-10_douyin_为什么企业买了大模型/
 //      ├─ script.md                     full script, readable
+//      ├─ script.html                   the same as a styled page that shows the images and clips
 //      ├─ script.json                   brief, plan, script and a manifest of the media files
 //      ├─ voiceover.txt                 spoken text only, one scene per paragraph
 //      ├─ images/scene-01_00m00s-00m04s.png      (…_1.png, …_2-end.png when a scene has several)
@@ -11,6 +12,8 @@
 
 import { readMedia } from './store.mjs';
 import { zip } from './zip.mjs';
+import { scriptHtml } from './html.mjs';
+import { getPlatform } from './platforms.mjs';
 
 const pad = (n) => String(n).padStart(2, '0');
 const stamp = (s) => `${pad(Math.floor(s / 60))}m${pad(Math.round(s % 60))}s`;
@@ -34,7 +37,7 @@ const sceneFile = (sc, i, ext, n = '') => `scene-${pad(i + 1)}_${stamp(sc.start)
 const spoken = (s) => String(s || '').replace(/\[\[|\]\]/g, '').replace(/\s*⏸\s*/g, ' ').trim();
 
 /** Returns { name, buffer } for a history entry. `markdown` is the script as the page renders it. */
-export async function buildPackage(entry, { markdown } = {}) {
+export async function buildPackage(entry, { markdown, lang } = {}) {
   const root = packageName(entry);
   const files = [];
   const manifest = [];
@@ -59,6 +62,7 @@ export async function buildPackage(entry, { markdown } = {}) {
   const json = { platform: entry.platformId, created: new Date(entry.ts).toISOString(), brief: entry.brief, plan: entry.plan, ...entry.script, media: manifest };
   const text = [
     markdown && { name: 'script.md', data: String(markdown) },
+    { name: 'script.html', data: scriptHtml(entry, { media: manifest, platformName: getPlatform(entry.platformId)?.name, lang: lang === 'zh' ? 'zh' : 'en' }) },
     { name: 'script.json', data: JSON.stringify(json, null, 2) },
     { name: 'voiceover.txt', data: `${entry.script.scenes.map((sc) => spoken(sc.voiceover)).join('\n\n')}\n` },
   ].filter(Boolean);

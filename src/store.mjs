@@ -57,6 +57,26 @@ export async function linkMedia({ historyId, sceneId, kind, urls, shots }) {
   });
 }
 
+/** Remove a script and every file generated for it, including earlier versions of redone media. */
+export async function deleteHistory(id) {
+  await db.delBlobs(`${id}-s`);
+  await db.del('history', id);
+}
+
+/** Remove all of a user's scripts and media. Returns how many scripts went. */
+export async function deleteUserHistory(userId) {
+  const entries = await db.list('history', { userId });
+  for (const e of entries) await deleteHistory(e.id);
+  return entries.length;
+}
+
+/** Hand all of one user's scripts (and so their media) to another user. Returns how many moved. */
+export async function transferHistory(fromUserId, toUserId) {
+  const entries = await db.list('history', { userId: fromUserId });
+  for (const e of entries) await db.update('history', e.id, (x) => Object.assign(x, { userId: toUserId }));
+  return entries.length;
+}
+
 const validName = (name) => /^[\w-]+\.\w+$/.test(name) && TYPES[path.extname(name).slice(1)];
 
 /** The id of the script a stored file belongs to ('' for files made outside a saved script). */

@@ -133,3 +133,17 @@ test('multi-image modes plan a distinct shot for each image', async () => {
   const [a, , blend] = planShots('styles', 3, scene.styleIds).map((shot) => buildVisualPrompt(scene, 'image', scene.styleIds, shot));
   assert.ok(/Visual style: Chinese ink wash/.test(a) && !a.includes('clay') && /blend of two styles/.test(blend));
 });
+
+test('zip archives keep non-ASCII file names and plain file permissions when unpacked', async (t) => {
+  const { zip } = await import('../src/zip.mjs');
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtemp, writeFile, readFile, stat, rm } = await import('node:fs/promises');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'zip-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await writeFile(path.join(dir, 'a.zip'), zip([{ name: '脚本-落地的三个坑/script.md', data: '# 你好' }, { name: '脚本-落地的三个坑/images/scene-01.png', data: Buffer.from([1, 2, 3]), store: true }]));
+  execFileSync('unzip', ['-q', 'a.zip'], { cwd: dir, env: { ...process.env, LC_ALL: 'en_US.UTF-8' } });
+  assert.equal(await readFile(path.join(dir, '脚本-落地的三个坑', 'script.md'), 'utf8'), '# 你好');
+  assert.equal((await stat(path.join(dir, '脚本-落地的三个坑', 'images', 'scene-01.png'))).mode & 0o777, 0o644);
+});

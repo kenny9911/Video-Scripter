@@ -4,7 +4,9 @@
     {
       "name": "video-scripter",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["server.mjs"],
+      "runtimeArgs": [
+        "server.mjs"
+      ],
       "port": 3789
     }
   ]

@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Users · Video Scripter</title>
+  <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#18181b">
+  <script src="theme.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="admin-page" data-auth="pending">
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="Video Scripter">
+      <span class="logo" data-icon="logo" data-icon-size="16" aria-hidden="true"></span>
+      <div class="brand-text">
+        <h1>Video Scripter</h1>
+        <p class="tagline">Administration</p>
+      </div>
+    </a>
+    <div class="topbar-actions">
+      <a class="icon-btn labelled" href="./" data-icon="back"><span>Back to the app</span></a>
+      <button id="themeToggle" class="icon-btn" type="button"></button>
+      <button id="langToggle" class="icon-btn text" type="button" aria-label="Switch language / 切换语言"></button>
+      <button id="adminLogout" class="icon-btn labelled" type="button" data-icon="logout"><span>Log out</span></button>
+    </div>
+  </header>
+
+  <main class="admin">
+    <div class="admin-head">
+      <div>
+        <h2 class="page-title">Users</h2>
+        <p class="hint">Create accounts, change roles, reset passwords, and see what each person has used.</p>
+      </div>
+      <button id="newUser" class="btn primary" type="button" data-icon="plus"><span>New user</span></button>
+    </div>
+
+    <div id="userStats" class="stats" aria-live="polite"></div>
+
+    <div class="admin-tools">
+      <label class="search" data-icon="search">
+        <input id="userSearch" type="search" placeholder="Search by name or email" aria-label="Search by name or email">
+      </label>
+      <select id="userRole" class="compact" aria-label="Role">
+        <option value="">All roles</option>
+        <option value="admin">Administrators</option>
+        <option value="user">Members</option>
+      </select>
+      <select id="userStatus" class="compact" aria-label="Status">
+        <option value="">Any status</option>
+        <option value="active">Active</option>
+        <option value="disabled">Disabled</option>
+      </select>
+    </div>
+
+    <div id="userTable" aria-live="polite"></div>
+  </main>
+
+  <div id="adminDenied" class="denied" hidden>
+    <div class="auth-card">
+      <h1 class="auth-title">Administrators only</h1>
+      <p class="hint">This page is for administrators. Ask one to give you access, or go back to the app.</p>
+      <a class="btn primary" href="./">Back to the app</a>
+    </div>
+  </div>
+
+  <dialog id="userDialog" class="dialog wide" aria-labelledby="userDialogTitle">
+    <div class="dialog-shell">
+      <header class="dialog-head">
+        <h2 id="userDialogTitle">User</h2>
+        <button id="closeUser" class="icon-btn" type="button" aria-label="Close" data-icon="x"></button>
+      </header>
+      <div id="userDialogBody" class="dialog-body"></div>
+    </div>
+  </dialog>
+
+  <dialog id="newUserDialog" class="dialog" aria-labelledby="newUserTitle">
+    <form id="newUserForm" novalidate autocomplete="off">
+      <header class="dialog-head">
+        <h2 id="newUserTitle">New user</h2>
+        <button id="closeNewUser" class="icon-btn" type="button" aria-label="Close" data-icon="x"></button>
+      </header>
+      <div class="dialog-body">
+        <label class="field">
+          <span>Name</span>
+          <input id="newName" type="text" maxlength="80" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Email</span>
+          <input id="newEmail" type="email" inputmode="email" autocomplete="off" required>
+        </label>
+        <div class="field">
+          <span>Password</span>
+          <div class="inline">
+            <input id="newPassword" type="password" autocomplete="new-password" required minlength="8" aria-label="Password">
+            <button id="newGenerate" class="btn" type="button">Generate</button>
+          </div>
+          <span class="hint">At least 8 characters. Send it to the person yourself; it is not emailed.</span>
+        </div>
+        <label class="field">
+          <span>Role</span>
+          <select id="newRole">
+            <option value="user">Member</option>
+            <option value="admin">Administrator</option>
+          </select>
+        </label>
+        <p id="newUserStatus" class="status bad" role="alert" hidden></p>
+      </div>
+      <footer class="dialog-foot">
+        <div class="dialog-actions">
+          <span class="spacer"></span>
+          <button id="cancelNewUser" class="btn" type="button">Cancel</button>
+          <button class="btn primary" type="submit">Create user</button>
+        </div>
+      </footer>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script type="module" src="admin.js"></script>
+</body>
+</html>

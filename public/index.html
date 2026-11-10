@@ -65,6 +65,7 @@
       </button>
       <button id="openHistory" class="icon-btn labelled desktop-only" type="button" data-icon="clock"><span>History</span><span id="historyCount" class="count" hidden></span></button>
       <button id="openSettings" class="icon-btn labelled desktop-only admin-only" type="button" data-icon="settings"><span>LLM settings</span></button>
+      <a class="icon-btn labelled desktop-only admin-only" href="admin.html" data-icon="users"><span>Users</span></a>
       <button id="openAccount" class="icon-btn labelled desktop-only" type="button" data-icon="user"><span id="accountName"></span></button>
       <button id="themeToggle" class="icon-btn" type="button"></button>
       <button id="langToggle" class="icon-btn text" type="button" aria-label="Switch language / 切换语言"></button>
@@ -252,6 +253,7 @@
           </div>
           <span id="accountRole" class="badge"></span>
           <span class="spacer"></span>
+          <a class="btn admin-only" href="admin.html" data-icon="users"><span>Manage users</span></a>
           <button id="accountSettings" class="btn admin-only" type="button" data-icon="settings"><span>LLM settings</span></button>
           <button id="logout" class="btn" type="button" data-icon="logout"><span>Log out</span></button>
         </div>
@@ -260,7 +262,7 @@
           <div id="accountTabs" class="seg" role="tablist" aria-label="Account sections">
             <button class="seg-btn" type="button" role="tab" data-tab="usage" aria-selected="true">Usage</button>
             <button class="seg-btn" type="button" role="tab" data-tab="activity" aria-selected="false">Activity</button>
-            <button class="seg-btn admin-only" type="button" role="tab" data-tab="users" aria-selected="false">Users</button>
+            <button class="seg-btn" type="button" role="tab" data-tab="profile" aria-selected="false">Profile</button>
           </div>
           <span class="spacer"></span>
           <select id="accountScope" class="compact admin-only" aria-label="Whose records">
@@ -286,7 +288,7 @@
         <button id="closeSettingsX" class="icon-btn" type="button" aria-label="Close" data-icon="x"></button>
       </header>
       <div class="dialog-body">
-      <p class="hint">Save a gateway for each provider or account, then choose which one writes your scripts. Keys are stored on this machine in <code>data/gateway.json</code> and are never sent back to the browser.</p>
+      <p class="hint">Save a gateway for each provider or account, then choose which one writes everyone’s scripts. Keys are stored on this machine in <code>data/gateway.json</code> and are never sent back to the browser.</p>
 
       <div class="gw-layout">
         <aside class="gw-side">
@@ -391,7 +393,7 @@
 
           <label class="check">
             <input id="useGateway" type="checkbox">
-            <span>Use this gateway to write scripts</span>
+            <span>Use this gateway for everyone’s scripts</span>
           </label>
 
         </div>

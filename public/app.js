@@ -1,8 +1,9 @@
 // Video Scripter front end. Plain ES modules, no build step.
 
-import { t, lang, setLang, applyI18n } from './i18n.js';
+import { t, lang, applyI18n } from './i18n.js';
 import { icon, hydrateIcons } from './icons.js';
 import { showAuth, wireAccount } from './account.js';
+import { wireTheme, wireLang, enhancePasswords } from './shell.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -571,7 +572,7 @@ async function downloadPackage(platformId, run, btn) {
     const res = await fetch('/api/history/package', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: run.historyId, markdown: toMarkdown(platformId, run) }),
+      body: JSON.stringify({ id: run.historyId, markdown: toMarkdown(platformId, run), lang }),
     });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || t('Request failed ({status})', { status: res.status }));
     const name = decodeURIComponent(/filename\*=UTF-8''([^;]+)/.exec(res.headers.get('content-disposition') || '')?.[1] || 'package.zip');
@@ -776,6 +777,11 @@ function renderGateway() {
     ),
   );
   $('llm').value = `${g.id}::${g.model}`;
+  // One gateway and model for everyone: only an administrator can switch it.
+  const admin = state.user.role === 'admin';
+  $('llm').disabled = !admin;
+  $('llm').title = admin ? t('Everyone writes with the model you choose here') : t('Chosen by your administrator');
+  $('gatewayChip').title = admin ? t('LLM gateway settings') : t('Chosen by your administrator');
   $('demoBanner').hidden = !mock;
   if (state.runs[state.active]?.status === 'done') render(); // scene image / video buttons follow the gateway in use
 }
@@ -784,6 +790,7 @@ async function chooseLlm(value) {
   const cut = value.indexOf('::');
   try {
     state.gateway = await api('/api/gateway/select', { method: 'POST', body: { id: value.slice(0, cut), model: value.slice(cut + 2) } });
+    toast(t('Everyone now writes with {model}', { model: activeGw().model || activeGw().name }));
   } catch (err) {
     toast(err.message);
   }
@@ -1019,7 +1026,7 @@ function wireSettings() {
     $(`${kind}Model`).addEventListener('input', () => renderMediaModels(kind));
   }
   $('openSettings').addEventListener('click', openSettings);
-  $('gatewayChip').addEventListener('click', () => (state.user.role === 'admin' ? openSettings() : $('llm').focus()));
+  $('gatewayChip').addEventListener('click', () => (state.user.role === 'admin' ? openSettings() : toast(t('Chosen by your administrator'))));
   $('cancelSettings').addEventListener('click', () => $('settings').close());
   $('newProfile').addEventListener('click', () => editProfile(null));
   $('llm').addEventListener('change', (e) => chooseLlm(e.target.value));
@@ -1075,34 +1082,11 @@ function wireSettings() {
       state.gateway = store;
       renderGateway();
       editProfile(savedId);
-      setSettingsStatus(savedId === store.activeId ? t('Saved. This gateway is in use.') : t('Saved.'), 'ok');
+      setSettingsStatus(savedId === store.activeId ? t('Saved. Everyone now writes with this gateway.') : t('Saved.'), 'ok');
     } catch (err) {
       setSettingsStatus(err.message, 'bad');
     }
   });
-}
-
-// ---------- Theme ----------
-// theme.js applies the saved choice before first paint; this only wires the toggle.
-
-function wireTheme() {
-  const root = document.documentElement;
-  const isDark = () => (root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches);
-  const label = () => {
-    const text = t(isDark() ? 'Switch to light mode' : 'Switch to dark mode');
-    $('themeToggle').replaceChildren(icon(isDark() ? 'sun' : 'moon'));
-    $('themeToggle').setAttribute('aria-label', text);
-    $('themeToggle').title = text;
-  };
-  $('themeToggle').addEventListener('click', () => {
-    root.dataset.theme = isDark() ? 'light' : 'dark';
-    try {
-      localStorage.setItem('video-scripter.theme', root.dataset.theme);
-    } catch {}
-    label();
-  });
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', label);
-  label();
 }
 
 // ---------- Boot ----------
@@ -1110,6 +1094,7 @@ function wireTheme() {
 async function boot() {
   applyI18n();
   hydrateIcons();
+  enhancePasswords();
   const me = await api('/api/auth/me');
   if (!me.user) return showAuth(me);
   state.user = me.user;
@@ -1121,9 +1106,8 @@ async function boot() {
   buildForm();
   wireSettings();
   renderGateway();
-  wireTheme();
-  $('langToggle').textContent = lang === 'zh' ? 'English' : '中文';
-  $('langToggle').addEventListener('click', () => setLang(lang === 'zh' ? 'en' : 'zh'));
+  wireTheme($('themeToggle'));
+  wireLang($('langToggle'));
   loadHistory().catch((err) => toast(t('Could not load history: {error}', { error: err.message })));
 
   $('briefForm').addEventListener('submit', (e) => {

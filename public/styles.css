@@ -535,3 +535,35 @@ select.compact { width: auto; min-height: 36px; padding-top: 4px; padding-bottom
   .status-pill { max-width: 62vw; overflow: hidden; text-overflow: ellipsis; }
   .account-card .btn { flex: 1; }
 }
+
+/* ---------- Show / hide password ---------- */
+
+.pw-wrap { position: relative; display: block; flex: 1; min-width: 0; }
+.pw-wrap > input { padding-right: 46px; }
+.pw-toggle { position: absolute; top: 50%; right: 4px; transform: translateY(-50%); display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); }
+.pw-toggle:hover { background: var(--panel-2); color: var(--ink); }
+.pw-toggle[aria-pressed='true'] { color: var(--accent-text); }
+
+/* ---------- Admin page ---------- */
+
+.admin-page .brand { text-decoration: none; color: inherit; }
+.denied { min-height: calc(100dvh - var(--topbar-h)); display: grid; place-items: center; padding: 24px 16px; }
+.admin { max-width: 1240px; margin: 0 auto; padding: 24px 20px 64px; display: flex; flex-direction: column; gap: 18px; }
+.admin-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.page-title { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 2px; }
+.admin-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.admin-tools .search { flex: 1 1 240px; max-width: 420px; }
+.user-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.user-cell .avatar { width: 34px; height: 34px; font-size: 14px; }
+.user-cell .account-who { max-width: 260px; }
+.form-stack { display: flex; flex-direction: column; gap: 14px; }
+.line { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.danger-zone { display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line)); border-radius: var(--r-md); }
+a.icon-btn { text-decoration: none; }
+@media (max-width: 899px) {
+  .admin { padding: 16px 14px calc(40px + env(safe-area-inset-bottom)); }
+  .admin-head .btn { width: 100%; }
+  .admin-page .topbar .labelled > span { display: none; }
+  .table .col-opt { display: none; }
+  .pw-toggle { width: 40px; height: 40px; }
+}

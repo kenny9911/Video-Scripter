@@ -99,20 +99,22 @@ test('accounts, access rules, gateways, scripts, media, usage and activity', asy
   assert.equal((await client().call('POST', '/api/auth/signup', { email: 'ann@example.test', password: 'another-pass-1' })).status, 409);
   assert.equal((await client().call('POST', '/api/auth/signup', { email: ADMIN.email, password: 'another-pass-1' })).status, 409); // nobody can sign up as the admin
 
-  // A member sees the model picker but no addresses or keys, and cannot touch settings or other accounts.
+  // A member sees only the gateway in use, without addresses or keys, and cannot touch settings or other accounts.
   r = await ann.call('GET', '/api/gateway/config');
+  assert.deepEqual([r.body.profiles.length, r.body.activeId, r.body.profiles[0].models], [1, 'default', ['deepseek-chat']]);
   assert.deepEqual(Object.keys(r.body.profiles[0]).sort(), ['hasKey', 'id', 'image', 'model', 'models', 'name', 'provider', 'video']);
-  for (const [method, url] of [['PUT', '/api/gateway/config'], ['POST', '/api/gateway/delete'], ['POST', '/api/gateway/test'], ['POST', '/api/gateway/models'], ['GET', '/api/admin/users'], ['POST', '/api/admin/users/update']]) {
+  for (const [method, url] of [['PUT', '/api/gateway/config'], ['POST', '/api/gateway/select'], ['POST', '/api/gateway/delete'], ['POST', '/api/gateway/test'], ['POST', '/api/gateway/models'], ['GET', '/api/admin/users'], ['POST', '/api/admin/users/update']]) {
     assert.equal((await ann.call(method, url, method === 'GET' ? undefined : {})).status, 403, url);
   }
 
-  // Picking a gateway and model is per user: Ann's choice does not move the administrator's.
-  r = await ann.call('POST', '/api/gateway/select', { id, model: 'llama3' });
+  // The administrator's pick of gateway and model is the one everybody writes with.
+  r = await admin.call('POST', '/api/gateway/select', { id, model: 'llama3' });
   assert.deepEqual([r.body.activeId, r.body.profiles[1].model, r.body.profiles[1].models], [id, 'llama3', ['llama3', 'qwen3']]);
-  assert.equal((await ann.call('POST', '/api/gateway/select', { id, model: 'nope' })).status, 400);
-  assert.equal((await admin.call('GET', '/api/gateway/config')).body.activeId, 'default');
+  assert.equal((await admin.call('POST', '/api/gateway/select', { id, model: 'nope' })).status, 400);
+  r = await ann.call('GET', '/api/gateway/config');
+  assert.deepEqual([r.body.activeId, r.body.profiles.map((p) => [p.name, p.model])], [id, [['Local box', 'llama3']]]);
 
-  // Deleting a gateway someone picked falls back to the default; deleting the last one returns to demo mode.
+  // Deleting the gateway in use falls back to the first one left; deleting the last one returns to demo mode.
   r = await admin.call('POST', '/api/gateway/delete', { id });
   assert.deepEqual([r.body.profiles.length, r.body.activeId], [1, 'default']);
   assert.equal((await ann.call('GET', '/api/gateway/config')).body.activeId, 'default');
@@ -182,7 +184,14 @@ test('accounts, access rules, gateways, scripts, media, usage and activity', asy
   zip = await zipOf({ id: first.id, markdown: '# T' });
   assert.equal(zip.res.headers.get('content-type'), 'application/zip');
   assert.match(zip.res.headers.get('content-disposition'), new RegExp(`filename\\*=UTF-8''${root}\\.zip$`));
-  assert.deepEqual(zip.names, ['script.md', 'script.json', 'voiceover.txt', 'images/scene-01_00m00s-00m04s.svg'].map((f) => `${root}/${f}`));
+  assert.deepEqual(zip.names, ['script.md', 'script.html', 'script.json', 'voiceover.txt', 'images/scene-01_00m00s-00m04s.svg'].map((f) => `${root}/${f}`));
+  // The HTML page stands alone: it shows the scene's image from the folder next to it, and escapes what the model wrote.
+  const page = execFileSync('unzip', ['-p', zip.target, `${root}/script.html`], { encoding: 'utf8' });
+  assert.ok(page.startsWith('<!doctype html>') && page.includes('<h1>T</h1>') && page.includes('src="images/scene-01_00m00s-00m04s.svg"') && page.includes('>Script</h2>'));
+  assert.ok(!/<script|https?:\/\//.test(page)); // no code, nothing loaded from the network
+  const { scriptHtml } = await import('../src/html.mjs');
+  const risky = scriptHtml({ ts: 0, platformId: 'douyin', script: { title: '<img src=x onerror=alert(1)>', logline: '', hookOptions: [], scenes: [{ id: 1, start: 0, end: 3, voiceover: '[[重点]] ⏸ <b>x</b>', visual: '"quoted"' }], publish: {}, productionNotes: [] } }, { lang: 'zh' });
+  assert.ok(risky.includes('&lt;img src=x onerror=alert(1)&gt;') && risky.includes('<mark>重点</mark>') && risky.includes('&lt;b&gt;x&lt;/b&gt;') && risky.includes('>脚本</h2>') && !risky.includes('<img src=x'));
   assert.equal(execFileSync('unzip', ['-p', zip.target, `${root}/script.md`], { encoding: 'utf8' }), '# T');
   execFileSync('unzip', ['-tq', zip.target]); // CRCs check out
   assert.equal((await ann.call('POST', '/api/history/package', { id: 'nope' })).status, 404);
@@ -221,6 +230,77 @@ test('accounts, access rules, gateways, scripts, media, usage and activity', asy
   assert.equal(r.body.user.disabled, true);
   assert.equal((await ann.call('GET', '/api/history')).status, 401); // her session ended
   assert.equal((await client().call('POST', '/api/auth/login', { email: 'ann@example.test', password: 'ann-password-1' })).status, 403);
+
+  // ---------- Complete user management ----------
+  // Create: an administrator makes an account; the person can log in with the password they were given.
+  r = await admin.call('POST', '/api/admin/users/create', { email: 'carl@example.test', password: 'carl-password-1', name: 'Carl', role: 'user' });
+  const carlId = r.body.user.id;
+  assert.deepEqual([r.status, r.body.user.role, r.body.user.name], [200, 'user', 'Carl']);
+  assert.equal((await admin.call('POST', '/api/admin/users/create', { email: 'carl@example.test', password: 'carl-password-2' })).status, 409);
+  assert.equal((await admin.call('POST', '/api/admin/users/create', { email: 'x@example.test', password: 'short' })).status, 400);
+  const carl = client();
+  assert.equal((await carl.call('POST', '/api/auth/login', { email: 'carl@example.test', password: 'carl-password-1' })).status, 200);
+  r = await admin.call('GET', `/api/admin/users/detail?id=${carlId}`);
+  assert.deepEqual([r.body.user.email, r.body.sessions, r.body.scripts, r.body.usage.total.calls, r.body.activity[0].type], ['carl@example.test', 1, 0, 0, 'auth.login']);
+  for (const url of ['/api/admin/users/create', '/api/admin/users/password', '/api/admin/users/logout', '/api/admin/users/delete']) assert.equal((await carl.call('POST', url, { id: me.id })).status, 403, url);
+  assert.equal((await carl.call('GET', `/api/admin/users/detail?id=${carlId}`)).status, 403);
+
+  // Edit: name and email (unique, valid), then role.
+  r = await admin.call('POST', '/api/admin/users/update', { id: carlId, name: 'Carl R.', email: 'Carl.R@example.test' });
+  assert.deepEqual([r.body.user.name, r.body.user.email], ['Carl R.', 'carl.r@example.test']);
+  assert.equal((await admin.call('POST', '/api/admin/users/update', { id: carlId, email: 'bob@example.test' })).status, 409);
+  assert.equal((await admin.call('POST', '/api/admin/users/update', { id: carlId, email: 'nope' })).status, 400);
+  assert.equal((await admin.call('POST', '/api/admin/users/update', { id: carlId, role: 'admin' })).body.user.role, 'admin');
+  assert.equal((await carl.call('GET', '/api/admin/users')).status, 200); // promoted
+  assert.equal((await admin.call('POST', '/api/admin/users/update', { id: me.id, role: 'user' })).status, 400); // never yourself
+  assert.equal((await admin.call('POST', '/api/admin/users/update', { id: carlId, role: 'user' })).body.user.role, 'user');
+
+  // Reset password: the old one stops working and every session of that user ends.
+  assert.equal((await admin.call('POST', '/api/admin/users/password', { id: carlId, password: 'short' })).status, 400);
+  assert.equal((await admin.call('POST', '/api/admin/users/password', { id: carlId, password: 'carl-reset-pass-9' })).status, 200);
+  assert.equal((await carl.call('GET', '/api/history')).status, 401);
+  assert.equal((await carl.call('POST', '/api/auth/login', { email: 'carl.r@example.test', password: 'carl-password-1' })).status, 401);
+  assert.equal((await carl.call('POST', '/api/auth/login', { email: 'carl.r@example.test', password: 'carl-reset-pass-9' })).status, 200);
+
+  // Log out everywhere.
+  assert.equal((await admin.call('POST', '/api/admin/users/logout', { id: carlId })).status, 200);
+  assert.equal((await carl.call('GET', '/api/history')).status, 401);
+
+  // A user changes their own name and password; the session they are using carries on, others end.
+  const carl2 = client();
+  await carl.call('POST', '/api/auth/login', { email: 'carl.r@example.test', password: 'carl-reset-pass-9' });
+  await carl2.call('POST', '/api/auth/login', { email: 'carl.r@example.test', password: 'carl-reset-pass-9' });
+  assert.equal((await carl.call('POST', '/api/auth/profile', { name: 'Carlos' })).body.user.name, 'Carlos');
+  assert.equal((await carl.call('POST', '/api/auth/password', { current: 'wrong-current-1', password: 'carl-own-pass-77' })).status, 400);
+  assert.equal((await carl.call('POST', '/api/auth/password', { current: 'carl-reset-pass-9', password: 'carl-own-pass-77' })).status, 200);
+  assert.equal((await carl.call('GET', '/api/auth/me')).body.user.name, 'Carlos');
+  assert.equal((await carl2.call('GET', '/api/history')).status, 401);
+  assert.ok(!JSON.stringify((await admin.call('GET', '/api/activity?scope=all&limit=500')).body).includes('carl-own-pass')); // passwords never reach the log
+
+  // Delete with "transfer": Ann's scripts and media move to the administrator.
+  assert.equal((await admin.call('POST', '/api/admin/users/delete', { id: me.id })).status, 400); // not yourself
+  r = await admin.call('POST', '/api/admin/users/delete', { id: annRow.id, scripts: 'transfer' });
+  assert.deepEqual([r.body.scripts, r.body.transferred], [2, true]);
+  const mine = (await admin.call('GET', '/api/history')).body;
+  assert.equal(mine.length, 2);
+  assert.equal((await admin.raw('GET', mine[1].media[1].image.url)).status, 200);
+  assert.equal((await client().call('POST', '/api/auth/login', { email: 'ann@example.test', password: 'ann-password-1' })).status, 401);
+
+  // Delete outright: the account, its scripts and its media files are gone; the usage record stays.
+  const dana = client();
+  const danaId = (await dana.call('POST', '/api/auth/signup', { email: 'dana@example.test', password: 'dana-password-1' })).body.user.id;
+  const hers = (await dana.call('POST', '/api/history', { platformId: 'tiktok', brief: { topic: 'd' }, script })).body;
+  const herImage = (await dana.call('POST', '/api/media/image', { ...script.scenes[0], historyId: hers.id, sceneId: 1 })).body.url;
+  assert.equal((await admin.raw('GET', herImage)).status, 200);
+  r = await admin.call('POST', '/api/admin/users/delete', { id: danaId });
+  assert.deepEqual([r.body.scripts, r.body.transferred], [1, false]);
+  assert.equal((await admin.raw('GET', herImage)).status, 404);
+  assert.equal((await dana.call('GET', '/api/history')).status, 401);
+  r = await admin.call('GET', '/api/admin/users');
+  assert.deepEqual(r.body.users.map((u) => u.email).sort(), ['bob@example.test', ADMIN.email, 'carl.r@example.test'].sort());
+  assert.equal((await admin.call('GET', '/api/usage?scope=all&days=0')).body.total.calls, 8); // nothing erased from the audit trail
+  const log = (await admin.call('GET', '/api/activity?scope=all&limit=500')).body.items.map((a) => a.type);
+  for (const type of ['admin.user_create', 'admin.user_update', 'admin.user_password', 'admin.user_logout', 'admin.user_delete', 'auth.password_change', 'auth.profile_update']) assert.ok(log.includes(type), type);
 
   // Five wrong passwords lock an account for a while, even for the right password.
   for (let i = 0; i < 5; i++) await client().call('POST', '/api/auth/login', { email: 'bob@example.test', password: 'guess-number-' + i });

@@ -41,8 +41,11 @@ export function zip(files, date = new Date()) {
 
     const local = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), meta, name]);
     const tail = Buffer.alloc(14); // comment len, disk, internal attrs, external attrs, local header offset
+    tail.writeUInt32LE((0o100644 << 16) >>> 0, 6); // a regular file, rw-r--r--
     tail.writeUInt32LE(offset, 10);
-    central.push(Buffer.concat([Buffer.from([0x50, 0x4b, 0x01, 0x02, 20, 0]), meta, tail, name]));
+    // "Made by" Unix (3): command-line unzip on macOS and Linux then keeps UTF-8 names as they are.
+    // The UTF-8 flag above covers Windows and the desktop archive tools.
+    central.push(Buffer.concat([Buffer.from([0x50, 0x4b, 0x01, 0x02, 20, 3]), meta, tail, name]));
     parts.push(local, body);
     offset += local.length + body.length;
   }

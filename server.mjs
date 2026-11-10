@@ -14,14 +14,14 @@ import { FRAMEWORKS } from './src/frameworks.mjs';
 import { PROVIDERS } from './src/gateway/providers.mjs';
 import { STYLES, STYLE_GROUPS, MAX_STYLES } from './src/styles.mjs';
 import { IMAGE_MODES, SHOT_LABELS, MAX_IMAGES, planShots } from './src/shots.mjs';
-import { loadStore, saveStore, mergeConfig, publicStore, validateConfig, enabledModels, mediaTarget, resolveGateway } from './src/gateway/config.mjs';
+import { loadStore, loadConfig, saveStore, mergeConfig, publicStore, validateConfig, enabledModels, mediaTarget } from './src/gateway/config.mjs';
 import { streamChat, completeChat, listModels, request } from './src/gateway/client.mjs';
 import { generateImage, createVideo, videoStatus, videoContent, clipSeconds } from './src/gateway/media.mjs';
-import { listHistory, getHistory, addHistory, newHistoryId, saveMedia, linkMedia, serveMedia, mediaOwner } from './src/store.mjs';
+import { listHistory, getHistory, addHistory, newHistoryId, saveMedia, linkMedia, serveMedia, mediaOwner, deleteUserHistory, transferHistory } from './src/store.mjs';
 import { buildPackage } from './src/package.mjs';
 import { buildPlan, buildPrompts, parseScript, buildVisualPrompt } from './src/prompt.mjs';
 import { db, storage } from './src/db.mjs';
-import { AuthError, authenticate, checkLogin, createUser, startSession, endSession, endAllSessions, ensureAdmin, publicUser, signupOpen } from './src/auth.mjs';
+import { AuthError, authenticate, checkLogin, createUser, startSession, endSession, endAllSessions, ensureAdmin, publicUser, signupOpen, verifyPassword, setPassword, updateProfile, countSessions, activeAdmins, deleteUser } from './src/auth.mjs';
 import { recordUsage, logActivity, summarizeUsage, listActivity, estimateTokens } from './src/audit.mjs';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
@@ -68,9 +68,7 @@ function sameOrigin(req) {
 const isAdmin = (user) => user?.role === 'admin';
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 
-/** The gateway and model this user writes with. */
-const gatewayFor = async (user) => resolveGateway(await loadStore(), user.prefs);
-const storeView = (store, user) => publicStore(store, { prefs: user.prefs, admin: isAdmin(user) });
+const storeView = (store, user) => publicStore(store, { admin: isAdmin(user) });
 
 /** Unsaved form values merged over the saved gateway they belong to, if any. */
 async function draftConfig(body) {
@@ -139,6 +137,23 @@ const routes = {
     json(res, 200, { ok: true }, { 'set-cookie': await endSession(req) });
   }),
 
+  // Change your own display name.
+  'POST /api/auth/profile': route('user', async (req, res, user) => {
+    const { name } = await readJson(req);
+    const next = await updateProfile(user.id, { name });
+    await logActivity(req, next, 'auth.profile_update');
+    json(res, 200, { user: publicUser(next) });
+  }),
+
+  // Change your own password. Every other session of yours ends; this one is renewed.
+  'POST /api/auth/password': route('user', async (req, res, user) => {
+    const { current, password } = await readJson(req);
+    if (!(await verifyPassword(String(current || ''), user.passwordHash))) throw fail('The current password is wrong');
+    const next = await setPassword(user.id, password);
+    await logActivity(req, next, 'auth.password_change');
+    json(res, 200, { ok: true }, { 'set-cookie': await startSession(req, next) });
+  }),
+
   // ---------- Usage and activity ----------
 
   // scope=all (administrators only) covers every user; otherwise the caller's own.
@@ -158,20 +173,81 @@ const routes = {
     const usage = new Map((await summarizeUsage({ days: 0 })).byUser.map((u) => [u.key, u]));
     const scripts = new Map();
     for (const e of await db.list('history')) scripts.set(e.userId, (scripts.get(e.userId) || 0) + 1);
-    json(res, 200, { users: (await db.list('users')).map((u) => ({ ...publicUser(u), scripts: scripts.get(u.id) || 0, usage: usage.get(u.id) || null })) });
+    const sessions = new Map();
+    for (const x of await db.list('sessions')) if (x.expires > Date.now()) sessions.set(x.userId, (sessions.get(x.userId) || 0) + 1);
+    json(res, 200, { users: (await db.list('users')).map((u) => ({ ...publicUser(u), scripts: scripts.get(u.id) || 0, sessions: sessions.get(u.id) || 0, usage: usage.get(u.id) || null })) });
   }),
 
+  // One user in full: profile, sessions, all-time usage and their latest activity.
+  'GET /api/admin/users/detail': route('admin', async (req, res, user, query) => {
+    const target = await db.get('users', query.get('id') || '');
+    if (!target) throw fail('That user no longer exists', 404);
+    const usage = await summarizeUsage({ userId: target.id, days: 0 });
+    json(res, 200, {
+      user: publicUser(target),
+      sessions: await countSessions(target.id),
+      scripts: (await listHistory(target.id)).length,
+      usage: { total: usage.total, byKind: usage.byKind },
+      activity: await listActivity({ userId: target.id, limit: 15 }),
+    });
+  }),
+
+  'POST /api/admin/users/create': route('admin', async (req, res, user) => {
+    const { email, password, name, role } = await readJson(req);
+    const created = await createUser({ email, password, name, role });
+    await logActivity(req, user, 'admin.user_create', { target: created.email, role: created.role });
+    json(res, 200, { user: publicUser(created) });
+  }),
+
+  // Change name, email, role or status. The app always keeps at least one active administrator.
   'POST /api/admin/users/update': route('admin', async (req, res, user) => {
-    const { id, role, disabled } = await readJson(req);
-    if (id === user.id) throw fail('You cannot change your own role or disable your own account');
-    const target = await db.update('users', String(id || ''), (u) => {
+    const { id, name, email, role, disabled } = await readJson(req);
+    const before = await db.get('users', String(id || ''));
+    if (!before) throw fail('That user no longer exists', 404);
+    const demotes = (role === 'user' && before.role === 'admin') || (disabled === true && !before.disabled);
+    if (demotes && before.id === user.id) throw fail('You cannot change your own role or disable your own account');
+    if (demotes && before.role === 'admin' && !before.disabled && (await activeAdmins()).length < 2) throw fail('There must be at least one active administrator');
+    if (name !== undefined || email !== undefined) await updateProfile(before.id, { name, email });
+    const target = await db.update('users', before.id, (u) => {
       if (role === 'admin' || role === 'user') u.role = role;
       if (typeof disabled === 'boolean') u.disabled = disabled;
     });
-    if (!target) throw fail('That user no longer exists', 404);
     if (target.disabled) await endAllSessions(target.id);
-    await logActivity(req, user, 'admin.user_update', { target: target.email, role: target.role, disabled: Boolean(target.disabled) });
+    await logActivity(req, user, 'admin.user_update', { target: target.email, role: target.role, disabled: Boolean(target.disabled), ...(before.email !== target.email && { was: before.email }) });
     json(res, 200, { user: publicUser(target) });
+  }),
+
+  // Set a new password for someone who lost theirs. They are logged out everywhere.
+  'POST /api/admin/users/password': route('admin', async (req, res, user) => {
+    const { id, password } = await readJson(req);
+    const target = await setPassword(String(id || ''), password);
+    if (!target) throw fail('That user no longer exists', 404);
+    await logActivity(req, user, 'admin.user_password', { target: target.email });
+    // The administrator's own session ended with the rest: renew it.
+    json(res, 200, { ok: true }, target.id === user.id ? { 'set-cookie': await startSession(req, target) } : {});
+  }),
+
+  // End every session of a user (a lost device, a shared computer).
+  'POST /api/admin/users/logout': route('admin', async (req, res, user) => {
+    const target = await db.get('users', String((await readJson(req)).id || ''));
+    if (!target) throw fail('That user no longer exists', 404);
+    await endAllSessions(target.id);
+    await logActivity(req, user, 'admin.user_logout', { target: target.email });
+    json(res, 200, { ok: true }, target.id === user.id ? { 'set-cookie': await startSession(req, target) } : {});
+  }),
+
+  // Delete an account. `scripts: "transfer"` moves their scripts and media to the administrator;
+  // anything else deletes them. Usage and activity records are kept as the audit trail.
+  'POST /api/admin/users/delete': route('admin', async (req, res, user) => {
+    const { id, scripts } = await readJson(req);
+    const target = await db.get('users', String(id || ''));
+    if (!target) throw fail('That user no longer exists', 404);
+    if (target.id === user.id) throw fail('You cannot delete your own account');
+    const moved = scripts === 'transfer';
+    const count = moved ? await transferHistory(target.id, user.id) : await deleteUserHistory(target.id);
+    await deleteUser(target.id);
+    await logActivity(req, user, 'admin.user_delete', { target: target.email, scripts: count, kept: moved });
+    json(res, 200, { ok: true, scripts: count, transferred: moved });
   }),
 
   // ---------- Reference data and gateways ----------
@@ -190,12 +266,12 @@ const routes = {
     });
   }),
 
-  // The saved gateways. Administrators see addresses and masked keys; everyone else only the model picker.
+  // The saved gateways. Administrators see them all, with addresses and masked keys; everyone else only the name and model in use.
   'GET /api/gateway/config': route('user', async (req, res, user) => {
     json(res, 200, storeView(await loadStore(), user));
   }),
 
-  // Create a gateway (no id) or update one (id). `activate: true` also makes it the default for everyone.
+  // Create a gateway (no id) or update one (id). `activate: true` also puts it in use for everyone.
   'PUT /api/gateway/config': route('admin', async (req, res, user) => {
     const body = await readJson(req);
     const store = await loadStore();
@@ -207,23 +283,23 @@ const routes = {
     if (index < 0) store.profiles.push({ ...config, id: randomUUID().slice(0, 8) });
     else store.profiles[index] = config;
     const saved = store.profiles[index < 0 ? store.profiles.length - 1 : index];
-    if (body.activate) {
-      store.activeId = saved.id;
-      user = await db.update('users', user.id, (u) => void (u.prefs = { ...u.prefs, gatewayId: saved.id, model: saved.model }));
-    }
+    if (body.activate) store.activeId = saved.id;
     await saveStore(store);
     await logActivity(req, user, index < 0 ? 'gateway.create' : 'gateway.update', { gateway: saved.name, model: saved.model, default: Boolean(body.activate) });
     json(res, 200, { ...storeView(store, user), savedId: saved.id });
   }),
 
-  // Each user picks the gateway and model they write with; it does not change anyone else's.
-  'POST /api/gateway/select': route('user', async (req, res, user) => {
+  // The administrator picks the gateway and model that everyone writes with.
+  'POST /api/gateway/select': route('admin', async (req, res, user) => {
     const { id, model } = await readJson(req);
     const store = await loadStore();
     const profile = store.profiles.find((p) => p.id === id);
     if (!profile) return json(res, 404, { error: 'That gateway no longer exists' });
     if (model && !enabledModels(profile).includes(model)) return json(res, 400, { error: `Model "${model}" is not enabled for ${profile.name}` });
-    user = await db.update('users', user.id, (u) => void (u.prefs = { ...u.prefs, gatewayId: profile.id, model: model || profile.model }));
+    if (model && model !== profile.model) Object.assign(profile, { models: enabledModels(profile), model }); // the old default stays in the picker
+    store.activeId = profile.id;
+    await saveStore(store);
+    await logActivity(req, user, 'gateway.select', { gateway: profile.name, model: profile.model });
     json(res, 200, storeView(store, user));
   }),
 
@@ -289,9 +365,9 @@ const routes = {
 
   // One script with all its generated media, as a .zip. The page sends the Markdown it renders.
   'POST /api/history/package': route('user', async (req, res, user) => {
-    const { id, markdown } = await readJson(req);
+    const { id, markdown, lang } = await readJson(req);
     const entry = await ownedHistory(user, id);
-    const pkg = await buildPackage(entry, { markdown });
+    const pkg = await buildPackage(entry, { markdown, lang });
     await logActivity(req, user, 'script.download', { taskId: entry.id, title: entry.script.title, files: pkg.files.length });
     res.writeHead(200, {
       'content-type': 'application/zip',
@@ -307,7 +383,7 @@ const routes = {
   'POST /api/media/image': route('user', async (req, res, user) => {
     const scene = await readJson(req);
     if (scene.historyId) await ownedHistory(user, scene.historyId);
-    const config = await gatewayFor(user);
+    const config = await loadConfig();
     const target = mediaTarget(config, 'image');
     // `count` (1-3) images, related to each other as `mode` says (see src/shots.mjs). Each image is its own
     // request, since many image models only return one, and each shot has its own prompt.
@@ -343,7 +419,7 @@ const routes = {
     if (scene.historyId) await ownedHistory(user, scene.historyId);
     const prompt = buildVisualPrompt(scene, 'video');
     const seconds = Number(scene.end) - Number(scene.start);
-    const config = await gatewayFor(user);
+    const config = await loadConfig();
     const usage = { user, taskId: scene.historyId, kind: 'video', config, model: mediaTarget(config, 'video').model, inputTokens: estimateTokens(prompt), estimated: true };
     const started = Date.now();
     try {
@@ -360,7 +436,7 @@ const routes = {
   'POST /api/media/video/status': route('user', async (req, res, user) => {
     const body = await readJson(req);
     if (body.historyId) await ownedHistory(user, body.historyId);
-    const config = await gatewayFor(user);
+    const config = await loadConfig();
     const job = await videoStatus(config, String(body.id || ''), { signal: AbortSignal.timeout(30_000) });
     if (job.status !== 'done') return json(res, 200, job);
     const source = job.url || (await videoContent(config, job.id, { signal: AbortSignal.timeout(300_000) }));
@@ -372,7 +448,7 @@ const routes = {
   'POST /api/generate': route('user', async (req, res, user) => {
     const brief = await readJson(req);
     const plan = buildPlan(brief); // throws on a bad brief -> 400 below
-    const config = await gatewayFor(user);
+    const config = await loadConfig();
     const invalid = validateConfig(config);
     if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
 

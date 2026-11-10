@@ -43,17 +43,24 @@ export async function verifyPassword(password, stored) {
 /** What the browser may know about a user. */
 export const publicUser = (u) => u && { id: u.id, email: u.email, name: u.name, role: u.role, disabled: Boolean(u.disabled), createdAt: u.ts, lastLoginAt: u.lastLoginAt || null, prefs: u.prefs || {} };
 
-function checkCredentials(email, password) {
+function checkEmail(email) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new AuthError('Enter a valid email address');
+}
+function checkPassword(password) {
   if (typeof password !== 'string' || password.length < 8) throw new AuthError('The password needs at least 8 characters');
   if (password.length > 200) throw new AuthError('The password is too long');
 }
+function checkCredentials(email, password) {
+  checkEmail(email);
+  checkPassword(password);
+}
+const cleanName = (name, email) => String(name || '').trim().slice(0, 80) || email.split('@')[0];
 
 export async function createUser({ email, password, name, role = 'user' }) {
   email = normEmail(email);
   checkCredentials(email, password);
   if (await db.find('users', 'email', email)) throw new AuthError('An account with this email already exists', 409);
-  const user = { id: randomUUID().slice(0, 12), ts: Date.now(), email, name: String(name || '').trim().slice(0, 80) || email.split('@')[0], role, passwordHash: await hashPassword(password), prefs: {} };
+  const user = { id: randomUUID().slice(0, 12), ts: Date.now(), email, name: cleanName(name, email), role: role === 'admin' ? 'admin' : 'user', passwordHash: await hashPassword(password), prefs: {} };
   try {
     await db.put('users', user);
   } catch (err) {
@@ -61,6 +68,39 @@ export async function createUser({ email, password, name, role = 'user' }) {
     throw err;
   }
   return user;
+}
+
+/** Change name and/or email. Throws when the email is invalid or taken. Returns the user, or null when missing. */
+export async function updateProfile(id, { name, email }) {
+  if (email !== undefined) {
+    email = normEmail(email);
+    checkEmail(email);
+    const other = await db.find('users', 'email', email);
+    if (other && other.id !== id) throw new AuthError('An account with this email already exists', 409);
+  }
+  return db.update('users', id, (u) => {
+    if (email !== undefined) u.email = email;
+    if (name !== undefined) u.name = cleanName(name, u.email);
+  });
+}
+
+/** Set a new password and end every session of that user, so a stolen cookie stops working. */
+export async function setPassword(id, password) {
+  checkPassword(password);
+  const passwordHash = await hashPassword(password);
+  const user = await db.update('users', id, (u) => Object.assign(u, { passwordHash, failed: 0, lockedUntil: 0, passwordChangedAt: Date.now() }));
+  if (user) await endAllSessions(id);
+  return user;
+}
+
+export const countSessions = async (userId) => (await db.list('sessions', { userId })).filter((s) => s.expires > Date.now()).length;
+
+/** Active administrators. Used to refuse a change that would leave the app with none. */
+export const activeAdmins = async () => (await db.list('users', { where: { role: 'admin' } })).filter((u) => !u.disabled);
+
+export async function deleteUser(id) {
+  await endAllSessions(id);
+  await db.del('users', id);
 }
 
 // Verified against even when the email is unknown, so a wrong email and a wrong password take the same time.

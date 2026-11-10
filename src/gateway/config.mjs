@@ -57,7 +57,7 @@ export async function loadStore() {
 
 export const activeProfile = (store) => store.profiles.find((p) => p.id === store.activeId) || store.profiles[0];
 
-/** The gateway currently in use. */
+/** The gateway and model everyone writes with: the one the administrator put in use. */
 export async function loadConfig() {
   return activeProfile(await loadStore());
 }
@@ -65,16 +65,6 @@ export async function loadConfig() {
 export async function saveStore(store) {
   await db.put('config', { id: 'gateway', ts: Date.now(), activeId: store.activeId, profiles: store.profiles });
   return store;
-}
-
-/**
- * The gateway and model a given user writes with: their own pick when it is still valid,
- * otherwise the default the administrator set.
- */
-export function resolveGateway(store, prefs = {}) {
-  const profile = store.profiles.find((p) => p.id === prefs.gatewayId) || activeProfile(store);
-  const model = profile.id === prefs.gatewayId && enabledModels(profile).includes(prefs.model) ? prefs.model : profile.model;
-  return { ...profile, model };
 }
 
 /**
@@ -147,17 +137,16 @@ export function publicConfig(config) {
   };
 }
 
-/** What a signed-in person who is not an administrator may know about a gateway: enough to pick a model. */
+/** What a signed-in person who is not an administrator may know about the gateway in use: its name and model. */
 export function memberConfig(config) {
   const p = publicConfig(config);
-  return { id: p.id, name: p.name, provider: p.provider, model: p.model, models: p.models, hasKey: p.hasKey, image: { ready: p.image.ready, model: p.image.model }, video: { ready: p.video.ready, model: p.video.model } };
+  return { id: p.id, name: p.name, provider: p.provider, model: p.model, models: [p.model].filter(Boolean), hasKey: p.hasKey, image: { ready: p.image.ready, model: p.image.model }, video: { ready: p.video.ready, model: p.video.model } };
 }
 
-/** The gateways as one user sees them: `activeId` and that gateway's `model` are the user's own selection. */
-export function publicStore(store, { prefs = {}, admin = true } = {}) {
-  const mine = resolveGateway(store, prefs);
-  const view = admin ? publicConfig : memberConfig;
-  return { activeId: mine.id, defaultId: activeProfile(store).id, profiles: store.profiles.map((p) => view(p.id === mine.id ? { ...p, model: mine.model, models: enabledModels(p) } : p)) };
+/** The gateways as a person sees them: administrators all of them, everyone else only the one in use. */
+export function publicStore(store, { admin = true } = {}) {
+  const active = activeProfile(store);
+  return { activeId: active.id, profiles: admin ? store.profiles.map(publicConfig) : [memberConfig(active)] };
 }
 
 export function validateConfig(config, { requireModel = true } = {}) {
