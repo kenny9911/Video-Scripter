@@ -9,9 +9,7 @@
 //      ├─ images/scene-01_00m00s-00m04s.png      (…_1.png, …_2-end.png when a scene has several)
 //      └─ videos/scene-01_00m00s-00m04s.mp4
 
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
-import { MEDIA_DIR } from './store.mjs';
+import { readMedia } from './store.mjs';
 import { zip } from './zip.mjs';
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -48,12 +46,12 @@ export async function buildPackage(entry, { markdown } = {}) {
       for (const [n, url] of urls.entries()) {
         const stored = /^\/media\/([\w-]+\.(\w+))$/.exec(url);
         if (!stored) continue; // only a provider link that could not be saved
-        try {
-          const shot = String(m.shots?.[n] || '').replace(/^style-/, '').replace(/[^\w-]/g, '');
-          const name = `${dir}/${sceneFile(sc, i, stored[2], urls.length > 1 ? `${n + 1}${shot && `-${shot}`}` : '')}`;
-          files.push({ name: `${root}/${name}`, data: await readFile(path.join(MEDIA_DIR, stored[1])), store: stored[2] !== 'svg' });
-          manifest.push({ scene: sc.id, kind, file: name, ...(shot && { shot }) });
-        } catch {} // the file was removed from disk: leave it out
+        const data = await readMedia(stored[1]).catch(() => null);
+        if (!data) continue; // the file is gone from storage: leave it out
+        const shot = String(m.shots?.[n] || '').replace(/^style-/, '').replace(/[^\w-]/g, '');
+        const name = `${dir}/${sceneFile(sc, i, stored[2], urls.length > 1 ? `${n + 1}${shot && `-${shot}`}` : '')}`;
+        files.push({ name: `${root}/${name}`, data, store: stored[2] !== 'svg' });
+        manifest.push({ scene: sc.id, kind, file: name, ...(shot && { shot }) });
       }
     }
   }

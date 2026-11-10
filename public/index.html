@@ -11,8 +11,45 @@
   <script src="theme.js"></script>
   <link rel="stylesheet" href="styles.css">
 </head>
-<body data-view="brief">
+<body data-view="brief" data-auth="pending">
   <a class="skip-link" href="#result">Skip to the script</a>
+
+  <section id="authScreen" class="auth" aria-labelledby="authTitle">
+    <div class="auth-card">
+      <div class="brand">
+        <span class="logo" data-icon="logo" data-icon-size="16" aria-hidden="true"></span>
+        <span class="brand-name">Video Scripter</span>
+        <span class="spacer"></span>
+        <button id="authLang" class="icon-btn text" type="button" aria-label="Switch language / 切换语言"></button>
+      </div>
+      <div>
+        <h1 id="authTitle" class="auth-title">Welcome back</h1>
+        <p id="authSub" class="hint">Log in to write short-video scripts for every platform you publish on.</p>
+      </div>
+      <div class="seg" role="tablist" aria-label="Log in or sign up">
+        <button id="authTabLogin" class="seg-btn" type="button" role="tab" aria-selected="true">Log in</button>
+        <button id="authTabSignup" class="seg-btn" type="button" role="tab" aria-selected="false">Sign up</button>
+      </div>
+      <form id="authForm" class="auth-form" novalidate>
+        <label class="field" id="authNameField" hidden>
+          <span>Name</span>
+          <input id="authName" type="text" autocomplete="name" maxlength="80" placeholder="What should we call you?">
+        </label>
+        <label class="field">
+          <span>Email</span>
+          <input id="authEmail" type="email" autocomplete="username" inputmode="email" placeholder="you@example.com" required>
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="authPassword" type="password" autocomplete="current-password" required minlength="8">
+        </label>
+        <p id="authPwHint" class="hint" hidden>At least 8 characters.</p>
+        <p id="authError" class="error" role="alert" hidden></p>
+        <button id="authSubmit" class="btn cta" type="submit"><span id="authSubmitLabel">Log in</span></button>
+      </form>
+      <p id="authClosed" class="hint" hidden>Sign-up is closed. Ask the administrator for an account.</p>
+    </div>
+  </section>
 
   <header class="topbar">
     <div class="brand">
@@ -27,7 +64,8 @@
         <span class="dot" id="gatewayDot"></span><span id="gatewayLabel">Loading…</span>
       </button>
       <button id="openHistory" class="icon-btn labelled desktop-only" type="button" data-icon="clock"><span>History</span><span id="historyCount" class="count" hidden></span></button>
-      <button id="openSettings" class="icon-btn labelled desktop-only" type="button" data-icon="settings"><span>LLM settings</span></button>
+      <button id="openSettings" class="icon-btn labelled desktop-only admin-only" type="button" data-icon="settings"><span>LLM settings</span></button>
+      <button id="openAccount" class="icon-btn labelled desktop-only" type="button" data-icon="user"><span id="accountName"></span></button>
       <button id="themeToggle" class="icon-btn" type="button"></button>
       <button id="langToggle" class="icon-btn text" type="button" aria-label="Switch language / 切换语言"></button>
     </div>
@@ -35,7 +73,7 @@
 
   <div id="demoBanner" class="banner" role="status" hidden>
     <span class="banner-text" data-icon="info">Demo mode: scripts are placeholder text until you connect a model.</span>
-    <button id="demoConnect" class="btn small" type="button">Connect a model</button>
+    <button id="demoConnect" class="btn small admin-only" type="button">Connect a model</button>
   </div>
 
   <main class="layout">
@@ -158,6 +196,8 @@
     <section class="output" aria-label="Script">
       <div class="output-head">
         <div id="tabs" class="tabs" role="tablist"></div>
+        <span class="spacer"></span>
+        <span id="mediaStatus" class="status-pill" role="status" aria-live="polite" hidden><span class="spin" aria-hidden="true"></span><span id="mediaStatusText"></span></span>
       </div>
       <div id="result" class="result" tabindex="-1">
         <div class="empty">
@@ -179,7 +219,7 @@
     <button class="nav-btn" type="button" data-nav="brief" data-icon="edit" data-icon-size="22"><span>Brief</span></button>
     <button class="nav-btn" type="button" data-nav="script" data-icon="script" data-icon-size="22"><span>Script</span><span id="navBusy" class="nav-dot" hidden></span></button>
     <button class="nav-btn" type="button" data-nav="history" data-icon="clock" data-icon-size="22"><span>History</span></button>
-    <button class="nav-btn" type="button" data-nav="settings" data-icon="settings" data-icon-size="22"><span>Settings</span></button>
+    <button class="nav-btn" type="button" data-nav="account" data-icon="user" data-icon-size="22"><span>Account</span></button>
   </nav>
 
   <dialog id="historyDialog" class="dialog drawer" aria-labelledby="historyTitle">
@@ -193,6 +233,48 @@
           <input id="historySearch" type="search" placeholder="Search scripts" aria-label="Search scripts">
         </label>
         <div id="historyList" class="history-list"></div>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="accountDialog" class="dialog wide" aria-labelledby="accountTitle">
+    <div class="dialog-shell">
+      <header class="dialog-head">
+        <h2 id="accountTitle">Account</h2>
+        <button id="closeAccount" class="icon-btn" type="button" aria-label="Close" data-icon="x"></button>
+      </header>
+      <div class="dialog-body">
+        <div class="account-card">
+          <span id="accountAvatar" class="avatar" aria-hidden="true"></span>
+          <div class="account-who">
+            <b id="accountFullName"></b>
+            <span id="accountEmail" class="hint"></span>
+          </div>
+          <span id="accountRole" class="badge"></span>
+          <span class="spacer"></span>
+          <button id="accountSettings" class="btn admin-only" type="button" data-icon="settings"><span>LLM settings</span></button>
+          <button id="logout" class="btn" type="button" data-icon="logout"><span>Log out</span></button>
+        </div>
+        <p id="storageWarning" class="status bad" hidden>Storage is temporary on this deployment: accounts, scripts and settings will be lost when the server restarts. Set DATABASE_URL to keep them.</p>
+        <div class="account-bar">
+          <div id="accountTabs" class="seg" role="tablist" aria-label="Account sections">
+            <button class="seg-btn" type="button" role="tab" data-tab="usage" aria-selected="true">Usage</button>
+            <button class="seg-btn" type="button" role="tab" data-tab="activity" aria-selected="false">Activity</button>
+            <button class="seg-btn admin-only" type="button" role="tab" data-tab="users" aria-selected="false">Users</button>
+          </div>
+          <span class="spacer"></span>
+          <select id="accountScope" class="compact admin-only" aria-label="Whose records">
+            <option value="me">My account</option>
+            <option value="all">All users</option>
+          </select>
+          <select id="accountDays" class="compact" aria-label="Period">
+            <option value="7">Last 7 days</option>
+            <option value="30" selected>Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="0">All time</option>
+          </select>
+        </div>
+        <div id="accountPanel" class="account-panel" aria-live="polite"></div>
       </div>
     </div>
   </dialog>

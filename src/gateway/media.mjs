@@ -35,7 +35,7 @@ async function json(res, what) {
 /** Returns { url }: a data: URI when the provider sends base64, otherwise the provider's URL. */
 export async function generateImage(config, { prompt, signal }) {
   const t = target(config, 'image');
-  if (t.demo) return { url: DEMO_IMAGE };
+  if (t.demo) return { url: DEMO_IMAGE, usage: null };
   const body = { model: t.model, prompt, n: 1, ...(t.size && { size: t.size }) };
   const res = await request(`${t.base.replace(/\/images\/generations$/, '')}/images/generations`, {
     method: 'POST',
@@ -43,9 +43,11 @@ export async function generateImage(config, { prompt, signal }) {
     body: JSON.stringify(body),
     signal,
   });
-  const item = (await json(res, 'an image')).data?.[0];
-  if (item?.b64_json) return { url: `data:image/png;base64,${item.b64_json}` };
-  if (typeof item?.url === 'string' && /^https?:\/\//.test(item.url)) return { url: item.url };
+  const reply = await json(res, 'an image');
+  const item = reply.data?.[0];
+  const usage = reply.usage ? { inputTokens: reply.usage.input_tokens ?? reply.usage.prompt_tokens, outputTokens: reply.usage.output_tokens ?? reply.usage.completion_tokens } : null;
+  if (item?.b64_json) return { url: `data:image/png;base64,${item.b64_json}`, usage };
+  if (typeof item?.url === 'string' && /^https?:\/\//.test(item.url)) return { url: item.url, usage };
   throw new GatewayError(`${new URL(res.url).host} did not return an image`, 502);
 }
 

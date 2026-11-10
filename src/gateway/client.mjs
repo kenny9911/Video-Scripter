@@ -24,7 +24,7 @@ export function endpointFor(protocol, baseUrl) {
   return base.endsWith('/chat/completions') ? base : `${base}/chat/completions`;
 }
 
-function buildRequest(protocol, config, { system, user, maxTokens }) {
+function buildRequest(protocol, config, { system, user, maxTokens }, withUsage = true) {
   const headers = { 'content-type': 'application/json', accept: 'text/event-stream' };
   if (protocol === 'anthropic') {
     if (config.apiKey) headers['x-api-key'] = config.apiKey;
@@ -44,6 +44,8 @@ function buildRequest(protocol, config, { system, user, maxTokens }) {
       { role: 'user', content: user },
     ],
     stream: true,
+    // Ask for token counts in the last chunk. A few vendors reject the option; streamChat retries without it.
+    ...(withUsage && { stream_options: { include_usage: true } }),
   };
   return { headers, body };
 }
@@ -55,6 +57,18 @@ function deltaText(protocol, evt) {
   }
   if (evt.error) throw new GatewayError(evt.error.message || 'Upstream stream error');
   return evt.choices?.[0]?.delta?.content || '';
+}
+
+/** Token counts from a stream event, when it carries any: { inputTokens, outputTokens } (either may be absent). */
+function usageOf(protocol, evt) {
+  if (protocol === 'anthropic') {
+    const u = evt.message?.usage || evt.usage;
+    if (!u) return null;
+    return { ...(u.input_tokens != null && { inputTokens: u.input_tokens }), ...(u.output_tokens != null && { outputTokens: u.output_tokens }) };
+  }
+  const u = evt.usage;
+  if (!u) return null;
+  return { inputTokens: u.prompt_tokens ?? u.input_tokens, outputTokens: u.completion_tokens ?? u.output_tokens };
 }
 
 /** Parse a fetch body as Server-Sent Events, yielding each `data:` payload. */
@@ -127,7 +141,11 @@ export async function listModels(config, { signal } = {}) {
   return [...new Set(ids)].sort((a, b) => a.localeCompare(b));
 }
 
-export async function* streamChat(config, { system, user, signal, maxTokens, meta }) {
+/**
+ * Yields the reply as text chunks. `onUsage({ inputTokens, outputTokens })` is called once at the end
+ * when the provider reported token counts (not all do).
+ */
+export async function* streamChat(config, { system, user, signal, maxTokens, meta, onUsage }) {
   const invalid = validateConfig(config);
   if (invalid) throw new GatewayError(invalid, 400);
   const { protocol } = getProvider(config.provider);
@@ -138,9 +156,19 @@ export async function* streamChat(config, { system, user, signal, maxTokens, met
   }
 
   const url = endpointFor(protocol, config.baseUrl);
-  const { headers, body } = buildRequest(protocol, config, { system, user, maxTokens });
-  const res = await request(url, { method: 'POST', headers, body: JSON.stringify(body), signal });
+  const send = (withUsage) => {
+    const { headers, body } = buildRequest(protocol, config, { system, user, maxTokens }, withUsage);
+    return request(url, { method: 'POST', headers, body: JSON.stringify(body), signal });
+  };
+  let res;
+  try {
+    res = await send(true);
+  } catch (err) {
+    if (protocol !== 'openai' || err.status !== 400 || !/stream_options|include_usage|unrecognized|unknown|extra/i.test(err.message)) throw err;
+    res = await send(false);
+  }
 
+  const usage = {};
   for await (const data of sseData(res.body)) {
     if (!data || data === '[DONE]') continue;
     let evt;
@@ -149,9 +177,12 @@ export async function* streamChat(config, { system, user, signal, maxTokens, met
     } catch {
       continue;
     }
+    const u = usageOf(protocol, evt);
+    if (u) for (const [k, v] of Object.entries(u)) if (Number.isFinite(v)) usage[k] = v;
     const text = deltaText(protocol, evt);
     if (text) yield text;
   }
+  if (onUsage && (usage.inputTokens != null || usage.outputTokens != null)) onUsage(usage);
 }
 
 export async function completeChat(config, opts) {

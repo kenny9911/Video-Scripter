@@ -36,7 +36,7 @@ test('images and videos go to their own base URL and model', async (t) => {
     video: { baseUrl: `${up.base}/vid/`, model: 'filmer', apiKey: 'video-key' },
   });
 
-  assert.deepEqual(await generateImage(config, { prompt: 'a cat' }), { url: 'data:image/png;base64,QUJD' });
+  assert.deepEqual(await generateImage(config, { prompt: 'a cat' }), { url: 'data:image/png;base64,QUJD', usage: null });
   assert.deepEqual(up.seen[0].body, { model: 'painter', prompt: 'a cat', n: 1, size: '1024x1536' });
   assert.equal(up.seen[0].auth, 'Bearer text-key'); // no image key: the gateway's is used
 

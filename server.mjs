@@ -1,31 +1,36 @@
-// Video Scripter server: static UI + JSON API + LLM gateway. No dependencies.
-// Binds to localhost only, because it holds an API key and will call any BASE_URL_API it is given.
+// Video Scripter server: static UI + JSON API + LLM gateway.
+// Every API route except sign-up and log-in needs a signed-in user; gateway settings and
+// user management need an administrator. Runs as a plain Node server (npm start) or as one
+// serverless function (api/index.mjs imports `handler`).
 
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { randomUUID } from 'node:crypto';
 
 import { PLATFORMS } from './src/platforms.mjs';
 import { FRAMEWORKS } from './src/frameworks.mjs';
 import { PROVIDERS } from './src/gateway/providers.mjs';
 import { STYLES, STYLE_GROUPS, MAX_STYLES } from './src/styles.mjs';
 import { IMAGE_MODES, SHOT_LABELS, MAX_IMAGES, planShots } from './src/shots.mjs';
-import { randomUUID } from 'node:crypto';
-import { loadConfig, loadStore, saveStore, mergeConfig, publicStore, validateConfig, enabledModels, mediaTarget } from './src/gateway/config.mjs';
+import { loadStore, saveStore, mergeConfig, publicStore, validateConfig, enabledModels, mediaTarget, resolveGateway } from './src/gateway/config.mjs';
 import { streamChat, completeChat, listModels, request } from './src/gateway/client.mjs';
-import { generateImage, createVideo, videoStatus, videoContent } from './src/gateway/media.mjs';
-import { listHistory, addHistory, saveMedia, linkMedia, serveMedia } from './src/store.mjs';
+import { generateImage, createVideo, videoStatus, videoContent, clipSeconds } from './src/gateway/media.mjs';
+import { listHistory, getHistory, addHistory, newHistoryId, saveMedia, linkMedia, serveMedia, mediaOwner } from './src/store.mjs';
 import { buildPackage } from './src/package.mjs';
 import { buildPlan, buildPrompts, parseScript, buildVisualPrompt } from './src/prompt.mjs';
+import { db, storage } from './src/db.mjs';
+import { AuthError, authenticate, checkLogin, createUser, startSession, endSession, endAllSessions, ensureAdmin, publicUser, signupOpen } from './src/auth.mjs';
+import { recordUsage, logActivity, summarizeUsage, listActivity, estimateTokens } from './src/audit.mjs';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const PORT = Number(process.env.PORT) || 3789;
 const HOST = process.env.HOST || '127.0.0.1';
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json' };
 
-const json = (res, status, body) => {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+const json = (res, status, body, headers = {}) => {
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers });
   res.end(JSON.stringify(body));
 };
 
@@ -37,7 +42,11 @@ async function readJson(req) {
     if (size > 1_000_000) throw Object.assign(new Error('Request body too large'), { status: 413 });
     chunks.push(c);
   }
-  if (!chunks.length) return {};
+  if (!chunks.length) {
+    // Some serverless runtimes read the body before the handler runs and hand it over already parsed.
+    if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) return req.body;
+    return {};
+  }
   try {
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
   } catch {
@@ -45,16 +54,23 @@ async function readJson(req) {
   }
 }
 
-// Reject cross-site requests: another web page must not be able to drive this local server.
+// Reject cross-site requests: another web page must not be able to act with a visitor's session.
 function sameOrigin(req) {
   const origin = req.headers.origin;
   if (!origin) return true;
   try {
-    return new URL(origin).host === req.headers.host;
+    return new URL(origin).host === (req.headers['x-forwarded-host'] || req.headers.host);
   } catch {
     return false;
   }
 }
+
+const isAdmin = (user) => user?.role === 'admin';
+const fail = (message, status = 400) => Object.assign(new Error(message), { status });
+
+/** The gateway and model this user writes with. */
+const gatewayFor = async (user) => resolveGateway(await loadStore(), user.prefs);
+const storeView = (store, user) => publicStore(store, { prefs: user.prefs, admin: isAdmin(user) });
 
 /** Unsaved form values merged over the saved gateway they belong to, if any. */
 async function draftConfig(body) {
@@ -62,18 +78,25 @@ async function draftConfig(body) {
   return mergeConfig(body, store.profiles.find((p) => p.id === body.id));
 }
 
+/** A script the user may touch: their own (administrators may open anyone's). Throws 404 otherwise. */
+async function ownedHistory(user, id) {
+  const entry = id ? await getHistory(id) : null;
+  if (!entry || (entry.userId !== user.id && !isAdmin(user))) throw fail('That script is no longer in the history', 404);
+  return entry;
+}
+
 /**
  * Save a generated file and answer with its local URL. A provider-hosted URL is downloaded first;
  * if that fails the provider's URL is passed through so the result is still shown.
  */
-async function keep({ historyId, sceneId }, kind, source, demo = false, link = true) {
+async function keep({ historyId, sceneId }, kind, source, { demo = false, link = true, userId } = {}) {
   let remote = '';
   try {
     if (typeof source === 'string' && /^https?:/.test(source)) {
       remote = source;
       source = await request(source, { signal: AbortSignal.timeout(300_000) });
     }
-    const saved = await saveMedia({ historyId, sceneId, kind, source, demo, link });
+    const saved = await saveMedia({ historyId, sceneId, kind, source, demo, link, userId });
     if (saved) return { ...saved, saved: true };
   } catch (err) {
     console.warn(`[media] could not save the ${kind}: ${err.message}`);
@@ -81,8 +104,79 @@ async function keep({ historyId, sceneId }, kind, source, demo = false, link = t
   return { url: remote || (typeof source === 'string' ? source : ''), saved: false };
 }
 
+// Each route says who may call it: 'public', 'user' (signed in) or 'admin'.
+const route = (access, run) => ({ access, run });
+
 const routes = {
-  'GET /api/meta': async (req, res) => {
+  // ---------- Accounts ----------
+
+  'GET /api/auth/me': route('public', async (req, res, user) => {
+    json(res, 200, { user: publicUser(user), signupOpen: signupOpen(), storage: isAdmin(user) ? storage : undefined });
+  }),
+
+  'POST /api/auth/signup': route('public', async (req, res) => {
+    if (!signupOpen()) throw fail('Sign-up is closed. Ask the administrator for an account.', 403);
+    const body = await readJson(req);
+    const user = await createUser({ email: body.email, password: body.password, name: body.name });
+    await logActivity(req, user, 'auth.signup');
+    json(res, 200, { user: publicUser(user) }, { 'set-cookie': await startSession(req, user) });
+  }),
+
+  'POST /api/auth/login': route('public', async (req, res) => {
+    const body = await readJson(req);
+    try {
+      const user = await checkLogin(body.email, body.password);
+      await logActivity(req, user, 'auth.login');
+      json(res, 200, { user: publicUser(user) }, { 'set-cookie': await startSession(req, user) });
+    } catch (err) {
+      if (err instanceof AuthError) await logActivity(req, null, 'auth.login_failed', { email: String(body.email || '').slice(0, 254), reason: err.message });
+      throw err;
+    }
+  }),
+
+  'POST /api/auth/logout': route('public', async (req, res, user) => {
+    if (user) await logActivity(req, user, 'auth.logout');
+    json(res, 200, { ok: true }, { 'set-cookie': await endSession(req) });
+  }),
+
+  // ---------- Usage and activity ----------
+
+  // scope=all (administrators only) covers every user; otherwise the caller's own.
+  'GET /api/usage': route('user', async (req, res, user, query) => {
+    const all = query.get('scope') === 'all' && isAdmin(user);
+    json(res, 200, { scope: all ? 'all' : 'me', ...(await summarizeUsage({ userId: all ? undefined : user.id, days: Number(query.get('days') ?? 30) })) });
+  }),
+
+  'GET /api/activity': route('user', async (req, res, user, query) => {
+    const all = query.get('scope') === 'all' && isAdmin(user);
+    json(res, 200, { scope: all ? 'all' : 'me', items: await listActivity({ userId: all ? undefined : user.id, limit: query.get('limit') }) });
+  }),
+
+  // ---------- Administration ----------
+
+  'GET /api/admin/users': route('admin', async (req, res) => {
+    const usage = new Map((await summarizeUsage({ days: 0 })).byUser.map((u) => [u.key, u]));
+    const scripts = new Map();
+    for (const e of await db.list('history')) scripts.set(e.userId, (scripts.get(e.userId) || 0) + 1);
+    json(res, 200, { users: (await db.list('users')).map((u) => ({ ...publicUser(u), scripts: scripts.get(u.id) || 0, usage: usage.get(u.id) || null })) });
+  }),
+
+  'POST /api/admin/users/update': route('admin', async (req, res, user) => {
+    const { id, role, disabled } = await readJson(req);
+    if (id === user.id) throw fail('You cannot change your own role or disable your own account');
+    const target = await db.update('users', String(id || ''), (u) => {
+      if (role === 'admin' || role === 'user') u.role = role;
+      if (typeof disabled === 'boolean') u.disabled = disabled;
+    });
+    if (!target) throw fail('That user no longer exists', 404);
+    if (target.disabled) await endAllSessions(target.id);
+    await logActivity(req, user, 'admin.user_update', { target: target.email, role: target.role, disabled: Boolean(target.disabled) });
+    json(res, 200, { user: publicUser(target) });
+  }),
+
+  // ---------- Reference data and gateways ----------
+
+  'GET /api/meta': route('user', async (req, res) => {
     json(res, 200, {
       platforms: PLATFORMS.map(({ id, name, nameEn, lang, defaultDuration, durations }) => ({ id, name, nameEn, lang, defaultDuration, durations })),
       frameworks: FRAMEWORKS.map(({ id, name, blurb }) => ({ id, name, blurb })),
@@ -94,15 +188,15 @@ const routes = {
       shotLabels: SHOT_LABELS,
       maxImages: MAX_IMAGES,
     });
-  },
+  }),
 
-  // Every saved gateway (keys masked) and which one is in use.
-  'GET /api/gateway/config': async (req, res) => {
-    json(res, 200, publicStore(await loadStore()));
-  },
+  // The saved gateways. Administrators see addresses and masked keys; everyone else only the model picker.
+  'GET /api/gateway/config': route('user', async (req, res, user) => {
+    json(res, 200, storeView(await loadStore(), user));
+  }),
 
-  // Create a gateway (no id) or update one (id). `activate: true` also puts it in use.
-  'PUT /api/gateway/config': async (req, res) => {
+  // Create a gateway (no id) or update one (id). `activate: true` also makes it the default for everyone.
+  'PUT /api/gateway/config': route('admin', async (req, res, user) => {
     const body = await readJson(req);
     const store = await loadStore();
     const index = body.id ? store.profiles.findIndex((p) => p.id === body.id) : -1;
@@ -113,55 +207,56 @@ const routes = {
     if (index < 0) store.profiles.push({ ...config, id: randomUUID().slice(0, 8) });
     else store.profiles[index] = config;
     const saved = store.profiles[index < 0 ? store.profiles.length - 1 : index];
-    if (body.activate) store.activeId = saved.id;
+    if (body.activate) {
+      store.activeId = saved.id;
+      user = await db.update('users', user.id, (u) => void (u.prefs = { ...u.prefs, gatewayId: saved.id, model: saved.model }));
+    }
     await saveStore(store);
-    json(res, 200, { ...publicStore(store), savedId: saved.id });
-  },
+    await logActivity(req, user, index < 0 ? 'gateway.create' : 'gateway.update', { gateway: saved.name, model: saved.model, default: Boolean(body.activate) });
+    json(res, 200, { ...storeView(store, user), savedId: saved.id });
+  }),
 
-  // Choose the gateway (and optionally which of its enabled models) that writes scripts.
-  'POST /api/gateway/select': async (req, res) => {
+  // Each user picks the gateway and model they write with; it does not change anyone else's.
+  'POST /api/gateway/select': route('user', async (req, res, user) => {
     const { id, model } = await readJson(req);
     const store = await loadStore();
     const profile = store.profiles.find((p) => p.id === id);
     if (!profile) return json(res, 404, { error: 'That gateway no longer exists' });
-    if (model && model !== profile.model) {
-      if (!enabledModels(profile).includes(model)) return json(res, 400, { error: `Model "${model}" is not enabled for ${profile.name}` });
-      profile.models = enabledModels(profile); // keep the previous default selectable
-      profile.model = model;
-    }
-    store.activeId = profile.id;
-    await saveStore(store);
-    json(res, 200, publicStore(store));
-  },
+    if (model && !enabledModels(profile).includes(model)) return json(res, 400, { error: `Model "${model}" is not enabled for ${profile.name}` });
+    user = await db.update('users', user.id, (u) => void (u.prefs = { ...u.prefs, gatewayId: profile.id, model: model || profile.model }));
+    json(res, 200, storeView(store, user));
+  }),
 
-  'POST /api/gateway/delete': async (req, res) => {
+  'POST /api/gateway/delete': route('admin', async (req, res, user) => {
     const { id } = await readJson(req);
     const store = await loadStore();
+    const gone = store.profiles.find((p) => p.id === id);
     store.profiles = store.profiles.filter((p) => p.id !== id);
     if (store.activeId === id) store.activeId = store.profiles[0]?.id;
     await saveStore(store);
-    json(res, 200, publicStore(await loadStore())); // reload: an empty list falls back to the env/demo gateway
-  },
+    if (gone) await logActivity(req, user, 'gateway.delete', { gateway: gone.name });
+    json(res, 200, storeView(await loadStore(), user)); // reload: an empty list falls back to the env/demo gateway
+  }),
 
   // Tests the form values in the request body without saving; `id` lets a blank key fall back to the saved one.
-  'POST /api/gateway/test': async (req, res) => {
+  'POST /api/gateway/test': route('admin', async (req, res, user) => {
     const config = await draftConfig(await readJson(req));
     const started = Date.now();
+    const prompts = { system: 'You are a connectivity check.', user: 'Reply with the single word OK.' };
+    let usage = null;
     try {
-      const reply = await completeChat(config, {
-        system: 'You are a connectivity check.',
-        user: 'Reply with the single word OK.',
-        maxTokens: 256,
-        signal: AbortSignal.timeout(30_000),
-      });
+      const reply = await completeChat(config, { ...prompts, maxTokens: 256, signal: AbortSignal.timeout(30_000), onUsage: (u) => (usage = u) });
+      await recordUsage({ user, kind: 'test', config, ...tokens(usage, prompts, reply), ms: Date.now() - started });
       json(res, 200, { ok: true, ms: Date.now() - started, model: config.model, reply: reply.trim().slice(0, 120) });
     } catch (err) {
-      json(res, 200, { ok: false, ms: Date.now() - started, error: err.name === 'TimeoutError' ? 'Timed out after 30s' : err.message });
+      const error = err.name === 'TimeoutError' ? 'Timed out after 30s' : err.message;
+      await recordUsage({ user, kind: 'test', config, ok: false, error, ms: Date.now() - started });
+      json(res, 200, { ok: false, ms: Date.now() - started, error });
     }
-  },
+  }),
 
   // Lists the models the provider offers for the form values in the request body (unsaved).
-  'POST /api/gateway/models': async (req, res) => {
+  'POST /api/gateway/models': route('admin', async (req, res) => {
     const body = await readJson(req);
     let config = await draftConfig(body);
     if (body.kind === 'image' || body.kind === 'video') {
@@ -177,23 +272,27 @@ const routes = {
     } catch (err) {
       json(res, 200, { ok: false, error: err.name === 'TimeoutError' ? 'Timed out after 20s' : err.message });
     }
-  },
+  }),
 
-  // Every finished script is saved here; generated media is linked from its entry.
-  'GET /api/history': async (req, res) => {
-    json(res, 200, await listHistory());
-  },
+  // ---------- Scripts ----------
 
-  'POST /api/history': async (req, res) => {
-    json(res, 200, await addHistory(await readJson(req)));
-  },
+  // The signed-in user's scripts, newest first; generated media is linked from each entry.
+  'GET /api/history': route('user', async (req, res, user) => {
+    json(res, 200, await listHistory(user.id));
+  }),
+
+  // Import a script made elsewhere (older versions kept history in the browser).
+  'POST /api/history': route('user', async (req, res, user) => {
+    const { platformId, brief, plan, script, ts } = await readJson(req);
+    json(res, 200, await addHistory({ userId: user.id, platformId, brief, plan, script, ts }));
+  }),
 
   // One script with all its generated media, as a .zip. The page sends the Markdown it renders.
-  'POST /api/history/package': async (req, res) => {
+  'POST /api/history/package': route('user', async (req, res, user) => {
     const { id, markdown } = await readJson(req);
-    const entry = (await listHistory()).find((e) => e.id === id);
-    if (!entry) return json(res, 404, { error: 'That script is no longer in the history' });
+    const entry = await ownedHistory(user, id);
     const pkg = await buildPackage(entry, { markdown });
+    await logActivity(req, user, 'script.download', { taskId: entry.id, title: entry.script.title, files: pkg.files.length });
     res.writeHead(200, {
       'content-type': 'application/zip',
       'content-length': pkg.buffer.length,
@@ -201,80 +300,137 @@ const routes = {
       'cache-control': 'no-store',
     });
     res.end(pkg.buffer);
-  },
+  }),
 
-  // Media for one scene, made with the image / video settings of the gateway in use,
-  // then written to data/media and linked from the history entry `historyId`.
-  'POST /api/media/image': async (req, res) => {
+  // Media for one scene, made with the image / video settings of the user's gateway,
+  // then stored and linked from the script `historyId`.
+  'POST /api/media/image': route('user', async (req, res, user) => {
     const scene = await readJson(req);
-    const config = await loadConfig();
+    if (scene.historyId) await ownedHistory(user, scene.historyId);
+    const config = await gatewayFor(user);
+    const target = mediaTarget(config, 'image');
     // `count` (1-3) images, related to each other as `mode` says (see src/shots.mjs). Each image is its own
     // request, since many image models only return one, and each shot has its own prompt.
     const shots = planShots(scene.mode, scene.count, scene.styleIds);
     const prompts = shots.map((shot) => buildVisualPrompt(scene, 'image', scene.styleIds, shot)); // throws on a scene with no visual
-    const demo = mediaTarget(config, 'image').demo;
     const results = await Promise.allSettled(
       prompts.map(async (prompt) => {
-        const made = await generateImage(config, { prompt, signal: AbortSignal.timeout(180_000) });
-        return keep(scene, 'image', made.url, demo, false);
+        const started = Date.now();
+        const usage = { user, taskId: scene.historyId, kind: 'image', config, model: target.model || 'demo' };
+        try {
+          const made = await generateImage(config, { prompt, signal: AbortSignal.timeout(180_000) });
+          await recordUsage({ ...usage, images: 1, inputTokens: made.usage?.inputTokens ?? estimateTokens(prompt), outputTokens: made.usage?.outputTokens, estimated: !made.usage, ms: Date.now() - started });
+          return keep(scene, 'image', made.url, { demo: target.demo, link: false, userId: user.id });
+        } catch (err) {
+          await recordUsage({ ...usage, ok: false, error: err.message, ms: Date.now() - started });
+          throw err;
+        }
       }),
     );
     const done = results.map((r, i) => (r.status === 'fulfilled' && r.value.url ? { ...r.value, shot: shots[i].id } : null)).filter(Boolean);
-    if (!done.length) throw results.find((r) => r.status === 'rejected')?.reason || new Error('The provider returned no image');
+    const failed = results.find((r) => r.status === 'rejected');
+    await logActivity(req, user, 'image.generate', { taskId: scene.historyId, scene: scene.sceneId, requested: shots.length, made: done.length, mode: scene.mode || 'variations', model: target.model || 'demo', ...(failed && { error: failed.reason.message.slice(0, 200) }) });
+    if (!done.length) throw failed?.reason || new Error('The provider returned no image');
     const urls = done.map((d) => d.url);
     const labels = done.map((d) => d.shot);
     if (done.every((d) => d.saved)) await linkMedia({ historyId: scene.historyId, sceneId: scene.sceneId, kind: 'image', urls, shots: labels });
-    const failed = results.find((r) => r.status === 'rejected');
     json(res, 200, { url: urls[0], urls, shots: labels, requested: shots.length, ...(failed && { warning: failed.reason.message }) });
-  },
+  }),
 
   // Videos take minutes: this starts the job and the page polls /status, which saves the file once it is ready.
-  'POST /api/media/video': async (req, res) => {
+  'POST /api/media/video': route('user', async (req, res, user) => {
     const scene = await readJson(req);
+    if (scene.historyId) await ownedHistory(user, scene.historyId);
     const prompt = buildVisualPrompt(scene, 'video');
     const seconds = Number(scene.end) - Number(scene.start);
-    json(res, 200, await createVideo(await loadConfig(), { prompt, seconds, signal: AbortSignal.timeout(60_000) }));
-  },
+    const config = await gatewayFor(user);
+    const usage = { user, taskId: scene.historyId, kind: 'video', config, model: mediaTarget(config, 'video').model, inputTokens: estimateTokens(prompt), estimated: true };
+    const started = Date.now();
+    try {
+      const job = await createVideo(config, { prompt, seconds, signal: AbortSignal.timeout(60_000) });
+      await recordUsage({ ...usage, videoSeconds: clipSeconds(seconds || 4), ms: Date.now() - started });
+      await logActivity(req, user, 'video.generate', { taskId: scene.historyId, scene: scene.sceneId, seconds: clipSeconds(seconds || 4), model: usage.model });
+      json(res, 200, job);
+    } catch (err) {
+      await recordUsage({ ...usage, ok: false, error: err.message, ms: Date.now() - started });
+      throw err;
+    }
+  }),
 
-  'POST /api/media/video/status': async (req, res) => {
+  'POST /api/media/video/status': route('user', async (req, res, user) => {
     const body = await readJson(req);
-    const config = await loadConfig();
+    if (body.historyId) await ownedHistory(user, body.historyId);
+    const config = await gatewayFor(user);
     const job = await videoStatus(config, String(body.id || ''), { signal: AbortSignal.timeout(30_000) });
     if (job.status !== 'done') return json(res, 200, job);
     const source = job.url || (await videoContent(config, job.id, { signal: AbortSignal.timeout(300_000) }));
-    json(res, 200, { ...job, ...(await keep(body, 'video', source)) });
-  },
+    json(res, 200, { ...job, ...(await keep(body, 'video', source, { userId: user.id })) });
+  }),
 
-  'POST /api/generate': async (req, res) => {
-    const plan = buildPlan(await readJson(req)); // throws on a bad brief -> 400 below
-    const config = await loadConfig();
+  // Writes one script. The server saves it to the user's history and records the model call,
+  // so the task exists even if the browser tab closes before the reply ends.
+  'POST /api/generate': route('user', async (req, res, user) => {
+    const brief = await readJson(req);
+    const plan = buildPlan(brief); // throws on a bad brief -> 400 below
+    const config = await gatewayFor(user);
     const invalid = validateConfig(config);
     if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
 
-    res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive' });
+    res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no' });
     const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     const abort = new AbortController();
     res.on('close', () => abort.abort());
 
-    send('plan', { timeline: plan.timeline, budget: plan.budget, unit: plan.unit, model: config.model || config.name, provider: config.provider });
+    const taskId = newHistoryId();
+    const planInfo = { timeline: plan.timeline, budget: plan.budget, unit: plan.unit, model: config.model || config.name, provider: config.provider };
+    const about = { taskId, platform: plan.brief.platform.id, topic: plan.brief.topic.slice(0, 120), model: planInfo.model };
+    send('plan', { ...planInfo, taskId });
+    const started = Date.now();
+    const prompts = buildPrompts(plan);
     let raw = '';
+    let usage = null;
+    const record = (extra) => recordUsage({ user, taskId, kind: 'script', config, ...tokens(usage, prompts, raw), ms: Date.now() - started, ...extra });
     try {
-      const prompts = buildPrompts(plan);
-      for await (const text of streamChat(config, { ...prompts, signal: abort.signal, meta: { plan } })) {
+      for await (const text of streamChat(config, { ...prompts, signal: abort.signal, meta: { plan }, onUsage: (u) => (usage = u) })) {
         raw += text;
         send('delta', { text });
       }
+      let script = null;
+      let parseError = '';
       try {
-        send('done', { script: parseScript(raw) });
+        script = parseScript(raw);
       } catch (err) {
-        send('done', { script: null, raw, parseError: err.message });
+        parseError = err.message;
+      }
+      await record(script ? {} : { ok: false, error: `Unreadable reply: ${parseError}` });
+      if (script) {
+        const { platformId, ...rest } = brief;
+        const entry = await addHistory({ id: taskId, userId: user.id, platformId: plan.brief.platform.id, brief: rest, plan: planInfo, script });
+        await logActivity(req, user, 'script.generate', { ...about, title: script.title, scenes: script.scenes.length });
+        send('done', { script, historyId: entry.id, entry });
+      } else {
+        await logActivity(req, user, 'script.failed', { ...about, error: parseError });
+        send('done', { script: null, raw, parseError });
       }
     } catch (err) {
-      if (err.name !== 'AbortError') send('error', { error: err.message });
+      const stopped = err.name === 'AbortError';
+      await record({ ok: false, error: stopped ? 'Stopped by the user' : err.message });
+      await logActivity(req, user, stopped ? 'script.stopped' : 'script.failed', { ...about, ...(!stopped && { error: err.message.slice(0, 200) }) });
+      if (!stopped) send('error', { error: err.message });
     }
     res.end();
-  },
+  }),
 };
+
+/** Token counts for a usage record: the provider's when it reported them, otherwise an estimate from the text. */
+function tokens(usage, prompts, reply) {
+  const estimated = usage?.inputTokens == null || usage?.outputTokens == null;
+  return {
+    inputTokens: usage?.inputTokens ?? estimateTokens(`${prompts.system}\n${prompts.user}`),
+    outputTokens: usage?.outputTokens ?? estimateTokens(reply),
+    estimated,
+  };
+}
 
 async function serveStatic(req, res, pathname) {
   const rel = pathname === '/' ? 'index.html' : decodeURIComponent(pathname).replace(/^\/+/, '');
@@ -282,25 +438,36 @@ async function serveStatic(req, res, pathname) {
   if (!file.startsWith(PUBLIC + path.sep)) return json(res, 403, { error: 'Forbidden' });
   try {
     const data = await readFile(file);
-    res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-cache' });
+    res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-cache', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'referrer-policy': 'same-origin' });
     res.end(data);
   } catch {
     json(res, 404, { error: 'Not found' });
   }
 }
 
-const server = http.createServer(async (req, res) => {
-  const { pathname } = new URL(req.url, 'http://localhost');
+/** The whole application as one request handler. */
+export async function handler(req, res) {
+  const { pathname, searchParams } = new URL(req.url, 'http://localhost');
   try {
     if (pathname.startsWith('/api/')) {
       if (!sameOrigin(req)) return json(res, 403, { error: 'Cross-origin request refused' });
-      const handler = routes[`${req.method} ${pathname}`];
-      if (!handler) return json(res, 404, { error: 'Not found' });
-      return await handler(req, res);
+      const found = routes[`${req.method} ${pathname}`];
+      if (!found) return json(res, 404, { error: 'Not found' });
+      await ensureAdmin();
+      const user = await authenticate(req);
+      if (found.access !== 'public' && !user) return json(res, 401, { error: 'Sign in to continue' });
+      if (found.access === 'admin' && !isAdmin(user)) return json(res, 403, { error: 'Only an administrator can do that' });
+      return await found.run(req, res, user, searchParams);
     }
-    if (req.method !== 'GET') return json(res, 405, { error: 'Method not allowed' });
+    if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'Method not allowed' });
     if (pathname.startsWith('/media/')) {
-      if (await serveMedia(req, res, pathname.slice(7))) return;
+      // Generated media is private: only its owner (or an administrator) can fetch it.
+      const name = pathname.slice(7);
+      const user = await authenticate(req);
+      if (!user) return json(res, 401, { error: 'Sign in to continue' });
+      const owner = mediaOwner(name);
+      if (owner) await ownedHistory(user, owner);
+      if (await serveMedia(req, res, name)) return;
       return json(res, 404, { error: 'Not found' });
     }
     await serveStatic(req, res, pathname);
@@ -308,8 +475,12 @@ const server = http.createServer(async (req, res) => {
     if (res.headersSent) return res.end();
     json(res, err.status || 400, { error: err.message });
   }
-});
+}
 
-server.listen(PORT, HOST, () => {
-  console.log(`Video Scripter running at http://${HOST === '127.0.0.1' ? 'localhost' : HOST}:${PORT}`);
-});
+// Started directly (npm start): listen. Imported (serverless function, tests): only export the handler.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  http.createServer(handler).listen(PORT, HOST, () => {
+    console.log(`Video Scripter running at http://${HOST === '127.0.0.1' ? 'localhost' : HOST}:${PORT}`);
+    if (!storage.durable) console.warn('Storage is temporary here: set DATABASE_URL to keep accounts and scripts.');
+  });
+}

@@ -69,6 +69,46 @@ test('OpenAI-compatible and Anthropic adapters stream text and send auth', async
   );
 });
 
+test('token usage is reported when the provider sends it, and a vendor that rejects the option still works', async (t) => {
+  const seen = [];
+  const server = http.createServer(async (req, res) => {
+    let body = '';
+    for await (const c of req) body += c;
+    const sent = JSON.parse(body);
+    seen.push(sent);
+    if (req.url.startsWith('/strict') && sent.stream_options) {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ error: { message: 'Unrecognized request argument supplied: stream_options' } }));
+    }
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    if (req.url.endsWith('/v1/messages')) {
+      res.write('data: {"type":"message_start","message":{"usage":{"input_tokens":11,"output_tokens":1}}}\n\n');
+      res.write('data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}\n\n');
+      res.write('data: {"type":"message_delta","usage":{"output_tokens":7}}\n\n');
+    } else {
+      res.write('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n');
+      if (!req.url.startsWith('/strict')) res.write('data: {"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":3,"total_tokens":15}}\n\n');
+      res.write('data: [DONE]\n\n');
+    }
+    res.end();
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const run = async (config) => {
+    let usage = null;
+    const text = await completeChat(config, { system: 's', user: 'u', onUsage: (u) => (usage = u) });
+    return [text, usage];
+  };
+
+  assert.deepEqual(await run({ provider: 'custom', baseUrl: `${base}/v1`, apiKey: 'k', model: 'm' }), ['hi', { inputTokens: 12, outputTokens: 3 }]);
+  assert.deepEqual(seen[0].stream_options, { include_usage: true });
+  assert.deepEqual(await run({ provider: 'custom-anthropic', baseUrl: base, apiKey: 'k', model: 'm' }), ['hi', { inputTokens: 11, outputTokens: 7 }]);
+  // Rejected once with the option, accepted without it; no counts means onUsage is never called.
+  assert.deepEqual(await run({ provider: 'custom', baseUrl: `${base}/strict/v1`, apiKey: 'k', model: 'm' }), ['hi', null]);
+  assert.deepEqual([seen.length, Boolean(seen[2].stream_options), Boolean(seen[3].stream_options)], [4, true, false]);
+});
+
 test('listModels asks the right endpoint per protocol and returns sorted unique ids', async (t) => {
   const up = await fakeUpstream();
   t.after(() => up.server.close());

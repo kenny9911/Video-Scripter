@@ -4,7 +4,7 @@
 
 Video Scripter is a script studio for short social video. Describe the video once, pick your platforms, and get a separate script for each one, written for that platform's audience, pacing and publishing rules, with storyboard images and clips generated from the scene notes.
 
-It runs on your own machine, works with the model provider you already use, and keeps every script, image and clip in a folder you own.
+It works with the model provider you already use, runs on your own machine or on a host such as Vercel, and gives every user their own account, history and usage record.
 
 [中文说明](README.zh-CN.md)
 
@@ -15,7 +15,8 @@ It runs on your own machine, works with the model provider you already use, and 
 - **Ready to publish.** Titles, cover text, description, hashtags and a pinned comment come with every script.
 - **Storyboards included.** Turn any scene into a 9:16 image or clip, in one of 27 visual styles.
 - **Any model.** Ten provider presets, from OpenAI and Anthropic to 通义千问, 豆包 and local Ollama, plus any OpenAI-compatible or Anthropic-compatible endpoint. Switch model per script.
-- **Yours to keep.** No account, no cloud, no install step. Everything is saved to disk and exports as one tidy `.zip`.
+- **Yours to keep.** Every script, image and clip is saved to your account and exports as one tidy `.zip`.
+- **Built for a team.** Accounts with sign-up and log-in, an administrator who manages models and users, token and image usage per script and per user, and an activity log.
 
 ## Platforms
 
@@ -31,13 +32,19 @@ The script language follows the platform. The interface language is a separate c
 
 ## Get started
 
-Video Scripter needs Node.js 20 or newer. There is nothing to install.
+Video Scripter needs Node.js 20 or newer.
 
 ```bash
-npm start
+npm install
 ```
 
-Open http://localhost:3789. The app starts in demo mode, which returns placeholder text so you can explore the workflow without a model. Click **LLM settings** to connect one.
+```bash
+ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='choose-a-long-password' npm start
+```
+
+Open http://localhost:3789 and log in with that email and password. `ADMIN_EMAIL` and `ADMIN_PASSWORD` create the administrator the first time the server starts; after that they can be left out. Everyone else signs up from the log-in screen.
+
+The app starts in demo mode, which returns placeholder text so you can explore the workflow without a model. As the administrator, click **LLM settings** to connect one. To put it online, see [Deploy on Vercel](#deploy-on-vercel).
 
 ## How it works
 
@@ -167,19 +174,40 @@ Each gateway has an **Images and videos** section with a separate BASE_URL_API, 
 - Size is sent only if you fill it in.
 - **List available image models** and **video models** ask that address for its models. Providers return every model they have, so names that look like image or video models are listed first.
 
+## Accounts, usage and activity
+
+### Accounts
+
+- **Sign up and log in** with an email and a password of at least 8 characters. Sessions last 30 days.
+- **Two roles.** A *member* writes scripts, generates media, and sees their own history, usage and activity. An *administrator* also manages LLM gateways (members never see addresses or keys, only the model picker), and sees and manages every user.
+- **The first administrator** comes from `ADMIN_EMAIL` and `ADMIN_PASSWORD`. Nobody becomes an administrator by signing up; an administrator can promote or disable other users under **Account → Users**.
+- **Each user picks their own model** in the brief. The administrator's "Use this gateway" sets the default for people who have not picked one.
+- Set `ALLOW_SIGNUP=false` to close sign-up.
+
+Not included yet: email verification, password reset, and changing a password from the app.
+
+### Usage
+
+Every call to a model is recorded: who made it, for which script, which gateway and model, tokens in and out, images made, video seconds, how long it took, and whether it failed. **Account → Usage** shows totals for a period, then the same numbers by script, by model and call by call. Administrators can switch to **All users** for a per-user breakdown.
+
+Token counts come from the provider when it reports them (OpenAI-compatible `usage`, Anthropic `usage`). When a provider reports none, the count is estimated from the text and marked with ≈.
+
+### Activity log
+
+**Account → Activity** lists what happened and when: sign-ups, log-ins and failed log-ins, scripts written, stopped or failed, images and videos generated, packages downloaded, and gateway and user changes. Members see their own; administrators can see everyone's. Passwords and API keys are never written to the log.
+
 ## Your work
 
-Nothing is kept only in the browser.
+Everything is stored on the server, per user. Where it lives depends on how the app is run:
 
-| Location | Contents |
-| --- | --- |
-| `data/history.json` | Every finished script (brief, plan and script), with no limit. Listed under **History**. |
-| `data/media/` | Every generated image and video, linked from its script. |
-| `data/gateway.json` | Your saved gateways and their keys. |
+| | Local (`npm start`) | Hosted (`DATABASE_URL` set) |
+| --- | --- | --- |
+| Scripts, users, sessions, usage, activity, gateways | `data/<name>.json` | Postgres table `vs_docs` |
+| Generated images and videos | `data/media/` | Postgres table `vs_blobs` |
 
-Reopening a script from History shows its media again. Redoing an image or video keeps the earlier file on disk and shows the newest. If a provider returns a link instead of a file, the file is downloaded and stored too.
+Reopening a script from History shows its media again. Redoing an image or video keeps the earlier file and shows the newest. If a provider returns a link instead of a file, the file is downloaded and stored too. Media is private: only its owner and administrators can open it.
 
-To back up your work or move it to another machine, copy the `data/` folder.
+To back up a local install or move it to another machine, copy the `data/` folder.
 
 ### The download package
 
@@ -197,12 +225,27 @@ When a scene has several images, each file name gains a number, and its role whe
 
 ## Privacy and security
 
-- **Local only.** The server listens on `127.0.0.1` and refuses cross-origin API calls.
-- **Keys stay on the server.** Each key is stored with its own gateway in `data/gateway.json` (file mode 600). The browser only ever receives a masked preview.
+- **Sign-in required.** Every API route except sign-up and log-in needs a session, and cross-origin API calls are refused.
+- **Passwords are never stored.** Only a salted scrypt hash is kept. Five wrong passwords lock an account for 15 minutes.
+- **Sessions** are random tokens in an `HttpOnly`, `SameSite=Lax` cookie (`Secure` on HTTPS); the server stores only their SHA-256.
+- **Each user's work is their own.** Scripts, media, usage and activity are scoped to the signed-in user.
+- **Keys stay on the server.** Each API key is stored with its own gateway. Administrators see a masked preview; members see nothing.
 - **Keys cannot leak to another service.** Changing a gateway's provider or base URL clears its saved key.
-- **Out of version control.** `data/` is git-ignored.
+- **Out of version control.** `data/` is git-ignored. Never put `ADMIN_PASSWORD` or API keys in the repository; set them as environment variables.
 
-Your brief and reference material are sent to the model provider you choose, and to no one else.
+A brief and its reference material are sent to the model provider the user picked, and to no one else.
+
+## Deploy on Vercel
+
+The repository deploys as is: `vercel.json` selects the "Other" framework preset, serves `public/` as static files, and sends `/api/*` and `/media/*` to one Node.js function (`api/index.mjs`).
+
+1. **Add a Postgres database.** In the Vercel project, open **Storage** and create a Postgres database (Neon). It adds `DATABASE_URL` to the project. The tables are created on the first request.
+2. **Add two environment variables** under **Settings → Environment Variables**: `ADMIN_EMAIL` and `ADMIN_PASSWORD`. Mark the password as sensitive.
+3. **Redeploy**, open the site, and log in as the administrator. Connect a model under **LLM settings**.
+
+Without `DATABASE_URL` the site still runs, but on temporary storage: accounts, scripts and settings disappear when the function restarts. The Account dialog shows a warning to administrators while that is the case.
+
+Limits worth knowing on Vercel: a request can run for up to 300 seconds (`maxDuration` in `vercel.json`), and large downloads such as a `.zip` with many images or a long video may exceed the platform's response size limit. Images and clips are stored in Postgres, which suits a small team; for heavy use, move media to object storage.
 
 ## Interface
 
@@ -224,8 +267,11 @@ Everything below is optional. Settings saved in the app take precedence over the
 | --- | --- | --- |
 | `PORT` | Port the server listens on | `3789` |
 | `HOST` | Address the server binds to | `127.0.0.1` |
-| `DATA_DIR` | Where history and media are stored | `data/` |
-| `GATEWAY_CONFIG_FILE` | Where saved gateways are stored | `data/gateway.json` |
+| `DATA_DIR` | Where everything is stored when no database is set | `data/` |
+| `DATABASE_URL`, `POSTGRES_URL` | Postgres connection string. When set, everything is stored there instead of `DATA_DIR` | None |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Creates the administrator on first start | None |
+| `ALLOW_SIGNUP` | Set to `false` to close sign-up | Open |
+| `GATEWAY_CONFIG_FILE` | Older gateway file, read once if no gateways are saved yet | `data/gateway.json` |
 | `LLM_PROVIDER` | Provider preset for the starting gateway | Demo |
 | `BASE_URL_API`, `LLM_BASE_URL` | Base URL for the starting gateway | The preset's |
 | `API_KEY`, `LLM_API_KEY` | API key for the starting gateway | None |
@@ -235,7 +281,7 @@ Everything below is optional. Settings saved in the app take precedence over the
 
 ## For developers
 
-Video Scripter is plain Node.js with no dependencies and no build step.
+Video Scripter is plain Node.js with no build step. Its one dependency is `pg`, loaded only when `DATABASE_URL` is set.
 
 ```bash
 npm run dev
@@ -257,7 +303,11 @@ src/frameworks.mjs      script structures and their stage timing
 src/styles.mjs          visual styles for images and clips
 src/shots.mjs           how several images of one scene relate (multi-image modes)
 src/prompt.mjs          brief -> timeline + prompts; model reply -> script
-src/store.mjs           saved history and generated media (data/)
+src/db.mjs              storage: JSON documents and blobs, on disk or in Postgres
+src/auth.mjs            accounts, password hashing, sessions, the first administrator
+src/audit.mjs           usage records (every model call) and the activity log
+src/store.mjs           saved scripts and generated media
+api/index.mjs           serverless entry point (Vercel); vercel.json routes requests to it
 src/package.mjs         the downloadable .zip for one script (src/zip.mjs writes the archive)
 public/                 the web UI
 test/                   node --test
@@ -294,18 +344,24 @@ Image and video generation use the OpenAI-compatible media endpoints.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
+| `GET` | `/api/auth/me` | The signed-in user, or `null` |
+| `POST` | `/api/auth/signup`, `/api/auth/login`, `/api/auth/logout` | `{ email, password, name? }` Start or end a session |
+| `GET` | `/api/usage?scope=me\|all&days=30` | Usage totals, by script, by model, by user (administrators) and the latest calls |
+| `GET` | `/api/activity?scope=me\|all` | The activity log |
+| `GET` | `/api/admin/users` | Administrators: every user with their totals |
+| `POST` | `/api/admin/users/update` | Administrators: `{ id, role?, disabled? }` |
 | `GET` | `/api/meta` | Platforms, frameworks and provider presets |
 | `GET` | `/api/gateway/config` | Every saved gateway (keys masked) and the one in use |
-| `PUT` | `/api/gateway/config` | Create a gateway, or update the one with the given `id`. `activate: true` puts it in use |
-| `POST` | `/api/gateway/select` | `{ id, model? }` Choose the gateway, and one of its enabled models, that writes scripts |
+| `PUT` | `/api/gateway/config` | Administrators: create a gateway, or update the one with the given `id`. `activate: true` makes it the default |
+| `POST` | `/api/gateway/select` | `{ id, model? }` Choose the gateway and model the signed-in user writes with |
 | `POST` | `/api/gateway/delete` | `{ id }` Delete a gateway |
 | `POST` | `/api/gateway/test` | Test the settings in the body without saving |
 | `POST` | `/api/gateway/models` | List the provider's models for the settings in the body without saving. `kind: "image" \| "video"` asks at that kind's address instead |
-| `GET` | `/api/history` | Every saved script, newest first |
-| `POST` | `/api/history` | Save a script |
+| `GET` | `/api/history` | The signed-in user's scripts, newest first |
+| `POST` | `/api/history` | Import a script |
 | `POST` | `/api/history/package` | `{ id, markdown }` Returns the script's `.zip` |
 | `POST` | `/api/media/image` | `{ visual, camera, historyId, sceneId }` Makes and stores an image, returns `{ url }` |
 | `POST` | `/api/media/video` | `{ visual, camera, start, end }` Starts a video job |
 | `POST` | `/api/media/video/status` | `{ id, historyId, sceneId }` Polls a job and stores the file when ready |
 | `GET` | `/media/<file>` | A stored image or video |
-| `POST` | `/api/generate` | Server-sent events: `plan`, `delta`, `done` or `error` |
+| `POST` | `/api/generate` | Writes a script, saves it and records the call. Server-sent events: `plan`, `delta`, `done` or `error` |

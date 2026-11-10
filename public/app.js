@@ -2,6 +2,7 @@
 
 import { t, lang, setLang, applyI18n } from './i18n.js';
 import { icon, hydrateIcons } from './icons.js';
+import { showAuth, wireAccount } from './account.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -24,6 +25,8 @@ function h(tag, attrs = {}, ...children) {
 const state = {
   meta: null,
   gateway: null,
+  user: null,
+  autoRun: null, // { done, total } while images are being made for every scene
   history: [],
   styleIds: [],
   runs: {}, // platformId -> { status: 'running'|'done'|'error', raw, script, error, plan, brief, abort }
@@ -42,6 +45,7 @@ async function api(path, options = {}) {
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && state.user) location.reload(); // the session ended: back to the log-in screen
   if (!res.ok) throw new Error(data.error || t('Request failed ({status})', { status: res.status }));
   return data;
 }
@@ -298,7 +302,9 @@ async function runPlatform(platformId, brief) {
         if (data.script) {
           run.script = data.script;
           run.status = 'done';
-          await pushHistory(platformId, run);
+          run.historyId = data.historyId;
+          if (data.entry) state.history.unshift(data.entry);
+          renderHistory();
         } else {
           run.raw = data.raw || run.raw;
           throw new Error(t("The model's reply could not be read as a script ({reason}). The raw reply is shown below.", { reason: data.parseError }));
@@ -334,7 +340,7 @@ function setBusy(busy) {
   $('generate').disabled = busy;
   $('generateLabel').textContent = busy ? t('Generating…') : t('Generate scripts');
   $('stop').hidden = !busy;
-  $('navBusy').hidden = !busy;
+  refreshMediaStatus();
 }
 
 // ---------- History ----------
@@ -349,17 +355,6 @@ async function loadHistory() {
     localStorage.removeItem(HISTORY_KEY);
     state.history.sort((x, y) => y.ts - x.ts);
   } catch {}
-  renderHistory();
-}
-
-async function pushHistory(platformId, run) {
-  try {
-    const entry = await api('/api/history', { method: 'POST', body: { platformId, brief: run.brief, plan: run.plan, script: run.script } });
-    run.historyId = entry.id;
-    state.history.unshift(entry);
-  } catch (err) {
-    toast(t('Could not save to history: {error}', { error: err.message }));
-  }
   renderHistory();
 }
 
@@ -468,8 +463,8 @@ const mediaOf = (run, sc) => ((run.media ??= {})[sc.id] ??= {});
 
 async function startMedia(run, sc, kind) {
   const store = mediaOf(run, sc);
-  const m = (store[kind] = { status: 'running', note: '' });
-  const paint = () => store.paint?.();
+  const m = (store[kind] = { status: 'running', note: '', count: kind === 'image' ? Number($('imageCount').value) || 1 : 1 });
+  const paint = () => (store.paint?.(), refreshMediaStatus());
   const body = { ...sc, historyId: run.historyId, sceneId: sc.id, styleIds: run.styleIds?.length ? run.styleIds : state.styleIds };
   paint();
   try {
@@ -489,10 +484,34 @@ async function startMedia(run, sc, kind) {
 async function autoImages(run) {
   if (!activeGw().image.ready) return toast(t('No image model is set: add one under LLM settings → Images and videos'));
   const todo = run.script.scenes.filter((sc) => sc.visual && !mediaOf(run, sc).image);
+  state.autoRun = { done: 0, total: todo.length };
+  refreshMediaStatus();
   const worker = async () => {
-    for (let sc; (sc = todo.shift()); ) await startMedia(run, sc, 'image');
+    for (let sc; (sc = todo.shift()); ) {
+      await startMedia(run, sc, 'image');
+      state.autoRun.done += 1;
+      refreshMediaStatus();
+    }
   };
   await Promise.all([worker(), worker()]);
+  state.autoRun = null;
+  refreshMediaStatus();
+}
+
+/** The pill in the script header (and the dot on the mobile Script tab) while any image or video is still being made. */
+function refreshMediaStatus() {
+  const running = { image: 0, video: 0 };
+  for (const run of Object.values(state.runs)) for (const scene of Object.values(run.media || {})) for (const kind of ['image', 'video']) if (scene[kind]?.status === 'running') running[kind] += 1;
+  const busy = running.image + running.video > 0 || Boolean(state.autoRun);
+  $('mediaStatus').hidden = !busy;
+  $('mediaStatusText').textContent = state.autoRun
+    ? t('Generating images: {done} of {total} scenes', state.autoRun)
+    : running.video && !running.image
+      ? t('Generating video…')
+      : running.image && !running.video
+        ? t('Generating images…')
+        : t('Generating images and video…');
+  $('navBusy').hidden = !busy && !Object.values(state.runs).some((r) => r.status === 'running');
 }
 
 /** Buttons and results under one scene. */
@@ -525,11 +544,17 @@ function sceneMedia(run, sc) {
               ),
             ),
           ),
+        busy &&
+          h(
+            'div',
+            { class: 'shots', role: 'status' },
+            Array.from({ length: m.count || 1 }, () => h('div', { class: 'shot loading' }, h('div', { class: 'ph' }, h('span', { class: 'spin' }), h('span', {}, t(kind === 'image' ? 'Generating image…' : 'Generating video…'))))),
+          ),
         m?.status === 'error' && h('p', { class: 'error' }, m.error),
         h(
           'div',
           { class: 'actions' },
-          g[kind].ready && iconBtn(busy ? 'refresh' : kind, label, { class: 'btn small', disabled: busy, onclick: () => startMedia(run, sc, kind) }),
+          g[kind].ready && iconBtn(busy ? 'refresh' : kind, label, { class: `btn small${busy ? ' busy' : ''}`, disabled: busy, 'aria-busy': busy ? 'true' : null, onclick: () => startMedia(run, sc, kind) }),
         ),
       );
     });
@@ -994,7 +1019,7 @@ function wireSettings() {
     $(`${kind}Model`).addEventListener('input', () => renderMediaModels(kind));
   }
   $('openSettings').addEventListener('click', openSettings);
-  $('gatewayChip').addEventListener('click', openSettings);
+  $('gatewayChip').addEventListener('click', () => (state.user.role === 'admin' ? openSettings() : $('llm').focus()));
   $('cancelSettings').addEventListener('click', () => $('settings').close());
   $('newProfile').addEventListener('click', () => editProfile(null));
   $('llm').addEventListener('change', (e) => chooseLlm(e.target.value));
@@ -1085,8 +1110,14 @@ function wireTheme() {
 async function boot() {
   applyI18n();
   hydrateIcons();
+  const me = await api('/api/auth/me');
+  if (!me.user) return showAuth(me);
+  state.user = me.user;
+  document.body.dataset.role = me.user.role;
+  document.body.dataset.auth = 'in';
   wireShell();
   [state.meta, state.gateway] = await Promise.all([api('/api/meta'), api('/api/gateway/config')]);
+  state.openAccount = wireAccount({ user: me.user, storage: me.storage, platformName: (id) => platformOf(id)?.name || id || '', openSettings });
   buildForm();
   wireSettings();
   renderGateway();
@@ -1118,11 +1149,12 @@ function wireShell() {
   $('historySearch').addEventListener('input', renderHistory);
   $('closeSettingsX').addEventListener('click', () => $('settings').close());
   $('demoConnect').addEventListener('click', () => openSettings());
+  $('openAccount').addEventListener('click', () => state.openAccount?.());
   $('emptyToBrief').addEventListener('click', () => setView('brief'));
   for (const b of document.querySelectorAll('.nav-btn')) {
     b.addEventListener('click', () => {
       if (b.dataset.nav === 'history') showHistory();
-      else if (b.dataset.nav === 'settings') openSettings();
+      else if (b.dataset.nav === 'account') state.openAccount?.();
       else setView(b.dataset.nav);
     });
   }
@@ -1132,5 +1164,6 @@ function wireShell() {
 }
 
 boot().catch((err) => {
+  document.body.dataset.auth = 'in';
   $('result').replaceChildren(h('p', { class: 'error' }, t('Could not start: {error}. Is the server running?', { error: err.message })));
 });

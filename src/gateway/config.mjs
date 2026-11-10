@@ -1,18 +1,18 @@
 // Gateway configuration store.
-// data/gateway.json holds any number of saved gateways ("profiles") and which one is in use:
+// The `config` collection holds any number of saved gateways ("profiles") and which one is in use:
 //   { activeId, profiles: [{ id, name, provider, baseUrl, apiKey, model, models, image, video }] }
 // `image` and `video` are optional { baseUrl, apiKey, model, size } targets for media generation;
 // a blank baseUrl or apiKey there means "same as the gateway".
 // Until something is saved, a single profile is built from environment variables (demo mode by default).
 // API keys never leave the server: the UI only ever receives a masked preview.
 
-import { mkdir, readFile, writeFile, chmod } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { getProvider } from './providers.mjs';
+import { db, DATA_DIR } from '../db.mjs';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const FILE = process.env.GATEWAY_CONFIG_FILE || path.join(ROOT, 'data', 'gateway.json');
+// Gateways saved before the database existed lived in this file; it is still read until the first save.
+const LEGACY_FILE = process.env.GATEWAY_CONFIG_FILE || path.join(DATA_DIR, 'gateway.json');
 const MEDIA_BLANK = { baseUrl: '', apiKey: '', model: '', size: '' };
 const BLANK = { id: '', name: '', provider: '', baseUrl: '', apiKey: '', model: '', models: [], image: MEDIA_BLANK, video: MEDIA_BLANK };
 export const MEDIA_KINDS = ['image', 'video'];
@@ -35,11 +35,13 @@ function envProfile() {
 }
 
 export async function loadStore() {
-  let saved = null;
-  try {
-    saved = JSON.parse(await readFile(FILE, 'utf8'));
-  } catch (err) {
-    if (err.code !== 'ENOENT') console.warn(`[gateway] could not read ${FILE}: ${err.message}`);
+  let saved = await db.get('config', 'gateway');
+  if (!saved) {
+    try {
+      saved = JSON.parse(await readFile(LEGACY_FILE, 'utf8'));
+    } catch (err) {
+      if (err.code !== 'ENOENT') console.warn(`[gateway] could not read ${LEGACY_FILE}: ${err.message}`);
+    }
   }
   let profiles = [];
   if (Array.isArray(saved?.profiles)) {
@@ -61,10 +63,18 @@ export async function loadConfig() {
 }
 
 export async function saveStore(store) {
-  await mkdir(path.dirname(FILE), { recursive: true });
-  await writeFile(FILE, JSON.stringify(store, null, 2), { mode: 0o600 });
-  await chmod(FILE, 0o600);
+  await db.put('config', { id: 'gateway', ts: Date.now(), activeId: store.activeId, profiles: store.profiles });
   return store;
+}
+
+/**
+ * The gateway and model a given user writes with: their own pick when it is still valid,
+ * otherwise the default the administrator set.
+ */
+export function resolveGateway(store, prefs = {}) {
+  const profile = store.profiles.find((p) => p.id === prefs.gatewayId) || activeProfile(store);
+  const model = profile.id === prefs.gatewayId && enabledModels(profile).includes(prefs.model) ? prefs.model : profile.model;
+  return { ...profile, model };
 }
 
 /**
@@ -137,7 +147,18 @@ export function publicConfig(config) {
   };
 }
 
-export const publicStore = (store) => ({ activeId: activeProfile(store).id, profiles: store.profiles.map(publicConfig) });
+/** What a signed-in person who is not an administrator may know about a gateway: enough to pick a model. */
+export function memberConfig(config) {
+  const p = publicConfig(config);
+  return { id: p.id, name: p.name, provider: p.provider, model: p.model, models: p.models, hasKey: p.hasKey, image: { ready: p.image.ready, model: p.image.model }, video: { ready: p.video.ready, model: p.video.model } };
+}
+
+/** The gateways as one user sees them: `activeId` and that gateway's `model` are the user's own selection. */
+export function publicStore(store, { prefs = {}, admin = true } = {}) {
+  const mine = resolveGateway(store, prefs);
+  const view = admin ? publicConfig : memberConfig;
+  return { activeId: mine.id, defaultId: activeProfile(store).id, profiles: store.profiles.map((p) => view(p.id === mine.id ? { ...p, model: mine.model, models: enabledModels(p) } : p)) };
+}
 
 export function validateConfig(config, { requireModel = true } = {}) {
   const preset = getProvider(config.provider);
