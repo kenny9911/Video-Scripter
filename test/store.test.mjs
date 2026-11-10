@@ -58,6 +58,11 @@ test('accounts, access rules, gateways, scripts, media, usage and activity', asy
   }
   assert.equal((await anon.raw('GET', '/api/meta', undefined, { origin: 'https://evil.example' })).status, 403); // cross-site calls are refused
 
+  // The visitor beacon is open to everyone; the funnel it feeds is for administrators.
+  const beacon = await client().raw('POST', '/api/track', { e: 'view', p: 'home', ref: 'news.example' }, { 'user-agent': 'Mozilla/5.0 (test browser)' });
+  assert.deepEqual([beacon.status, /^vs_vid=[a-f0-9]{24};/.test(beacon.headers.get('set-cookie'))], [200, true]);
+  assert.equal((await anon.call('GET', '/api/admin/visitors')).status, 401);
+
   // ---------- The administrator from ADMIN_EMAIL / ADMIN_PASSWORD ----------
   const admin = client();
   assert.equal((await admin.call('POST', '/api/auth/login', { email: ADMIN.email, password: 'wrong-password' })).status, 401);
@@ -65,6 +70,8 @@ test('accounts, access rules, gateways, scripts, media, usage and activity', asy
   assert.deepEqual([r.status, r.body.user.role, r.body.user.email], [200, 'admin', ADMIN.email]);
   assert.ok(!JSON.stringify(r.body).includes('scrypt') && admin.hasSession());
   assert.equal((await admin.call('GET', '/api/auth/me')).body.storage.kind, PG ? 'postgres' : 'file');
+  r = await admin.call('GET', '/api/admin/visitors?days=0');
+  assert.deepEqual([r.status, r.body.funnel.visitors, r.body.bySource[0].key], [200, 1, 'news.example']);
 
   // ---------- Gateways (administrator only) ----------
   r = await admin.call('GET', '/api/gateway/config');

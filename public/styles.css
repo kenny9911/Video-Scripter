@@ -568,6 +568,13 @@ select.compact { width: auto; min-height: 36px; padding-top: 4px; padding-bottom
 .admin-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .page-title { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 2px; }
 .admin-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.admin-tabs { align-self: flex-start; }
+.admin-panel { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+/* The sign-up funnel on the Visitors tab: each step's share of all visitors, as text and a bar. */
+.funnel .stat { gap: 4px; }
+.stat-share { font-variant-numeric: tabular-nums; }
+.stat-bar { height: 4px; margin-top: 4px; border-radius: 999px; background: var(--panel-2); overflow: hidden; }
+.stat-bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
 .admin-tools .search { flex: 1 1 240px; max-width: 420px; }
 .user-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .user-cell .avatar { width: 34px; height: 34px; font-size: 14px; }

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-page="zh">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -33,6 +33,7 @@
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#09090b">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <script src="theme.js"></script>
+  <script src="track.js" defer></script>
   <link rel="stylesheet" href="home.css">
 
   <script type="application/ld+json">
@@ -130,8 +131,8 @@
       </nav>
       <div class="head-actions">
         <a class="text-link" href="./" lang="en" hreflang="en">English</a>
-        <a class="text-link strong" href="app.html">登录</a>
-        <a class="btn primary" href="app.html">开始创作</a>
+        <a class="text-link strong" href="app.html" data-cta="header-login">登录</a>
+        <a class="btn primary" href="app.html" data-cta="header">开始创作</a>
       </div>
     </div>
   </header>
@@ -144,7 +145,7 @@
           <h1 id="hero-title">一份需求，<wbr>为每个平台<wbr>各写一份<wbr>短视频脚本</h1>
           <p class="lead">Video Scripter 是一个 AI 短视频脚本工作台。把视频描述一次，就能为视频号、抖音、TikTok、Instagram Reels 和 YouTube Shorts 各拿到一份带时间码、拿来就能拍的脚本，并附带分镜图片、视频片段和发布素材。</p>
           <div class="cta-row">
-            <a class="btn primary lg" href="app.html">开始创作</a>
+            <a class="btn primary lg" href="app.html" data-cta="hero">开始创作</a>
             <a class="btn outline lg" href="#how-it-works">看看怎么用</a>
           </div>
           <p class="note">首次打开是演示模式，不接模型也能先把流程走一遍。</p>
@@ -443,8 +444,8 @@
         <h2 id="start-title">写一次，<wbr>发遍每个<wbr>重要的平台。</h2>
         <p>从一个主题开始，带走每个平台各一份的脚本、分镜和发布素材。</p>
         <div class="cta-row">
-          <a class="btn primary lg" href="app.html#signup">创建账号</a>
-          <a class="btn outline lg" href="app.html">登录</a>
+          <a class="btn primary lg" href="app.html#signup" data-cta="closing-signup">创建账号</a>
+          <a class="btn outline lg" href="app.html" data-cta="closing-login">登录</a>
         </div>
       </div>
     </section>

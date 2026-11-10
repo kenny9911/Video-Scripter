@@ -1,5 +1,6 @@
 // The admin page: every account, with create, edit, role, status, password reset,
-// log out everywhere, delete, and each person's usage and recent activity.
+// log out everywhere, delete, and each person's usage and recent activity; and the Visitors
+// tab, which shows how visitors to the home page turn into users.
 
 import { t, applyI18n } from './i18n.js';
 import { hydrateIcons, icon } from './icons.js';
@@ -221,6 +222,75 @@ function wireNewUser() {
   });
 }
 
+// ---------- Visitors ----------
+
+const STAGES = { visited: 'Visited', clicked: 'Clicked a button', opened_app: 'Opened the app', signed_up: 'Signed up', activated: 'Wrote a script', returning: 'Existing user' };
+const PAGES = { home: 'Home page (English)', zh: 'Home page (中文)', app: 'The app' };
+const pct = (n) => `${fmt(n)}%`;
+const named = (key, names) => (key ? t(names?.[key] || key) : '—');
+
+async function loadVisitors() {
+  const body = $('visitorBody');
+  body.replaceChildren(empty(t('Loading…')));
+  let v;
+  try {
+    v = await call(`/api/admin/visitors?days=${encodeURIComponent($('visitorDays').value)}`);
+  } catch (err) {
+    return body.replaceChildren(el('p', { class: 'error', role: 'alert' }, err.message));
+  }
+  if (!v.recent.length) return body.replaceChildren(empty(t('No visitors recorded yet. Visits to the home page and the app are counted from now on.')));
+
+  const F = v.funnel;
+  const step = (n, label, share) =>
+    el(
+      'div',
+      { class: 'stat' },
+      el('b', {}, fmt(n)),
+      el('span', {}, t(label)),
+      share != null && el('span', { class: 'stat-share' }, t('{pct} of visitors', { pct: pct(share) })),
+      share != null && el('span', { class: 'stat-bar', 'aria-hidden': 'true' }, el('i', { style: `width:${Math.min(100, share)}%` })),
+    );
+  // A breakdown with nothing in it is left out rather than shown empty.
+  const groups = (title, first, rows, names) =>
+    rows.length > 0 &&
+    block(
+      title,
+      table(
+        [[t(first), ''], [t('Visitors'), 'num'], [t('Sign-ups'), 'num'], [t('Conversion'), 'num']],
+        rows.map((g) => [named(g.key, names), fmt(g.visitors), fmt(g.signups), pct(g.rate)]),
+      ),
+    );
+  const stageBadge = (x) => badge(t(STAGES[x.stage] || x.stage), x.signupTs ? 'accent' : '');
+
+  body.replaceChildren(
+    ...[
+    el('div', { class: 'stats funnel' }, step(F.visitors, 'Visitors'), step(F.clicked, 'Clicked a button', v.rates.clicked), step(F.openedApp, 'Opened the app', v.rates.openedApp), step(F.signups, 'Signed up', v.rates.signups), step(F.activated, 'Wrote a script', v.rates.activated)),
+    v.returning > 0 && el('p', { class: 'hint' }, t('Not counted above: visitors who already had an account ({n}).', { n: fmt(v.returning) })),
+    groups(t('Where visitors come from'), 'Source', v.bySource, { direct: 'Direct', unknown: 'Unknown' }),
+    groups(t('First page they saw'), 'Page', v.byLanding, PAGES),
+    groups(t('By day of first visit (UTC)'), 'Day', v.byDay.map((d) => ({ ...d, key: d.day }))),
+    groups(t('By country'), 'Country', v.byCountry.filter((g) => g.key)),
+    groups(t('By device'), 'Device', v.byDevice, { mobile: 'Phone or tablet', desktop: 'Computer' }),
+    block(
+      t('Latest visitors'),
+      table(
+        [[t('First visit'), ''], [t('Last seen'), 'col-opt'], [t('Source'), ''], [t('Page'), 'col-opt'], [t('Country'), 'col-opt'], [t('Device'), 'col-opt'], [t('Views'), 'num col-opt'], [t('Status'), ''], [t('User'), '']],
+        v.recent.map((x) => [when(x.firstTs), when(x.ts), named(x.source, { direct: 'Direct', unknown: 'Unknown' }), named(x.landing, PAGES), x.country || '—', named(x.device, { mobile: 'Phone or tablet', desktop: 'Computer' }), fmt(x.views), stageBadge(x), x.email || '—']),
+      ),
+    ),
+    ].filter(Boolean),
+  );
+}
+
+/** Users | Visitors. The choice is kept in the address (#visitors) so a reload stays put. */
+function showTab(name) {
+  for (const b of $('adminTabs').querySelectorAll('.seg-btn')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
+  $('usersPanel').hidden = name !== 'users';
+  $('visitorsPanel').hidden = name !== 'visitors';
+  history.replaceState(null, '', name === 'visitors' ? '#visitors' : location.pathname + location.search);
+  if (name === 'visitors') loadVisitors();
+}
+
 // ---------- Start ----------
 
 async function boot() {
@@ -246,6 +316,9 @@ async function boot() {
   wireNewUser();
   for (const id of ['userSearch', 'userRole', 'userStatus']) $(id).addEventListener('input', render);
   $('closeUser').addEventListener('click', () => $('userDialog').close());
+  for (const b of $('adminTabs').querySelectorAll('.seg-btn')) b.addEventListener('click', () => showTab(b.dataset.tab));
+  $('visitorDays').addEventListener('change', loadVisitors);
+  if (location.hash === '#visitors') showTab('visitors');
   for (const d of document.querySelectorAll('dialog')) d.addEventListener('click', (e) => e.target === d && d.close());
   await load();
 }

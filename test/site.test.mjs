@@ -45,7 +45,7 @@ for (const [name, lang, self] of [
 ]) {
   test(`${name}: head tags a search engine needs`, async () => {
     const html = await page(name);
-    assert.match(html, new RegExp(`<html lang="${lang}">`));
+    assert.match(html, new RegExp(`<html lang="${lang}"[ >]`));
     assert.equal(html.match(/<h1[\s>]/g).length, 1, 'exactly one h1');
     assert.match(html, /<title>[^<]{20,70}<\/title>/);
     assert.match(html, /<meta name="description" content="[^"]{60,170}">/);

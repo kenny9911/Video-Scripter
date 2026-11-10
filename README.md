@@ -208,6 +208,20 @@ Every call to a model is recorded: who made it, for which script, which gateway 
 
 Token counts come from the provider when it reports them (OpenAI-compatible `usage`, Anthropic `usage`). When a provider reports none, the count is estimated from the text and marked with ≈.
 
+### Visitors and conversion
+
+**Users → Visitors** on the admin page shows how visitors to the home page turn into users:
+
+- **The funnel.** Visitors, then how many clicked a button to the app, opened the app, signed up, and wrote a first script, each as a share of all visitors.
+- **Breakdowns** by source (the referring site, or `utm_source` on the link), first page seen, day, country and device, each with its sign-ups and conversion rate.
+- **Latest visitors**, with how far each one got and, once they sign up, which user they became.
+
+People are counted in the period of their first visit, and the first source they came from is the one kept. Someone who already had an account is counted apart, so the conversion rate is over prospects only. Crawlers and scripts are not counted.
+
+How it works: the home pages and the app load `public/track.js`, which posts page views and clicks on the buttons that lead to the app to `/api/track`. The server gives each browser a random id in a first-party cookie (`vs_vid`, one year) and keeps one record per visitor. It stores no IP address and sends nothing to any third party. Because it sets a cookie that is not strictly necessary, visitors in some regions (the EU and UK, for example) may need to be told or asked first; add a notice if that applies to you.
+
+To tag a link you share, add `?utm_source=newsletter` (and optionally `utm_medium`, `utm_campaign`) to the home page address.
+
 ### Activity log
 
 **Account → Activity** lists what happened and when: sign-ups, log-ins and failed log-ins, scripts written, stopped or failed, images and videos generated, packages downloaded, and gateway and user changes. Members see their own; administrators can see everyone's. Passwords and API keys are never written to the log.
@@ -218,7 +232,7 @@ Everything is stored on the server, per user. Where it lives depends on how the 
 
 | | Local (`npm start`) | Hosted (`DATABASE_URL` set) |
 | --- | --- | --- |
-| Scripts, users, sessions, usage, activity, gateways | `data/<name>.json` | Postgres table `vs_docs` |
+| Scripts, users, sessions, usage, activity, visitors, gateways | `data/<name>.json` | Postgres table `vs_docs` |
 | Generated images and videos | `data/media/` | Postgres table `vs_blobs` |
 
 Reopening a script from History shows its media again and puts the brief it was written from back into the form (topic, platform, structure, length, style and details), so you can adjust it and generate again. Generating always saves a new script with its own package; the one you opened is left as it was. Redoing an image or video keeps the earlier file and shows the newest. If a provider returns a link instead of a file, the file is downloaded and stored too. Media is private: only its owner and administrators can open it.
@@ -341,6 +355,7 @@ src/package.mjs         the downloadable .zip for one script (src/zip.mjs writes
 public/                 the web UI: index.html and zh.html are the home page (English, 中文), app.html the app,
                         admin.html the user administration page
 src/site.mjs            the site's public address, for canonical links, the sitemap and robots.txt
+src/visitors.mjs        visitors and the sign-up funnel (the Visitors tab on the admin page)
 scripts/                stamp-site-url.mjs, the build step that writes that address into public/ on a static host
 test/                   node --test
 ```
@@ -381,6 +396,8 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `GET` | `/api/usage?scope=me\|all&days=30` | Usage totals, by script, by model, by user (administrators) and the latest calls |
 | `GET` | `/api/activity?scope=me\|all` | The activity log |
 | `GET` | `/api/admin/users` | Administrators: every user with their totals |
+| `POST` | `/api/track` | Public: `{ e: "view" \| "cta", p: "home" \| "zh" \| "app", ref?, src?, med?, camp?, cta? }` Records a page view or button click for the visitor funnel |
+| `GET` | `/api/admin/visitors?days=30` | Administrators: the sign-up funnel, its breakdowns and the latest visitors |
 | `GET` | `/api/admin/users/detail?id=` | Administrators: one user with sessions, usage and latest activity |
 | `POST` | `/api/admin/users/create` | Administrators: `{ email, password, name?, role? }` |
 | `POST` | `/api/admin/users/update` | Administrators: `{ id, name?, email?, role?, disabled? }` |

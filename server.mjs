@@ -24,6 +24,7 @@ import { db, storage } from './src/db.mjs';
 import { AuthError, authenticate, checkLogin, createUser, startSession, endSession, endAllSessions, ensureAdmin, publicUser, signupOpen, verifyPassword, setPassword, updateProfile, countSessions, activeAdmins, deleteUser } from './src/auth.mjs';
 import { recordUsage, logActivity, summarizeUsage, listActivity, estimateTokens } from './src/audit.mjs';
 import { SITE_TOKEN, configuredSiteUrl, requestSiteUrl, stamp } from './src/site.mjs';
+import { trackVisit, markSignup, markLogin, markFirstScript, summarizeVisitors } from './src/visitors.mjs';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const PORT = Number(process.env.PORT) || 3789;
@@ -120,7 +121,8 @@ const routes = {
     const body = await readJson(req);
     const user = await createUser({ email: body.email, password: body.password, name: body.name });
     await logActivity(req, user, 'auth.signup');
-    json(res, 200, { user: publicUser(user) }, { 'set-cookie': await startSession(req, user) });
+    const visitor = await markSignup(req, user);
+    json(res, 200, { user: publicUser(user) }, { 'set-cookie': [await startSession(req, user), visitor].filter(Boolean) });
   }),
 
   'POST /api/auth/login': route('public', async (req, res) => {
@@ -128,6 +130,7 @@ const routes = {
     try {
       const user = await checkLogin(body.email, body.password);
       await logActivity(req, user, 'auth.login');
+      await markLogin(req, user);
       json(res, 200, { user: publicUser(user) }, { 'set-cookie': await startSession(req, user) });
     } catch (err) {
       if (err instanceof AuthError) await logActivity(req, null, 'auth.login_failed', { email: String(body.email || '').slice(0, 254), reason: err.message });
@@ -177,6 +180,19 @@ const routes = {
   'GET /api/activity': route('user', async (req, res, user, query) => {
     const all = query.get('scope') === 'all' && isAdmin(user);
     json(res, 200, { scope: all ? 'all' : 'me', items: await listActivity({ userId: all ? undefined : user.id, limit: query.get('limit') }) });
+  }),
+
+  // ---------- Visitors ----------
+
+  // The beacon on the home pages and the app (public/track.js): a page view or a click on a button to the app.
+  'POST /api/track': route('public', async (req, res, user) => {
+    const cookie = await trackVisit(req, await readJson(req), user);
+    json(res, 200, { ok: true }, cookie ? { 'set-cookie': cookie } : {});
+  }),
+
+  // The sign-up funnel for visitors first seen in the last `days` (0 = all time).
+  'GET /api/admin/visitors': route('admin', async (req, res, user, query) => {
+    json(res, 200, await summarizeVisitors({ days: Number(query.get('days') ?? 30) }));
   }),
 
   // ---------- Administration ----------
@@ -495,6 +511,7 @@ const routes = {
         const { platformId, ...rest } = brief;
         const entry = await addHistory({ id: taskId, userId: user.id, platformId: plan.brief.platform.id, brief: rest, plan: planInfo, script });
         await logActivity(req, user, 'script.generate', { ...about, title: script.title, scenes: script.scenes.length });
+        await markFirstScript(user);
         send('done', { script, historyId: entry.id, entry });
       } else {
         await logActivity(req, user, 'script.failed', { ...about, error: parseError });
