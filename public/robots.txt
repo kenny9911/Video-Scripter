@@ -1,0 +1,9 @@
+# Video Scripter
+# The home pages are open to every crawler, including AI assistants and answer engines.
+# The app itself is behind a log-in; its API and stored media are not for crawling.
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /media/
+
+Sitemap: __SITE_URL__/sitemap.xml

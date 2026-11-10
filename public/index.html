@@ -3,416 +3,487 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Video Scripter</title>
-  <meta name="description" content="Write short-video scripts for 视频号, 抖音, TikTok, Instagram and YouTube, with scene images and clips.">
+  <title>AI Short-Video Script Generator for Every Platform | Video Scripter</title>
+  <meta name="description" content="Turn one brief into a separate, timed, shoot-ready script for TikTok, Instagram Reels, YouTube Shorts, 抖音 and 视频号, with storyboard images and clips.">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
+  <link rel="canonical" href="__SITE_URL__/">
+  <link rel="alternate" hreflang="en" href="__SITE_URL__/">
+  <link rel="alternate" hreflang="zh-CN" href="__SITE_URL__/zh.html">
+  <link rel="alternate" hreflang="x-default" href="__SITE_URL__/">
+  <link rel="alternate" type="text/plain" href="__SITE_URL__/llms.txt" title="Video Scripter for language models">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Video Scripter">
+  <meta property="og:title" content="Short-video scripts for every platform, from one brief">
+  <meta property="og:description" content="Describe your video once and get a separate, timed, shoot-ready script for TikTok, Instagram Reels, YouTube Shorts, 抖音 and 视频号, with storyboard images and clips.">
+  <meta property="og:url" content="__SITE_URL__/">
+  <meta property="og:image" content="__SITE_URL__/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Video Scripter: short-video scripts for every platform, from one brief">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:locale:alternate" content="zh_CN">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Short-video scripts for every platform, from one brief">
+  <meta name="twitter:description" content="One brief becomes a separate, timed, shoot-ready script for TikTok, Instagram Reels, YouTube Shorts, 抖音 and 视频号.">
+  <meta name="twitter:image" content="__SITE_URL__/og.png">
+
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
-  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#18181b">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#09090b">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <script src="theme.js"></script>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="home.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "__SITE_URL__/#website",
+        "url": "__SITE_URL__/",
+        "name": "Video Scripter",
+        "description": "An AI script studio for short social video.",
+        "inLanguage": ["en", "zh-CN"]
+      },
+      {
+        "@type": "WebPage",
+        "@id": "__SITE_URL__/#webpage",
+        "url": "__SITE_URL__/",
+        "name": "AI Short-Video Script Generator for Every Platform | Video Scripter",
+        "description": "Turn one brief into a separate, timed, shoot-ready script for TikTok, Instagram Reels, YouTube Shorts, 抖音 and 视频号, with storyboard images and clips.",
+        "inLanguage": "en",
+        "isPartOf": { "@id": "__SITE_URL__/#website" },
+        "about": { "@id": "__SITE_URL__/#app" },
+        "primaryImageOfPage": { "@type": "ImageObject", "url": "__SITE_URL__/og.png", "width": 1200, "height": 630 }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "__SITE_URL__/#app",
+        "name": "Video Scripter",
+        "url": "__SITE_URL__/",
+        "image": "__SITE_URL__/og.png",
+        "applicationCategory": "MultimediaApplication",
+        "applicationSubCategory": "AI short-video script generator",
+        "operatingSystem": "Web",
+        "inLanguage": ["en", "zh-CN"],
+        "description": "Video Scripter is an AI script studio for short social video. It turns one brief into a separate, timed, shoot-ready script for 视频号 (WeChat Channels), 抖音 (Douyin), TikTok, Instagram Reels and YouTube Shorts, and generates storyboard images and clips from the scene notes.",
+        "featureList": [
+          "A separate script for each of five platforms: 视频号, 抖音, TikTok, Instagram Reels and YouTube Shorts",
+          "Timed scenes with voiceover, on-screen text, visual, camera and sound notes",
+          "Three hook options and a voiceover-only view for every script",
+          "A publishing package: titles, cover text, description, hashtags and a pinned comment",
+          "9:16 storyboard images and video clips in 27 visual styles",
+          "Six script structures, including Golden retention and Problem – Agitate – Solve",
+          "Ten model provider presets plus any OpenAI-compatible or Anthropic-compatible endpoint",
+          "Accounts, roles, per-user usage records and an activity log",
+          "Export of each script and its media as one .zip"
+        ]
+      },
+      {
+        "@type": "HowTo",
+        "@id": "__SITE_URL__/#how-it-works",
+        "name": "How to write a short-video script with Video Scripter",
+        "description": "Four steps take you from a topic to a folder you can hand to an editor.",
+        "step": [
+          { "@type": "HowToStep", "position": 1, "name": "Write the brief", "text": "Only the topic is required. Add platforms, a structure, a length, a visual style and reference material to sharpen the result.", "url": "__SITE_URL__/#how-it-works" },
+          { "@type": "HowToStep", "position": 2, "name": "Review the script", "text": "Each platform opens in its own tab and streams in as it is written: three hook options, a timed scene list and a voiceover-only view.", "url": "__SITE_URL__/#how-it-works" },
+          { "@type": "HowToStep", "position": 3, "name": "Generate the visuals", "text": "Turn a scene's visual and camera notes into a 9:16 frame or clip, one scene at a time or automatically for the whole script.", "url": "__SITE_URL__/#how-it-works" },
+          { "@type": "HowToStep", "position": 4, "name": "Export", "text": "Download one .zip with the script, the voiceover text and every generated image and clip, named by scene and timecode.", "url": "__SITE_URL__/#how-it-works" }
+        ]
+      },
+      {
+        "@type": "FAQPage",
+        "@id": "__SITE_URL__/#faq",
+        "mainEntity": [
+          { "@type": "Question", "name": "Does Video Scripter reuse one script across platforms?", "acceptedAnswer": { "@type": "Answer", "text": "No. It writes a separate script for each platform you tick, tuned to how that platform's audience watches and to its publishing rules." } },
+          { "@type": "Question", "name": "What does each script include?", "acceptedAnswer": { "@type": "Answer", "text": "Three hook options, a timed scene list with voiceover, on-screen text, visual, camera and sound notes, a voiceover-only view, and a publishing package of titles, cover text, description, hashtags and a pinned comment." } },
+          { "@type": "Question", "name": "How long can a script be?", "acceptedAnswer": { "@type": "Answer", "text": "From 15 to 180 seconds, depending on the platform. YouTube Shorts goes up to 180 seconds, 视频号 up to 120, and 抖音, TikTok and Instagram Reels up to 90." } },
+          { "@type": "Question", "name": "Can it generate storyboard images and video clips?", "acceptedAnswer": { "@type": "Answer", "text": "Yes, once an image or video model is connected. Each scene becomes a 9:16 image or clip in your chosen visual style, with one to three images per scene and clips of 4, 8 or 12 seconds." } },
+          { "@type": "Question", "name": "Do I need my own API key?", "acceptedAnswer": { "@type": "Answer", "text": "Not to look around. The app starts in demo mode with placeholder text. To write real scripts, an administrator connects a model provider and its key once for the whole team." } },
+          { "@type": "Question", "name": "Does it write in Chinese and English?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Scripts for 视频号 and 抖音 are written in Chinese, and scripts for TikTok, Instagram Reels and YouTube Shorts in English. The interface switches between English and Simplified Chinese." } },
+          { "@type": "Question", "name": "Can the voiceover go straight into a text-to-speech tool?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. A text-to-speech option spells out numbers and symbols so a synthetic voice reads them correctly, and the voiceover-only view copies as plain text." } },
+          { "@type": "Question", "name": "Where is my work stored, and can I export it?", "acceptedAnswer": { "@type": "Answer", "text": "On the server you run, scoped to your account. Any script downloads as one .zip holding the script in Markdown and JSON, the voiceover text, and every generated image and clip." } }
+        ]
+      }
+    ]
+  }
+  </script>
 </head>
-<body data-view="brief" data-auth="pending">
-  <a class="skip-link" href="#result">Skip to the script</a>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
 
-  <section id="authScreen" class="auth" aria-labelledby="authTitle">
-    <div class="auth-card">
-      <div class="brand">
-        <span class="logo" data-icon="logo" data-icon-size="16" aria-hidden="true"></span>
-        <span class="brand-name">Video Scripter</span>
-        <span class="spacer"></span>
-        <button id="authLang" class="icon-btn text" type="button" aria-label="Switch language / 切换语言"></button>
+  <header class="site-head">
+    <div class="wrap">
+      <a class="brand" href="./" aria-label="Video Scripter home">
+        <span class="logo" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24"><polygon points="7 4 20 12 7 20 7 4" fill="currentColor"/></svg></span>
+        <span>Video Scripter</span>
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a href="#how-it-works">How it works</a>
+        <a href="#platforms">Platforms</a>
+        <a href="#structures">Structures</a>
+        <a href="#models">Models</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <div class="head-actions">
+        <a class="text-link" href="zh.html" lang="zh-CN" hreflang="zh-CN">中文</a>
+        <a class="text-link strong" href="app.html">Log in</a>
+        <a class="btn primary" href="app.html">Start writing</a>
       </div>
-      <div>
-        <h1 id="authTitle" class="auth-title">Welcome back</h1>
-        <p id="authSub" class="hint">Log in to write short-video scripts for every platform you publish on.</p>
-      </div>
-      <div class="seg" role="tablist" aria-label="Log in or sign up">
-        <button id="authTabLogin" class="seg-btn" type="button" role="tab" aria-selected="true">Log in</button>
-        <button id="authTabSignup" class="seg-btn" type="button" role="tab" aria-selected="false">Sign up</button>
-      </div>
-      <form id="authForm" class="auth-form" novalidate>
-        <label class="field" id="authNameField" hidden>
-          <span>Name</span>
-          <input id="authName" type="text" autocomplete="name" maxlength="80" placeholder="What should we call you?">
-        </label>
-        <label class="field">
-          <span>Email</span>
-          <input id="authEmail" type="email" autocomplete="username" inputmode="email" placeholder="you@example.com" required>
-        </label>
-        <label class="field">
-          <span>Password</span>
-          <input id="authPassword" type="password" autocomplete="current-password" required minlength="8">
-        </label>
-        <p id="authPwHint" class="hint" hidden>At least 8 characters.</p>
-        <p id="authError" class="error" role="alert" hidden></p>
-        <button id="authSubmit" class="btn cta" type="submit"><span id="authSubmitLabel">Log in</span></button>
-      </form>
-      <p id="authClosed" class="hint" hidden>Sign-up is closed. Ask the administrator for an account.</p>
-    </div>
-  </section>
-
-  <header class="topbar">
-    <div class="brand">
-      <span class="logo" data-icon="logo" data-icon-size="16" aria-hidden="true"></span>
-      <div class="brand-text">
-        <h1>Video Scripter</h1>
-        <p class="tagline">Short-video scripts for 视频号 · 抖音 · TikTok · Instagram · YouTube</p>
-      </div>
-    </div>
-    <div class="topbar-actions">
-      <button id="gatewayChip" class="chip-btn" type="button" title="LLM gateway settings">
-        <span class="dot" id="gatewayDot"></span><span id="gatewayLabel">Loading…</span>
-      </button>
-      <button id="openHistory" class="icon-btn labelled desktop-only" type="button" data-icon="clock"><span>History</span><span id="historyCount" class="count" hidden></span></button>
-      <button id="openSettings" class="icon-btn labelled desktop-only admin-only" type="button" data-icon="settings"><span>LLM settings</span></button>
-      <a class="icon-btn labelled desktop-only admin-only" href="admin.html" data-icon="users"><span>Users</span></a>
-      <button id="openAccount" class="icon-btn labelled desktop-only" type="button" data-icon="user"><span id="accountName"></span></button>
-      <button id="themeToggle" class="icon-btn" type="button"></button>
-      <button id="langToggle" class="icon-btn text" type="button" aria-label="Switch language / 切换语言"></button>
     </div>
   </header>
 
-  <div id="demoBanner" class="banner" role="status" hidden>
-    <span class="banner-text" data-icon="info">Demo mode: scripts are placeholder text until you connect a model.</span>
-    <button id="demoConnect" class="btn small admin-only" type="button">Connect a model</button>
-  </div>
-
-  <main class="layout">
-    <form id="briefForm" class="brief" autocomplete="off" aria-label="Brief">
-      <div class="brief-scroll">
-        <section class="card">
-          <h2 class="card-title"><span class="step">1</span>Your video</h2>
-          <label class="field">
-            <span>Topic <em>required</em></span>
-            <textarea id="topic" rows="3" required placeholder="What is the video about? e.g. 为什么企业买了大模型却用不起来 / Why most people quit learning to code in week three"></textarea>
-          </label>
-          <div id="topicIdeas" class="ideas" hidden>
-            <span class="hint">Need an idea?</span>
-            <div id="topicIdeaList" class="chips"></div>
+  <main id="main">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="wrap">
+        <div class="hero-copy">
+          <p class="eyebrow">AI short-video script generator</p>
+          <h1 id="hero-title">Short-video scripts for every platform, from one brief</h1>
+          <p class="lead">Video Scripter is an AI script studio for short social video. Describe your video once and get a separate, timed, shoot-ready script for <span lang="zh-CN">视频号</span>, <span lang="zh-CN">抖音</span>, TikTok, Instagram Reels and YouTube Shorts, with storyboard images, clips and a publishing package.</p>
+          <div class="cta-row">
+            <a class="btn primary lg" href="app.html">Start writing</a>
+            <a class="btn outline lg" href="#how-it-works">See how it works</a>
           </div>
+          <p class="note">Opens in demo mode. Explore the whole workflow before you connect a model.</p>
+        </div>
 
-          <fieldset class="field">
-            <legend>Platforms</legend>
-            <div class="platform-group"><span class="group-label">中文</span><div id="platformsZh" class="chips"></div></div>
-            <div class="platform-group"><span class="group-label">English</span><div id="platformsEn" class="chips"></div></div>
-          </fieldset>
-        </section>
-
-        <section class="card">
-          <h2 class="card-title"><span class="step">2</span>Structure</h2>
-          <div class="row">
-            <label class="field">
-              <span>Structure</span>
-              <select id="framework"></select>
-            </label>
-            <label class="field narrow">
-              <span>Length</span>
-              <select id="duration"></select>
-            </label>
-          </div>
-          <p id="frameworkBlurb" class="hint"></p>
-        </section>
-
-        <details class="card fold" id="lookCard">
-          <summary class="card-title"><span class="step">3</span><span class="fold-title">Look and images</span><span id="lookSummary" class="fold-summary"></span></summary>
-          <div class="fold-body">
-            <fieldset class="field">
-              <legend>Visual style <em>pick one, or two to blend</em></legend>
-              <div id="styleGroups"></div>
-              <p id="styleHint" class="hint"></p>
-            </fieldset>
-
-            <label class="check">
-              <input id="autoImages" type="checkbox">
-              <span>Also generate an image for every scene (uses the image model in LLM settings)</span>
-            </label>
-
-            <div class="field">
-              <span>Images per scene</span>
-              <div class="inline-field">
-                <select id="imageCount" aria-label="Images per scene">
-                  <option value="1">1</option>
-                  <option value="2">2</option>
-                  <option value="3">3</option>
-                </select>
-                <select id="imageMode" aria-label="How the images of a scene differ"></select>
+        <figure class="demo">
+          <div class="demo-frame">
+            <div class="demo-brief">
+              <p class="kicker">Brief</p>
+              <div class="d-field">
+                <span class="d-label">Topic</span>
+                <span class="d-box big">Why most people quit learning to code in week three</span>
               </div>
-              <p id="imageModeHint" class="hint"></p>
+              <div class="d-field">
+                <span class="d-label">Platforms</span>
+                <div class="chips">
+                  <span class="chip" lang="zh-CN">视频号</span>
+                  <span class="chip on" lang="zh-CN">抖音</span>
+                  <span class="chip on">TikTok</span>
+                  <span class="chip">Instagram Reels</span>
+                  <span class="chip on">YouTube Shorts</span>
+                </div>
+              </div>
+              <div class="d-row">
+                <div class="d-field">
+                  <span class="d-label">Structure</span>
+                  <span class="d-box">Golden retention</span>
+                </div>
+                <div class="d-field narrow">
+                  <span class="d-label">Length</span>
+                  <span class="d-box">60 s</span>
+                </div>
+              </div>
+              <div class="d-field">
+                <span class="d-label">Visual style</span>
+                <span class="d-box">Flat vector</span>
+              </div>
+              <span class="d-generate">Generate scripts</span>
             </div>
-          </div>
-        </details>
 
-        <details class="card fold" id="detailsCard">
-          <summary class="card-title"><span class="step">4</span><span class="fold-title">Details</span><span id="detailsSummary" class="fold-summary"></span></summary>
-          <div class="fold-body">
-            <label class="field">
-              <span>Key message</span>
-              <input id="keyMessage" type="text" placeholder="The one thing the viewer should remember">
-            </label>
-            <div class="row">
-              <label class="field">
-                <span>Audience</span>
-                <input id="audience" type="text" placeholder="e.g. 中小企业老板 / first-time founders">
-              </label>
-              <label class="field">
-                <span>Tone</span>
-                <input id="tone" type="text" placeholder="e.g. 冷静专业 / blunt and funny">
-              </label>
+            <div class="demo-script">
+              <div class="d-tabs">
+                <span class="d-tab on">TikTok</span>
+                <span class="d-tab" lang="zh-CN">抖音</span>
+                <span class="d-tab">YouTube Shorts</span>
+                <span class="d-meta">60 s · 7 scenes</span>
+              </div>
+
+              <div class="scene">
+                <div class="scene-body">
+                  <div class="scene-head"><span class="time">00:00–00:03</span><span class="stage">Hook</span></div>
+                  <p class="vo">Most people don't quit coding because it's hard. They quit in <mark>week three</mark>.</p>
+                  <dl class="cues">
+                    <dt>On screen</dt><dd class="screen">Week 3 is the wall</dd>
+                    <dt>Visual</dt><dd>A calendar flips to week three and a laptop lid closes</dd>
+                    <dt>Camera</dt><dd>Fast push-in, hard cut on the lid</dd>
+                  </dl>
+                </div>
+                <span class="thumb" aria-hidden="true">9:16</span>
+              </div>
+
+              <div class="scene">
+                <div class="scene-body">
+                  <div class="scene-head"><span class="time">00:03–00:08</span><span class="stage">Suspense anchor</span></div>
+                  <p class="vo">Stay to the end and you'll get the <mark>one habit</mark> that carries you past it.</p>
+                  <dl class="cues">
+                    <dt>On screen</dt><dd class="screen">One habit. Wait for it.</dd>
+                    <dt>Visual</dt><dd>A progress bar stalls at 20 percent, then pulses</dd>
+                  </dl>
+                </div>
+                <span class="thumb" aria-hidden="true">9:16</span>
+              </div>
+
+              <div class="extras">
+                <b>Also in this script</b>
+                <span>3 hook options</span>
+                <span>Voiceover-only view</span>
+                <span>Titles, cover text, hashtags</span>
+                <span>Pinned comment</span>
+              </div>
             </div>
-            <div class="row">
-              <label class="field">
-                <span>Brand or creator</span>
-                <input id="brand" type="text" placeholder="Who is speaking, what is being offered">
-              </label>
-              <label class="field">
-                <span>Call to action</span>
-                <input id="cta" type="text" placeholder="e.g. 转给负责数字化的合伙人 / follow for part 2">
-              </label>
-            </div>
-            <label class="field">
-              <span>Reference material</span>
-              <textarea id="reference" rows="5" placeholder="Paste facts, quotes, notes or an article. The script will only use figures and quotes that appear here or in the brief."></textarea>
-            </label>
-            <label class="check">
-              <input id="ttsReady" type="checkbox">
-              <span>Voiceover is for text-to-speech (spell out numbers and symbols)</span>
-            </label>
           </div>
-        </details>
+          <figcaption>Example brief and the first two scenes of its TikTok script, shortened. Grey frames mark where generated 9:16 storyboard images appear.</figcaption>
+        </figure>
       </div>
+    </section>
 
-      <div class="brief-footer">
-        <p id="formError" class="error" role="alert" hidden></p>
-        <label class="field model-pick">
-          <span>Written by</span>
-          <select id="llm" aria-label="Gateway and model"></select>
-        </label>
-        <div class="form-actions">
-          <button id="generate" class="btn cta" type="submit" data-icon="sparkles"><span id="generateLabel">Generate scripts</span></button>
-          <button id="stop" class="btn" type="button" data-icon="stop" hidden><span>Stop</span></button>
+    <section class="facts" aria-label="Video Scripter in numbers">
+      <dl class="wrap">
+        <div><dt>platforms, one script each</dt><dd>5</dd></div>
+        <div><dt>script structures</dt><dd>6</dd></div>
+        <div><dt>visual styles for storyboards</dt><dd>27</dd></div>
+        <div><dt>model provider presets</dt><dd>10</dd></div>
+      </dl>
+    </section>
+
+    <section id="what-is" class="section" aria-labelledby="what-is-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="what-is-title">What is Video Scripter?</h2>
+          <p>Video Scripter is a script studio for short social video. It turns one brief into a separate script per platform, each written for that platform's audience, pacing and publishing rules, then generates storyboard images and clips from the scene notes. It works with the AI model provider you already use.</p>
+        </div>
+        <div class="grid">
+          <div class="item">
+            <h3>One brief, five platforms</h3>
+            <p>A <span lang="zh-CN">抖音</span> script and a YouTube Shorts script are different pieces of writing. Each platform gets its own script instead of one draft pasted everywhere.</p>
+          </div>
+          <div class="item">
+            <h3>Ready to shoot</h3>
+            <p>Every scene is timed and carries its voiceover, on-screen text, visual, camera and sound notes.</p>
+          </div>
+          <div class="item">
+            <h3>Ready to publish</h3>
+            <p>Titles, cover text, a description, hashtags and a pinned comment come with every script.</p>
+          </div>
+          <div class="item">
+            <h3>Storyboards included</h3>
+            <p>Turn any scene into a 9:16 image or clip, in one of 27 visual styles from cinematic live action to Chinese ink.</p>
+          </div>
+          <div class="item">
+            <h3>Any model</h3>
+            <p>Ten provider presets, from OpenAI and Anthropic to <span lang="zh-CN">通义千问</span>, <span lang="zh-CN">豆包</span> and local Ollama. Switch model per script.</p>
+          </div>
+          <div class="item">
+            <h3>Yours to keep</h3>
+            <p>Every script, image and clip is saved to your account and exports as one tidy .zip, named and numbered by scene.</p>
+          </div>
         </div>
       </div>
-    </form>
+    </section>
 
-    <section class="output" aria-label="Script">
-      <div class="output-head">
-        <div id="tabs" class="tabs" role="tablist"></div>
-        <span class="spacer"></span>
-        <span id="mediaStatus" class="status-pill" role="status" aria-live="polite" hidden><span class="spin" aria-hidden="true"></span><span id="mediaStatusText"></span></span>
+    <section id="how-it-works" class="section" aria-labelledby="how-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="how-title">How does Video Scripter work?</h2>
+          <p>Four steps take you from a topic to a folder you can hand to an editor.</p>
+        </div>
+        <ol class="grid four">
+          <li class="step">
+            <span class="step-no" aria-hidden="true">01</span>
+            <h3>Write the brief</h3>
+            <p>Only the topic is required. Add platforms, a structure, a length, a visual style and reference material to sharpen the result.</p>
+          </li>
+          <li class="step">
+            <span class="step-no" aria-hidden="true">02</span>
+            <h3>Review the script</h3>
+            <p>Each platform opens in its own tab and streams in as it is written: three hook options, a timed scene list and a voiceover-only view.</p>
+          </li>
+          <li class="step">
+            <span class="step-no" aria-hidden="true">03</span>
+            <h3>Generate the visuals</h3>
+            <p>Turn a scene's visual and camera notes into a 9:16 frame or clip, one scene at a time or automatically for the whole script.</p>
+          </li>
+          <li class="step">
+            <span class="step-no" aria-hidden="true">04</span>
+            <h3>Export</h3>
+            <p>Download one .zip with the script, the voiceover text and every generated image and clip, named by scene and timecode.</p>
+          </li>
+        </ol>
       </div>
-      <div id="result" class="result" tabindex="-1">
-        <div class="empty">
-          <span class="empty-art" data-icon="script" data-icon-size="28" aria-hidden="true"></span>
-          <p class="empty-title">No script yet</p>
-          <p>Fill in the brief, pick one or more platforms, and generate. Each platform gets its own script, written for how that platform's audience watches.</p>
-          <ol class="empty-steps">
-            <li><span class="step">1</span>Describe the video</li>
-            <li><span class="step">2</span>Pick platforms and a structure</li>
-            <li><span class="step">3</span>Generate, then add images</li>
-          </ol>
-          <button id="emptyToBrief" class="btn primary mobile-only" type="button">Start a brief</button>
+    </section>
+
+    <section id="platforms" class="section tight" aria-labelledby="platforms-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="platforms-title">Which platforms does Video Scripter write for?</h2>
+          <p>Five: <span lang="zh-CN">视频号</span> and <span lang="zh-CN">抖音</span> in Chinese, and TikTok, Instagram Reels and YouTube Shorts in English. Scripts run from 15 to 180 seconds, and the script language follows the platform.</p>
+        </div>
+        <div class="table-scroll" tabindex="0" role="region" aria-labelledby="platforms-title">
+          <table>
+            <thead>
+              <tr><th scope="col">Platform</th><th scope="col">Script language</th><th scope="col">Lengths in seconds</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row"><span lang="zh-CN">视频号</span> (WeChat Channels)</th><td class="muted" lang="zh-CN">中文</td><td class="mono">30 · 60 · 90 · 120</td></tr>
+              <tr><th scope="row"><span lang="zh-CN">抖音</span> (Douyin)</th><td class="muted" lang="zh-CN">中文</td><td class="mono">15 · 30 · 45 · 60 · 90</td></tr>
+              <tr><th scope="row">TikTok</th><td class="muted">English</td><td class="mono">15 · 30 · 45 · 60 · 90</td></tr>
+              <tr><th scope="row">Instagram Reels</th><td class="muted">English</td><td class="mono">15 · 30 · 45 · 60 · 90</td></tr>
+              <tr><th scope="row">YouTube Shorts</th><td class="muted">English</td><td class="mono">30 · 45 · 60 · 90 · 180</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="structures" class="section tight" aria-labelledby="structures-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="structures-title">Which script structures can I choose?</h2>
+          <p>Six frameworks set the story arc and how the running time is divided between its stages.</p>
+        </div>
+        <div class="table-scroll" tabindex="0" role="region" aria-labelledby="structures-title">
+          <table>
+            <thead>
+              <tr><th scope="col">Structure</th><th scope="col">Arc</th><th scope="col">Best for</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Golden retention</th><td>Hook, suspense anchor, three value waves, structured wrap, cold close</td><td class="muted">Business, tech and insight content</td></tr>
+              <tr><th scope="row">Problem – Agitate – Solve</th><td>Name the pain, raise the stakes, deliver the fix</td><td class="muted">Services, courses and tools</td></tr>
+              <tr><th scope="row">Story with a turn</th><td>Start at the conflict, tell a short story with a turn</td><td class="muted">Personal brands, founders and case studies</td></tr>
+              <tr><th scope="row">Listicle</th><td>"3 things…", strongest item last</td><td class="muted">Tips, mistakes and round-ups</td></tr>
+              <tr><th scope="row">How-to tutorial</th><td>Show the result first, then teach the steps</td><td class="muted">Demos, software and skills</td></tr>
+              <tr><th scope="row">Product showcase</th><td>Scenario, reveal, proof, offer</td><td class="muted">Product, launch and review videos</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="models" class="section soft" aria-labelledby="models-title">
+      <div class="wrap split">
+        <div class="section-head">
+          <h2 id="models-title">Which AI models does it work with?</h2>
+          <p>The one you already pay for. Video Scripter ships with ten provider presets and also accepts any OpenAI-compatible or Anthropic-compatible endpoint. Image and video models connect separately, so each can live at its own address.</p>
+        </div>
+        <ul class="pills">
+          <li>OpenAI</li>
+          <li>Anthropic (Claude)</li>
+          <li>DeepSeek</li>
+          <li><span lang="zh-CN">通义千问</span> Qwen</li>
+          <li><span lang="zh-CN">豆包</span> Doubao</li>
+          <li>Moonshot Kimi</li>
+          <li><span lang="zh-CN">智谱</span> GLM</li>
+          <li>Google Gemini</li>
+          <li>OpenRouter</li>
+          <li>Ollama (local)</li>
+          <li class="any">Custom compatible endpoint</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="teams" class="section" aria-labelledby="teams-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="teams-title">Built for a team, private by default</h2>
+          <p>Run it on your own machine or on a host such as Vercel. Every user gets their own account, history and usage record.</p>
+        </div>
+        <div class="grid">
+          <div class="item">
+            <h3>Accounts and roles</h3>
+            <p>Members write scripts and generate media. An administrator manages models and users, and can close sign-up.</p>
+          </div>
+          <div class="item">
+            <h3>Usage you can account for</h3>
+            <p>Tokens, images and video seconds are recorded per script, per model and per user, next to an activity log.</p>
+          </div>
+          <div class="item">
+            <h3>Keys stay on the server</h3>
+            <p>API keys are never sent back to the browser. A brief and its reference material go to the model provider you picked, and to no one else.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="faq" class="section" aria-labelledby="faq-title">
+      <div class="wrap">
+        <h2 id="faq-title">Frequently asked questions</h2>
+        <div class="grid two">
+          <div class="item">
+            <h3>Does Video Scripter reuse one script across platforms?</h3>
+            <p>No. It writes a separate script for each platform you tick, tuned to how that platform's audience watches and to its publishing rules.</p>
+          </div>
+          <div class="item">
+            <h3>What does each script include?</h3>
+            <p>Three hook options, a timed scene list with voiceover, on-screen text, visual, camera and sound notes, a voiceover-only view, and a publishing package of titles, cover text, description, hashtags and a pinned comment.</p>
+          </div>
+          <div class="item">
+            <h3>How long can a script be?</h3>
+            <p>From 15 to 180 seconds, depending on the platform. YouTube Shorts goes up to 180 seconds, <span lang="zh-CN">视频号</span> up to 120, and <span lang="zh-CN">抖音</span>, TikTok and Instagram Reels up to 90.</p>
+          </div>
+          <div class="item">
+            <h3>Can it generate storyboard images and video clips?</h3>
+            <p>Yes, once an image or video model is connected. Each scene becomes a 9:16 image or clip in your chosen visual style, with one to three images per scene and clips of 4, 8 or 12 seconds.</p>
+          </div>
+          <div class="item">
+            <h3>Do I need my own API key?</h3>
+            <p>Not to look around. The app starts in demo mode with placeholder text. To write real scripts, an administrator connects a model provider and its key once for the whole team.</p>
+          </div>
+          <div class="item">
+            <h3>Does it write in Chinese and English?</h3>
+            <p>Yes. Scripts for <span lang="zh-CN">视频号</span> and <span lang="zh-CN">抖音</span> are written in Chinese, and scripts for TikTok, Instagram Reels and YouTube Shorts in English. The interface switches between English and Simplified Chinese.</p>
+          </div>
+          <div class="item">
+            <h3>Can the voiceover go straight into a text-to-speech tool?</h3>
+            <p>Yes. A text-to-speech option spells out numbers and symbols so a synthetic voice reads them correctly, and the voiceover-only view copies as plain text.</p>
+          </div>
+          <div class="item">
+            <h3>Where is my work stored, and can I export it?</h3>
+            <p>On the server you run, scoped to your account. Any script downloads as one .zip holding the script in Markdown and JSON, the voiceover text, and every generated image and clip.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="start" class="cta-band" aria-labelledby="start-title">
+      <div class="wrap">
+        <h2 id="start-title">Write once. Publish everywhere it matters.</h2>
+        <p>Start with a topic. Leave with a script, a storyboard and a publishing package for each platform.</p>
+        <div class="cta-row">
+          <a class="btn primary lg" href="app.html#signup">Create an account</a>
+          <a class="btn outline lg" href="app.html">Log in</a>
         </div>
       </div>
     </section>
   </main>
 
-  <nav class="bottom-nav" aria-label="Main">
-    <button class="nav-btn" type="button" data-nav="brief" data-icon="edit" data-icon-size="22"><span>Brief</span></button>
-    <button class="nav-btn" type="button" data-nav="script" data-icon="script" data-icon-size="22"><span>Script</span><span id="navBusy" class="nav-dot" hidden></span></button>
-    <button class="nav-btn" type="button" data-nav="history" data-icon="clock" data-icon-size="22"><span>History</span></button>
-    <button class="nav-btn" type="button" data-nav="account" data-icon="user" data-icon-size="22"><span>Account</span></button>
-  </nav>
-
-  <dialog id="historyDialog" class="dialog drawer" aria-labelledby="historyTitle">
-    <div class="dialog-shell">
-      <header class="dialog-head">
-        <h2 id="historyTitle">History</h2>
-        <button id="closeHistory" class="icon-btn" type="button" aria-label="Close" data-icon="x"></button>
-      </header>
-      <div class="dialog-body">
-        <label class="search" data-icon="search">
-          <input id="historySearch" type="search" placeholder="Search scripts" aria-label="Search scripts">
-        </label>
-        <div id="historyList" class="history-list"></div>
+  <footer class="site-foot">
+    <div class="wrap">
+      <div class="foot-top">
+        <div class="foot-about">
+          <a class="brand" href="./" aria-label="Video Scripter home">
+            <span class="logo" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24"><polygon points="7 4 20 12 7 20 7 4" fill="currentColor"/></svg></span>
+            <span>Video Scripter</span>
+          </a>
+          <p>The AI script studio for short social video. One brief, a shoot-ready script for every platform you publish on.</p>
+        </div>
+        <nav class="foot-nav" aria-label="Product">
+          <span class="kicker">Product</span>
+          <a href="#how-it-works">How it works</a>
+          <a href="#structures">Script structures</a>
+          <a href="#models">Supported models</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <nav class="foot-nav" aria-label="Platforms">
+          <span class="kicker">Platforms</span>
+          <a href="#platforms">TikTok scripts</a>
+          <a href="#platforms">Instagram Reels scripts</a>
+          <a href="#platforms">YouTube Shorts scripts</a>
+          <a href="zh.html#platforms" lang="zh-CN" hreflang="zh-CN">抖音脚本</a>
+          <a href="zh.html#platforms" lang="zh-CN" hreflang="zh-CN">视频号脚本</a>
+        </nav>
+      </div>
+      <div class="foot-bottom">
+        <span>© 2026 Video Scripter</span>
+        <span class="langs">
+          <a href="./" hreflang="en" aria-current="page">English</a>
+          <a href="zh.html" lang="zh-CN" hreflang="zh-CN">中文</a>
+        </span>
       </div>
     </div>
-  </dialog>
-
-  <dialog id="accountDialog" class="dialog wide" aria-labelledby="accountTitle">
-    <div class="dialog-shell">
-      <header class="dialog-head">
-        <h2 id="accountTitle">Account</h2>
-        <button id="closeAccount" class="icon-btn" type="button" aria-label="Close" data-icon="x"></button>
-      </header>
-      <div class="dialog-body">
-        <div class="account-card">
-          <span id="accountAvatar" class="avatar" aria-hidden="true"></span>
-          <div class="account-who">
-            <b id="accountFullName"></b>
-            <span id="accountEmail" class="hint"></span>
-          </div>
-          <span id="accountRole" class="badge"></span>
-          <span class="spacer"></span>
-          <a class="btn admin-only" href="admin.html" data-icon="users"><span>Manage users</span></a>
-          <button id="accountSettings" class="btn admin-only" type="button" data-icon="settings"><span>LLM settings</span></button>
-          <button id="logout" class="btn" type="button" data-icon="logout"><span>Log out</span></button>
-        </div>
-        <p id="storageWarning" class="status bad" hidden>Storage is temporary on this deployment: accounts, scripts and settings will be lost when the server restarts. Set DATABASE_URL to keep them.</p>
-        <div class="account-bar">
-          <div id="accountTabs" class="seg" role="tablist" aria-label="Account sections">
-            <button class="seg-btn" type="button" role="tab" data-tab="usage" aria-selected="true">Usage</button>
-            <button class="seg-btn" type="button" role="tab" data-tab="activity" aria-selected="false">Activity</button>
-            <button class="seg-btn" type="button" role="tab" data-tab="profile" aria-selected="false">Profile</button>
-          </div>
-          <span class="spacer"></span>
-          <select id="accountScope" class="compact admin-only" aria-label="Whose records">
-            <option value="me">My account</option>
-            <option value="all">All users</option>
-          </select>
-          <select id="accountDays" class="compact" aria-label="Period">
-            <option value="7">Last 7 days</option>
-            <option value="30" selected>Last 30 days</option>
-            <option value="90">Last 90 days</option>
-            <option value="0">All time</option>
-          </select>
-        </div>
-        <div id="accountPanel" class="account-panel" aria-live="polite"></div>
-      </div>
-    </div>
-  </dialog>
-
-  <dialog id="settings" class="dialog wide">
-    <form id="settingsForm" method="dialog" autocomplete="off">
-      <header class="dialog-head">
-        <h2>LLM gateways</h2>
-        <button id="closeSettingsX" class="icon-btn" type="button" aria-label="Close" data-icon="x"></button>
-      </header>
-      <div class="dialog-body">
-      <p class="hint">Save a gateway for each provider or account, then choose which one writes everyone’s scripts. Keys are stored on this machine in <code>data/gateway.json</code> and are never sent back to the browser.</p>
-
-      <div class="gw-layout">
-        <aside class="gw-side">
-          <div id="profileList" class="gw-list"></div>
-          <button id="newProfile" class="btn" type="button" data-icon="plus"><span>New gateway</span></button>
-        </aside>
-
-        <div class="gw-form">
-          <h3 id="gwFormTitle" class="gw-title"></h3>
-          <div class="row">
-            <label class="field">
-              <span>Name</span>
-              <input id="profileName" type="text" maxlength="60" placeholder="e.g. DeepSeek work account">
-            </label>
-            <label class="field">
-              <span>Provider</span>
-              <select id="provider"></select>
-            </label>
-          </div>
-          <label class="field">
-            <span>BASE_URL_API</span>
-            <input id="baseUrl" type="url" placeholder="https://api.example.com/v1" spellcheck="false">
-          </label>
-          <label class="field">
-            <span>API_KEY</span>
-            <input id="apiKey" type="password" placeholder="" spellcheck="false" autocomplete="new-password">
-          </label>
-          <p id="keyHint" class="hint"></p>
-          <div class="field">
-            <span>Default model</span>
-            <div class="inline">
-              <input id="model" type="text" placeholder="model name" spellcheck="false" aria-label="Default model">
-              <button id="listModels" class="btn" type="button">List available models</button>
-            </div>
-          </div>
-          <div id="modelBox" class="model-box" hidden>
-            <div class="model-box-head">
-              <span id="modelCount"></span>
-              <input id="modelFilter" type="search" placeholder="Filter" aria-label="Filter models">
-            </div>
-            <div id="modelList" class="model-list"></div>
-          </div>
-
-          <details id="mediaSettings" class="field media-settings">
-            <summary>Images and videos <span id="mediaSummary" class="hint"></span></summary>
-            <p class="hint">Scene images and clips are made by separate models, often at a different address. Give each its own BASE_URL_API and model; leave a model blank to turn that off. A blank base URL or key uses the gateway's.</p>
-            <fieldset class="media-group">
-              <legend>Images</legend>
-              <label class="field">
-                <span>BASE_URL_API</span>
-                <input id="imageBaseUrl" type="url" placeholder="Same as the gateway above" spellcheck="false">
-              </label>
-              <div class="row">
-                <label class="field">
-                  <span>Model</span>
-                  <input id="imageModel" type="text" list="imageModelOptions" placeholder="e.g. gpt-image-1" spellcheck="false">
-                </label>
-                <label class="field narrow">
-                  <span>Size</span>
-                  <input id="imageSize" type="text" placeholder="e.g. 1024x1536" spellcheck="false">
-                </label>
-              </div>
-              <datalist id="imageModelOptions"></datalist>
-              <div class="media-models">
-                <button id="imageList" class="btn" type="button">List available image models</button>
-                <span id="imageListNote" class="hint"></span>
-              </div>
-              <div id="imageModelList" class="model-list" hidden></div>
-              <label class="field">
-                <span>API_KEY <em>optional</em></span>
-                <input id="imageKey" type="password" spellcheck="false" autocomplete="new-password">
-              </label>
-            </fieldset>
-            <fieldset class="media-group">
-              <legend>Videos</legend>
-              <label class="field">
-                <span>BASE_URL_API</span>
-                <input id="videoBaseUrl" type="url" placeholder="Same as the gateway above" spellcheck="false">
-              </label>
-              <div class="row">
-                <label class="field">
-                  <span>Model</span>
-                  <input id="videoModel" type="text" list="videoModelOptions" placeholder="e.g. sora-2" spellcheck="false">
-                </label>
-                <label class="field narrow">
-                  <span>Size</span>
-                  <input id="videoSize" type="text" placeholder="e.g. 720x1280" spellcheck="false">
-                </label>
-              </div>
-              <datalist id="videoModelOptions"></datalist>
-              <div class="media-models">
-                <button id="videoList" class="btn" type="button">List available video models</button>
-                <span id="videoListNote" class="hint"></span>
-              </div>
-              <div id="videoModelList" class="model-list" hidden></div>
-              <label class="field">
-                <span>API_KEY <em>optional</em></span>
-                <input id="videoKey" type="password" spellcheck="false" autocomplete="new-password">
-              </label>
-            </fieldset>
-          </details>
-
-          <label class="check">
-            <input id="useGateway" type="checkbox">
-            <span>Use this gateway for everyone’s scripts</span>
-          </label>
-
-        </div>
-      </div>
-      </div>
-      <footer class="dialog-foot">
-        <p id="settingsStatus" class="status" role="status" hidden></p>
-        <div class="dialog-actions">
-          <button id="testGateway" class="btn" type="button">Test connection</button>
-          <button id="deleteProfile" class="btn danger" type="button">Delete</button>
-          <span class="spacer"></span>
-          <button id="cancelSettings" class="btn" type="button">Close</button>
-          <button id="saveSettings" class="btn primary" type="submit">Save</button>
-        </div>
-      </footer>
-    </form>
-  </dialog>
-
-  <div id="toast" class="toast" role="status" hidden></div>
-  <script type="module" src="app.js"></script>
+  </footer>
 </body>
 </html>

@@ -23,11 +23,14 @@ import { buildPlan, buildPrompts, parseScript, buildVisualPrompt } from './src/p
 import { db, storage } from './src/db.mjs';
 import { AuthError, authenticate, checkLogin, createUser, startSession, endSession, endAllSessions, ensureAdmin, publicUser, signupOpen, verifyPassword, setPassword, updateProfile, countSessions, activeAdmins, deleteUser } from './src/auth.mjs';
 import { recordUsage, logActivity, summarizeUsage, listActivity, estimateTokens } from './src/audit.mjs';
+import { SITE_TOKEN, configuredSiteUrl, requestSiteUrl, stamp } from './src/site.mjs';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const PORT = Number(process.env.PORT) || 3789;
 const HOST = process.env.HOST || '127.0.0.1';
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.xml': 'application/xml; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
+// Text files that may carry the site-address token (see src/site.mjs).
+const STAMPED = new Set(['.html', '.xml', '.txt']);
 
 const json = (res, status, body, headers = {}) => {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers });
@@ -522,7 +525,10 @@ async function serveStatic(req, res, pathname) {
   const file = path.join(PUBLIC, rel);
   if (!file.startsWith(PUBLIC + path.sep)) return json(res, 403, { error: 'Forbidden' });
   try {
-    const data = await readFile(file);
+    let data = await readFile(file);
+    // The home pages, sitemap and robots.txt need the site's public address: the configured one,
+    // or the address this request came in on.
+    if (STAMPED.has(path.extname(file)) && data.includes(SITE_TOKEN)) data = Buffer.from(stamp(data.toString('utf8'), configuredSiteUrl() || requestSiteUrl(req)));
     res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-cache', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'referrer-policy': 'same-origin' });
     res.end(data);
   } catch {

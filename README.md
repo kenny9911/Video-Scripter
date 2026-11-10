@@ -42,7 +42,7 @@ npm install
 ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='choose-a-long-password' npm start
 ```
 
-Open http://localhost:3789 and log in with that email and password. `ADMIN_EMAIL` and `ADMIN_PASSWORD` create the administrator the first time the server starts; after that they can be left out. Everyone else signs up from the log-in screen.
+Open http://localhost:3789, click **Start writing**, and log in with that email and password. `ADMIN_EMAIL` and `ADMIN_PASSWORD` create the administrator the first time the server starts; after that they can be left out. Everyone else signs up from the log-in screen.
 
 The app starts in demo mode, which returns placeholder text so you can explore the workflow without a model. As the administrator, click **LLM settings** to connect one. To put it online, see [Deploy on Vercel](#deploy-on-vercel).
 
@@ -254,7 +254,7 @@ A brief and its reference material are sent to the model provider the user picke
 
 ## Deploy on Vercel
 
-The repository deploys as is: `vercel.json` selects the "Other" framework preset, serves `public/` as static files, and sends `/api/*` and `/media/*` to one Node.js function (`api/index.mjs`).
+The repository deploys as is: `vercel.json` selects the "Other" framework preset, serves `public/` as static files, and sends `/api/*` and `/media/*` to one Node.js function (`api/index.mjs`). Its one build step, `scripts/stamp-site-url.mjs`, writes the site's address into the home page, sitemap and robots.txt.
 
 1. **Add a Postgres database.** In the Vercel project, open **Storage** and create a Postgres database (Neon). It adds `DATABASE_URL` to the project. The tables are created on the first request.
 2. **Add two environment variables** under **Settings → Environment Variables**: `ADMIN_EMAIL` and `ADMIN_PASSWORD`. Mark the password as sensitive.
@@ -263,6 +263,17 @@ The repository deploys as is: `vercel.json` selects the "Other" framework preset
 Without `DATABASE_URL` the site still runs, but on temporary storage: accounts, scripts and settings disappear when the function restarts. The Account dialog shows a warning to administrators while that is the case.
 
 Limits worth knowing on Vercel: a request can run for up to 300 seconds (`maxDuration` in `vercel.json`), and large downloads such as a `.zip` with many images or a long video may exceed the platform's response size limit. Images and clips are stored in Postgres, which suits a small team; for heavy use, move media to object storage.
+
+## Home page and search
+
+`/` is a public home page (`public/index.html`, with `public/zh.html` in Simplified Chinese); the app itself is at `/app.html` and is marked `noindex`. The home page is static HTML with no scripts to wait for, and carries what search engines and AI answer engines read:
+
+- a title, description, canonical link and `hreflang` links between the two languages
+- Open Graph and Twitter tags with a share image (`public/og.png`)
+- structured data (`SoftwareApplication`, `HowTo`, `FAQPage`) that repeats the visible copy word for word; `npm test` checks they match
+- `robots.txt`, `sitemap.xml`, and `llms.txt`, a plain-text summary for language models
+
+These need the site's public address. Set `SITE_URL` (for example `https://example.com`). On Vercel it defaults to the project's production domain and is written into the files at build time; with `npm start` it defaults to the address each request came in on.
 
 ## Interface
 
@@ -287,6 +298,7 @@ Everything below is optional. Settings saved in the app take precedence over the
 | `DATA_DIR` | Where everything is stored when no database is set | `data/` |
 | `DATABASE_URL`, `POSTGRES_URL` | Postgres connection string. When set, everything is stored there instead of `DATA_DIR` | None |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Creates the administrator on first start | None |
+| `SITE_URL` | Public address of the site, for canonical links, the sitemap and robots.txt | The Vercel production domain, or the request's address |
 | `ALLOW_SIGNUP` | Set to `false` to close sign-up | Open |
 | `GATEWAY_CONFIG_FILE` | Older gateway file, read once if no gateways are saved yet | `data/gateway.json` |
 | `LLM_PROVIDER` | Provider preset for the starting gateway | Demo |
@@ -326,7 +338,10 @@ src/audit.mjs           usage records (every model call) and the activity log
 src/store.mjs           saved scripts and generated media
 api/index.mjs           serverless entry point (Vercel); vercel.json routes requests to it
 src/package.mjs         the downloadable .zip for one script (src/zip.mjs writes the archive)
-public/                 the web UI (index.html is the app, admin.html the user administration page)
+public/                 the web UI: index.html and zh.html are the home page (English, 中文), app.html the app,
+                        admin.html the user administration page
+src/site.mjs            the site's public address, for canonical links, the sitemap and robots.txt
+scripts/                stamp-site-url.mjs, the build step that writes that address into public/ on a static host
 test/                   node --test
 ```
 

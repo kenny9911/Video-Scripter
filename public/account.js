@@ -29,7 +29,8 @@ export async function call(path, options = {}) {
 // ---------- Log in / sign up ----------
 
 export function showAuth({ signupOpen }) {
-  let mode = 'login';
+  // The home page links to app.html#signup so "Create an account" opens on the right tab.
+  let mode = signupOpen && location.hash === '#signup' ? 'signup' : 'login';
   const sync = () => {
     const signup = mode === 'signup';
     $('authTabLogin').setAttribute('aria-selected', String(!signup));

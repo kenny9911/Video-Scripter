@@ -41,7 +41,7 @@ npm install
 ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='设置一个足够长的密码' npm start
 ```
 
-打开 http://localhost:3789 ，用上面的邮箱和密码登录。`ADMIN_EMAIL` 和 `ADMIN_PASSWORD` 只在首次启动时用于创建管理员，之后可以省略；其他人在登录页自行注册。首次启动是演示模式，只返回占位文字，方便你在没有模型的情况下先熟悉流程。点击 **模型设置** 连接真实模型。
+打开 http://localhost:3789 ，点击 **开始创作**，用上面的邮箱和密码登录。`ADMIN_EMAIL` 和 `ADMIN_PASSWORD` 只在首次启动时用于创建管理员，之后可以省略；其他人在登录页自行注册。首次启动是演示模式，只返回占位文字，方便你在没有模型的情况下先熟悉流程。点击 **模型设置** 连接真实模型。
 
 ## 使用流程
 
@@ -236,6 +236,17 @@ videos/scene-01_00m00s-00m04s.mp4      每个场景最新的视频片段
 
 你的需求和参考资料只会发送给你选择的模型服务商。
 
+## 首页与搜索
+
+`/` 是公开的首页（`public/index.html`，简体中文版是 `public/zh.html`）；应用本身在 `/app.html`，并标记为 `noindex`。首页是纯静态 HTML，包含搜索引擎和 AI 问答引擎会读取的内容：
+
+- 标题、描述、canonical 链接，以及两种语言之间的 `hreflang` 链接
+- Open Graph 和 Twitter 标签，以及分享图片（`public/og.png`）
+- 结构化数据（`SoftwareApplication`、`HowTo`、`FAQPage`），与页面上的文字逐字一致，`npm test` 会检查
+- `robots.txt`、`sitemap.xml`，以及给语言模型看的纯文本摘要 `llms.txt`
+
+这些都需要站点的公开地址。设置 `SITE_URL`（例如 `https://example.com`）即可。在 Vercel 上默认使用项目的正式域名，构建时写入文件；用 `npm start` 运行时默认使用每个请求的访问地址。
+
 ## 界面
 
 - **语言。** 顶栏的 **中文 / English** 按钮在简体中文和英文之间切换界面。在你选择之前，界面跟随浏览器语言。服务端和模型服务商返回的信息仍为英文。
@@ -259,6 +270,7 @@ videos/scene-01_00m00s-00m04s.mp4      每个场景最新的视频片段
 | `DATA_DIR` | 历史记录和媒体文件的存放位置 | `data/` |
 | `DATABASE_URL`、`POSTGRES_URL` | Postgres 连接串；设置后所有内容存入数据库 | 无 |
 | `ADMIN_EMAIL`、`ADMIN_PASSWORD` | 首次启动时创建管理员 | 无 |
+| `SITE_URL` | 站点的公开地址，用于 canonical 链接、sitemap 和 robots.txt | Vercel 正式域名，或请求的访问地址 |
 | `ALLOW_SIGNUP` | 设为 `false` 关闭注册 | 开放 |
 | `GATEWAY_CONFIG_FILE` | 旧版网关文件，仅在尚未保存任何网关时读取一次 | `data/gateway.json` |
 | `LLM_PROVIDER` | 初始网关使用的服务商预设 | 演示模式 |
@@ -294,7 +306,9 @@ src/shots.mjs           同一场景多张图片之间的关系（多图模式�
 src/prompt.mjs          需求 -> 时间线和提示词；模型回复 -> 脚本
 src/store.mjs           保存的历史记录和生成的媒体文件（data/）
 src/package.mjs         单份脚本的 .zip 下载包（由 src/zip.mjs 写出压缩包）
-public/                 网页界面
+public/                 网页界面：index.html 和 zh.html 是首页（英文、中文），app.html 是应用
+src/site.mjs            站点的公开地址，用于 canonical 链接、sitemap 和 robots.txt
+scripts/                stamp-site-url.mjs：在静态托管平台构建时把该地址写入 public/
 test/                   node --test
 ```
 

@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>AI 短视频脚本生成器：一份需求，五个平台 | Video Scripter</title>
+  <meta name="description" content="把视频描述一次，为抖音、视频号、TikTok、Instagram Reels 和 YouTube Shorts 各写一份带时间码、拿来就能拍的脚本，并生成分镜图片和视频片段。">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
+  <link rel="canonical" href="__SITE_URL__/zh.html">
+  <link rel="alternate" hreflang="en" href="__SITE_URL__/">
+  <link rel="alternate" hreflang="zh-CN" href="__SITE_URL__/zh.html">
+  <link rel="alternate" hreflang="x-default" href="__SITE_URL__/">
+  <link rel="alternate" type="text/plain" href="__SITE_URL__/llms.txt" title="Video Scripter for language models">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Video Scripter">
+  <meta property="og:title" content="一份需求，为每个平台各写一份短视频脚本">
+  <meta property="og:description" content="把视频描述一次，为抖音、视频号、TikTok、Instagram Reels 和 YouTube Shorts 各写一份带时间码、拿来就能拍的脚本，并生成分镜图片和视频片段。">
+  <meta property="og:url" content="__SITE_URL__/zh.html">
+  <meta property="og:image" content="__SITE_URL__/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Video Scripter：一份需求，为每个平台各写一份短视频脚本">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="一份需求，为每个平台各写一份短视频脚本">
+  <meta name="twitter:description" content="一份需求，变成抖音、视频号、TikTok、Instagram Reels 和 YouTube Shorts 各一份拿来就能拍的脚本。">
+  <meta name="twitter:image" content="__SITE_URL__/og.png">
+
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#09090b">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <script src="theme.js"></script>
+  <link rel="stylesheet" href="home.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "__SITE_URL__/#website",
+        "url": "__SITE_URL__/",
+        "name": "Video Scripter",
+        "description": "面向短视频的 AI 脚本工作台。",
+        "inLanguage": ["en", "zh-CN"]
+      },
+      {
+        "@type": "WebPage",
+        "@id": "__SITE_URL__/zh.html#webpage",
+        "url": "__SITE_URL__/zh.html",
+        "name": "AI 短视频脚本生成器：一份需求，五个平台 | Video Scripter",
+        "description": "把视频描述一次，为抖音、视频号、TikTok、Instagram Reels 和 YouTube Shorts 各写一份带时间码、拿来就能拍的脚本，并生成分镜图片和视频片段。",
+        "inLanguage": "zh-CN",
+        "isPartOf": { "@id": "__SITE_URL__/#website" },
+        "about": { "@id": "__SITE_URL__/#app" },
+        "primaryImageOfPage": { "@type": "ImageObject", "url": "__SITE_URL__/og.png", "width": 1200, "height": 630 }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "__SITE_URL__/#app",
+        "name": "Video Scripter",
+        "alternateName": "Video Scripter 短视频脚本创作工具",
+        "url": "__SITE_URL__/zh.html",
+        "image": "__SITE_URL__/og.png",
+        "applicationCategory": "MultimediaApplication",
+        "applicationSubCategory": "AI 短视频脚本生成器",
+        "operatingSystem": "Web",
+        "inLanguage": ["zh-CN", "en"],
+        "description": "Video Scripter 是一个 AI 短视频脚本工作台。它把一份需求变成视频号、抖音、TikTok、Instagram Reels 和 YouTube Shorts 各一份带时间码、拿来就能拍的脚本，并根据分镜描述生成画面图片和视频片段。",
+        "featureList": [
+          "为五个平台各写一份脚本：视频号、抖音、TikTok、Instagram Reels 和 YouTube Shorts",
+          "带时间码的场景，每个场景都有旁白、屏幕文字、画面、镜头和声音",
+          "每份脚本都有三个开场钩子备选和只看旁白的视图",
+          "发布素材：标题、封面文字、描述文案、话题标签和置顶评论",
+          "27 种画面风格的 9:16 分镜图片和视频片段",
+          "六种脚本结构，包括黄金留存和痛点-放大-解决",
+          "十个模型服务商预设，并支持任何兼容 OpenAI 或 Anthropic 接口的服务",
+          "账号、角色、按用户统计的用量记录和操作日志",
+          "每份脚本及其素材可打包导出为一个 .zip"
+        ]
+      },
+      {
+        "@type": "HowTo",
+        "@id": "__SITE_URL__/zh.html#how-it-works",
+        "name": "如何用 Video Scripter 写短视频脚本",
+        "description": "四步，从一个主题到一个可以直接交给剪辑的文件夹。",
+        "step": [
+          { "@type": "HowToStep", "position": 1, "name": "填写需求", "text": "只有主题是必填的。再补上发布平台、脚本结构、时长、画面风格和参考资料，结果会更准。", "url": "__SITE_URL__/zh.html#how-it-works" },
+          { "@type": "HowToStep", "position": 2, "name": "查看脚本", "text": "每个平台一个标签页，脚本边写边显示：三个开场钩子备选、带时间码的分镜列表，以及只看旁白的视图。", "url": "__SITE_URL__/zh.html#how-it-works" },
+          { "@type": "HowToStep", "position": 3, "name": "生成画面", "text": "把场景的画面和镜头描述变成 9:16 的图片或视频片段，可以逐个场景生成，也可以整份脚本自动出图。", "url": "__SITE_URL__/zh.html#how-it-works" },
+          { "@type": "HowToStep", "position": 4, "name": "导出", "text": "下载一个 .zip，里面有脚本、旁白文本和所有已生成的图片、视频，按场景和时间码命名。", "url": "__SITE_URL__/zh.html#how-it-works" }
+        ]
+      },
+      {
+        "@type": "FAQPage",
+        "@id": "__SITE_URL__/zh.html#faq",
+        "mainEntity": [
+          { "@type": "Question", "name": "Video Scripter 会把同一份脚本套用到所有平台吗？", "acceptedAnswer": { "@type": "Answer", "text": "不会。你勾选几个平台，它就单独写几份脚本，每份都按该平台观众的观看习惯和发布规则来写。" } },
+          { "@type": "Question", "name": "每份脚本包含什么？", "acceptedAnswer": { "@type": "Answer", "text": "三个开场钩子备选；带时间码的分镜列表，每个场景都有旁白、屏幕文字、画面、镜头和声音；只看旁白的视图；以及一套发布素材：标题、封面文字、描述文案、话题标签和置顶评论。" } },
+          { "@type": "Question", "name": "脚本可以写多长？", "acceptedAnswer": { "@type": "Answer", "text": "15 秒到 180 秒，取决于平台。YouTube Shorts 最长 180 秒，视频号最长 120 秒，抖音、TikTok 和 Instagram Reels 最长 90 秒。" } },
+          { "@type": "Question", "name": "能生成分镜图片和视频片段吗？", "acceptedAnswer": { "@type": "Answer", "text": "可以，接入图像或视频模型后即可。每个场景都能按你选的画面风格生成 9:16 的图片或视频片段，每个场景可出一到三张图，视频片段时长为 4、8 或 12 秒。" } },
+          { "@type": "Question", "name": "需要自己准备 API 密钥吗？", "acceptedAnswer": { "@type": "Answer", "text": "只是先看看的话不需要。应用首次启动是演示模式，返回占位文字。要写真正的脚本，由管理员为整个团队接入一次模型服务商和密钥即可。" } },
+          { "@type": "Question", "name": "支持中文和英文吗？", "acceptedAnswer": { "@type": "Answer", "text": "支持。视频号和抖音的脚本用中文写，TikTok、Instagram Reels 和 YouTube Shorts 的脚本用英文写。界面可以在简体中文和英文之间切换。" } },
+          { "@type": "Question", "name": "旁白可以直接用于语音合成吗？", "acceptedAnswer": { "@type": "Answer", "text": "可以。勾选语音合成选项后，数字和符号会写成读法，合成语音才读得正确；只看旁白的视图可以复制为纯文本。" } },
+          { "@type": "Question", "name": "我的内容存在哪里，能导出吗？", "acceptedAnswer": { "@type": "Answer", "text": "保存在你自己运行的服务器上，只属于你的账号。任何一份脚本都能下载为一个 .zip，里面有 Markdown 和 JSON 格式的脚本、旁白文本，以及所有已生成的图片和视频。" } }
+        ]
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+
+  <header class="site-head">
+    <div class="wrap">
+      <a class="brand" href="zh.html" aria-label="Video Scripter 首页">
+        <span class="logo" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24"><polygon points="7 4 20 12 7 20 7 4" fill="currentColor"/></svg></span>
+        <span>Video Scripter</span>
+      </a>
+      <nav class="nav" aria-label="主导航">
+        <a href="#how-it-works">使用流程</a>
+        <a href="#platforms">支持平台</a>
+        <a href="#structures">脚本结构</a>
+        <a href="#models">模型</a>
+        <a href="#faq">常见问题</a>
+      </nav>
+      <div class="head-actions">
+        <a class="text-link" href="./" lang="en" hreflang="en">English</a>
+        <a class="text-link strong" href="app.html">登录</a>
+        <a class="btn primary" href="app.html">开始创作</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="wrap">
+        <div class="hero-copy">
+          <p class="eyebrow">AI 短视频脚本生成器</p>
+          <h1 id="hero-title">一份需求，<wbr>为每个平台<wbr>各写一份<wbr>短视频脚本</h1>
+          <p class="lead">Video Scripter 是一个 AI 短视频脚本工作台。把视频描述一次，就能为视频号、抖音、TikTok、Instagram Reels 和 YouTube Shorts 各拿到一份带时间码、拿来就能拍的脚本，并附带分镜图片、视频片段和发布素材。</p>
+          <div class="cta-row">
+            <a class="btn primary lg" href="app.html">开始创作</a>
+            <a class="btn outline lg" href="#how-it-works">看看怎么用</a>
+          </div>
+          <p class="note">首次打开是演示模式，不接模型也能先把流程走一遍。</p>
+        </div>
+
+        <figure class="demo">
+          <div class="demo-frame">
+            <div class="demo-brief">
+              <p class="kicker">需求</p>
+              <div class="d-field">
+                <span class="d-label">主题</span>
+                <span class="d-box big">为什么企业买了大模型却用不起来</span>
+              </div>
+              <div class="d-field">
+                <span class="d-label">发布平台</span>
+                <div class="chips">
+                  <span class="chip on">视频号</span>
+                  <span class="chip on">抖音</span>
+                  <span class="chip">TikTok</span>
+                  <span class="chip">Instagram Reels</span>
+                  <span class="chip">YouTube Shorts</span>
+                </div>
+              </div>
+              <div class="d-row">
+                <div class="d-field">
+                  <span class="d-label">脚本结构</span>
+                  <span class="d-box">黄金留存</span>
+                </div>
+                <div class="d-field narrow">
+                  <span class="d-label">时长</span>
+                  <span class="d-box">60 秒</span>
+                </div>
+              </div>
+              <div class="d-field">
+                <span class="d-label">画面风格</span>
+                <span class="d-box">扁平矢量</span>
+              </div>
+              <span class="d-generate">生成脚本</span>
+            </div>
+
+            <div class="demo-script">
+              <div class="d-tabs">
+                <span class="d-tab on">抖音</span>
+                <span class="d-tab">视频号</span>
+                <span class="d-meta">60 秒 · 7 个场景</span>
+              </div>
+
+              <div class="scene">
+                <div class="scene-body">
+                  <div class="scene-head"><span class="time">00:00–00:03</span><span class="stage">黄金钩子</span></div>
+                  <p class="vo">大模型买回来半年，一线员工<mark>一次都没打开过</mark>。问题不在模型。</p>
+                  <dl class="cues">
+                    <dt>屏幕文字</dt><dd class="screen">买了 ≠ 用了</dd>
+                    <dt>画面</dt><dd>会议室大屏亮着全新的智能平台，工位上的人还在手工填表</dd>
+                    <dt>镜头</dt><dd>从大屏快速摇到工位，硬切</dd>
+                  </dl>
+                </div>
+                <span class="thumb" aria-hidden="true">9:16</span>
+              </div>
+
+              <div class="scene">
+                <div class="scene-body">
+                  <div class="scene-head"><span class="time">00:03–00:08</span><span class="stage">悬念锚点</span></div>
+                  <p class="vo">听完这三点，尤其是<mark>最后一条</mark>，你就知道钱该花在哪。</p>
+                  <dl class="cues">
+                    <dt>屏幕文字</dt><dd class="screen">三个坑，最后一个最贵</dd>
+                    <dt>画面</dt><dd>三张卡片依次翻开，第三张停在背面</dd>
+                  </dl>
+                </div>
+                <span class="thumb" aria-hidden="true">9:16</span>
+              </div>
+
+              <div class="extras">
+                <b>这份脚本还包括</b>
+                <span>3 个开场钩子备选</span>
+                <span>只看旁白</span>
+                <span>标题、封面文字、话题标签</span>
+                <span>置顶评论</span>
+              </div>
+            </div>
+          </div>
+          <figcaption>示例：一份需求，以及它生成的抖音脚本的前两个场景（节选）。灰色方框是生成 9:16 分镜图片的位置。</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="facts" aria-label="Video Scripter 的几个数字">
+      <dl class="wrap">
+        <div><dt>个平台，各写一份脚本</dt><dd>5</dd></div>
+        <div><dt>种脚本结构</dt><dd>6</dd></div>
+        <div><dt>种分镜画面风格</dt><dd>27</dd></div>
+        <div><dt>个模型服务商预设</dt><dd>10</dd></div>
+      </dl>
+    </section>
+
+    <section id="what-is" class="section" aria-labelledby="what-is-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="what-is-title">Video Scripter 是什么？</h2>
+          <p>Video Scripter 是一个短视频脚本工作台。它把一份需求变成每个平台各一份的脚本，按该平台的受众、节奏和发布规则来写，再根据分镜描述生成画面图片和视频片段。接入你已经在用的 AI 模型服务商即可使用。</p>
+        </div>
+        <div class="grid">
+          <div class="item">
+            <h3>一份需求，五个平台</h3>
+            <p>抖音脚本和 YouTube Shorts 脚本本来就是两种写法。每个平台各写一份，而不是一稿到处贴。</p>
+          </div>
+          <div class="item">
+            <h3>拿来就能拍</h3>
+            <p>每个场景都有时间码，并写好旁白、屏幕文字、画面、镜头和声音。</p>
+          </div>
+          <div class="item">
+            <h3>拿来就能发</h3>
+            <p>每份脚本都附带标题、封面文字、描述文案、话题标签和置顶评论。</p>
+          </div>
+          <div class="item">
+            <h3>自带分镜画面</h3>
+            <p>任意场景都能生成 9:16 的图片或视频片段，从电影感实拍到水墨，有 27 种画面风格可选。</p>
+          </div>
+          <div class="item">
+            <h3>模型随你选</h3>
+            <p>内置十个服务商预设，从 OpenAI、Anthropic 到通义千问、豆包和本地 Ollama。每份脚本都可以换模型。</p>
+          </div>
+          <div class="item">
+            <h3>内容归你所有</h3>
+            <p>每份脚本、图片和视频都保存在你的账号里，并可打包成一个整齐的 .zip，按场景编号命名。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="how-it-works" class="section" aria-labelledby="how-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="how-title">Video Scripter 怎么用？</h2>
+          <p>四步，从一个主题到一个可以直接交给剪辑的文件夹。</p>
+        </div>
+        <ol class="grid four">
+          <li class="step">
+            <span class="step-no" aria-hidden="true">01</span>
+            <h3>填写需求</h3>
+            <p>只有主题是必填的。再补上发布平台、脚本结构、时长、画面风格和参考资料，结果会更准。</p>
+          </li>
+          <li class="step">
+            <span class="step-no" aria-hidden="true">02</span>
+            <h3>查看脚本</h3>
+            <p>每个平台一个标签页，脚本边写边显示：三个开场钩子备选、带时间码的分镜列表，以及只看旁白的视图。</p>
+          </li>
+          <li class="step">
+            <span class="step-no" aria-hidden="true">03</span>
+            <h3>生成画面</h3>
+            <p>把场景的画面和镜头描述变成 9:16 的图片或视频片段，可以逐个场景生成，也可以整份脚本自动出图。</p>
+          </li>
+          <li class="step">
+            <span class="step-no" aria-hidden="true">04</span>
+            <h3>导出</h3>
+            <p>下载一个 .zip，里面有脚本、旁白文本和所有已生成的图片、视频，按场景和时间码命名。</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="platforms" class="section tight" aria-labelledby="platforms-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="platforms-title">Video Scripter 支持哪些平台？</h2>
+          <p>五个：中文的视频号和抖音，英文的 TikTok、Instagram Reels 和 YouTube Shorts。脚本时长从 15 秒到 180 秒，脚本语言由平台决定。</p>
+        </div>
+        <div class="table-scroll" tabindex="0" role="region" aria-labelledby="platforms-title">
+          <table>
+            <thead>
+              <tr><th scope="col">平台</th><th scope="col">脚本语言</th><th scope="col">可选时长（秒）</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">视频号</th><td class="muted">中文</td><td class="mono">30 · 60 · 90 · 120</td></tr>
+              <tr><th scope="row">抖音</th><td class="muted">中文</td><td class="mono">15 · 30 · 45 · 60 · 90</td></tr>
+              <tr><th scope="row">TikTok</th><td class="muted">英文</td><td class="mono">15 · 30 · 45 · 60 · 90</td></tr>
+              <tr><th scope="row">Instagram Reels</th><td class="muted">英文</td><td class="mono">15 · 30 · 45 · 60 · 90</td></tr>
+              <tr><th scope="row">YouTube Shorts</th><td class="muted">英文</td><td class="mono">30 · 45 · 60 · 90 · 180</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="structures" class="section tight" aria-labelledby="structures-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="structures-title">有哪些脚本结构可选？</h2>
+          <p>六种结构决定故事怎么展开，以及时长在各个阶段之间如何分配。</p>
+        </div>
+        <div class="table-scroll" tabindex="0" role="region" aria-labelledby="structures-title">
+          <table>
+            <thead>
+              <tr><th scope="col">结构</th><th scope="col">展开方式</th><th scope="col">适合</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">黄金留存（硬核认知）</th><td>钩子、悬念锚点、三层价值、结构化收束、无预警收尾</td><td class="muted">商业、科技、认知类内容</td></tr>
+              <tr><th scope="row">痛点-放大-解决</th><td>先戳痛点，再放大代价，最后给解法</td><td class="muted">服务、课程、工具类</td></tr>
+              <tr><th scope="row">故事反转</th><td>从结果或冲突切入，讲一个有转折的小故事</td><td class="muted">个人 IP、品牌故事、案例</td></tr>
+              <tr><th scope="row">清单盘点</th><td>“3 个……”式清单，最有价值的一条放最后</td><td class="muted">技巧、避坑、盘点</td></tr>
+              <tr><th scope="row">教程步骤</th><td>先展示结果，再分步骤教</td><td class="muted">实操、软件、技能教学</td></tr>
+              <tr><th scope="row">产品种草</th><td>场景痛点、产品亮相、卖点证明、行动</td><td class="muted">带货、新品、探店</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="models" class="section soft" aria-labelledby="models-title">
+      <div class="wrap split">
+        <div class="section-head">
+          <h2 id="models-title">支持哪些 AI 模型？</h2>
+          <p>你已经在用的那一个。Video Scripter 内置十个服务商预设，也支持任何兼容 OpenAI 或 Anthropic 接口的服务。图像模型和视频模型单独接入，可以各用各的地址。</p>
+        </div>
+        <ul class="pills">
+          <li>OpenAI</li>
+          <li>Anthropic（Claude）</li>
+          <li>DeepSeek</li>
+          <li>通义千问 Qwen</li>
+          <li>豆包 Doubao</li>
+          <li>Moonshot Kimi</li>
+          <li>智谱 GLM</li>
+          <li>Google Gemini</li>
+          <li>OpenRouter</li>
+          <li>Ollama（本地）</li>
+          <li class="any">自定义兼容接口</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="teams" class="section" aria-labelledby="teams-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="teams-title">为团队而建，默认私密</h2>
+          <p>可以运行在你自己的电脑上，也可以部署到 Vercel 这样的平台。每位用户都有自己的账号、历史记录和用量记录。</p>
+        </div>
+        <div class="grid">
+          <div class="item">
+            <h3>账号与角色</h3>
+            <p>成员写脚本、生成素材；管理员管理模型和用户，也可以关闭注册。</p>
+          </div>
+          <div class="item">
+            <h3>用量清清楚楚</h3>
+            <p>按脚本、按模型、按用户记录 Token、图片数量和视频秒数，并附带操作日志。</p>
+          </div>
+          <div class="item">
+            <h3>密钥只留在服务器</h3>
+            <p>API 密钥不会回传到浏览器。需求和参考资料只发送给你选定的模型服务商，不会发给其他任何人。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="faq" class="section" aria-labelledby="faq-title">
+      <div class="wrap">
+        <h2 id="faq-title">常见问题</h2>
+        <div class="grid two">
+          <div class="item">
+            <h3>Video Scripter 会把同一份脚本套用到所有平台吗？</h3>
+            <p>不会。你勾选几个平台，它就单独写几份脚本，每份都按该平台观众的观看习惯和发布规则来写。</p>
+          </div>
+          <div class="item">
+            <h3>每份脚本包含什么？</h3>
+            <p>三个开场钩子备选；带时间码的分镜列表，每个场景都有旁白、屏幕文字、画面、镜头和声音；只看旁白的视图；以及一套发布素材：标题、封面文字、描述文案、话题标签和置顶评论。</p>
+          </div>
+          <div class="item">
+            <h3>脚本可以写多长？</h3>
+            <p>15 秒到 180 秒，取决于平台。YouTube Shorts 最长 180 秒，视频号最长 120 秒，抖音、TikTok 和 Instagram Reels 最长 90 秒。</p>
+          </div>
+          <div class="item">
+            <h3>能生成分镜图片和视频片段吗？</h3>
+            <p>可以，接入图像或视频模型后即可。每个场景都能按你选的画面风格生成 9:16 的图片或视频片段，每个场景可出一到三张图，视频片段时长为 4、8 或 12 秒。</p>
+          </div>
+          <div class="item">
+            <h3>需要自己准备 API 密钥吗？</h3>
+            <p>只是先看看的话不需要。应用首次启动是演示模式，返回占位文字。要写真正的脚本，由管理员为整个团队接入一次模型服务商和密钥即可。</p>
+          </div>
+          <div class="item">
+            <h3>支持中文和英文吗？</h3>
+            <p>支持。视频号和抖音的脚本用中文写，TikTok、Instagram Reels 和 YouTube Shorts 的脚本用英文写。界面可以在简体中文和英文之间切换。</p>
+          </div>
+          <div class="item">
+            <h3>旁白可以直接用于语音合成吗？</h3>
+            <p>可以。勾选语音合成选项后，数字和符号会写成读法，合成语音才读得正确；只看旁白的视图可以复制为纯文本。</p>
+          </div>
+          <div class="item">
+            <h3>我的内容存在哪里，能导出吗？</h3>
+            <p>保存在你自己运行的服务器上，只属于你的账号。任何一份脚本都能下载为一个 .zip，里面有 Markdown 和 JSON 格式的脚本、旁白文本，以及所有已生成的图片和视频。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="start" class="cta-band" aria-labelledby="start-title">
+      <div class="wrap">
+        <h2 id="start-title">写一次，<wbr>发遍每个<wbr>重要的平台。</h2>
+        <p>从一个主题开始，带走每个平台各一份的脚本、分镜和发布素材。</p>
+        <div class="cta-row">
+          <a class="btn primary lg" href="app.html#signup">创建账号</a>
+          <a class="btn outline lg" href="app.html">登录</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-foot">
+    <div class="wrap">
+      <div class="foot-top">
+        <div class="foot-about">
+          <a class="brand" href="zh.html" aria-label="Video Scripter 首页">
+            <span class="logo" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24"><polygon points="7 4 20 12 7 20 7 4" fill="currentColor"/></svg></span>
+            <span>Video Scripter</span>
+          </a>
+          <p>面向短视频的 AI 脚本工作台。一份需求，为你发布的每个平台各写一份拿来就能拍的脚本。</p>
+        </div>
+        <nav class="foot-nav" aria-label="产品">
+          <span class="kicker">产品</span>
+          <a href="#how-it-works">使用流程</a>
+          <a href="#structures">脚本结构</a>
+          <a href="#models">支持的模型</a>
+          <a href="#faq">常见问题</a>
+        </nav>
+        <nav class="foot-nav" aria-label="平台">
+          <span class="kicker">平台</span>
+          <a href="#platforms">抖音脚本</a>
+          <a href="#platforms">视频号脚本</a>
+          <a href="./#platforms" lang="en" hreflang="en">TikTok scripts</a>
+          <a href="./#platforms" lang="en" hreflang="en">Instagram Reels scripts</a>
+          <a href="./#platforms" lang="en" hreflang="en">YouTube Shorts scripts</a>
+        </nav>
+      </div>
+      <div class="foot-bottom">
+        <span>© 2026 Video Scripter</span>
+        <span class="langs">
+          <a href="./" lang="en" hreflang="en">English</a>
+          <a href="zh.html" hreflang="zh-CN" aria-current="page">中文</a>
+        </span>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

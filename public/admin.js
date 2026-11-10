@@ -229,13 +229,13 @@ async function boot() {
   wireTheme($('themeToggle'));
   wireLang($('langToggle'));
   const me = await call('/api/auth/me');
-  if (!me.user) return location.replace('./');
+  if (!me.user) return location.replace('app.html');
   state.me = me.user;
   document.body.dataset.role = me.user.role;
   document.body.dataset.auth = 'in';
   $('adminLogout').addEventListener('click', async () => {
     await call('/api/auth/logout', { method: 'POST', body: {} }).catch(() => {});
-    location.replace('./');
+    location.replace('app.html');
   });
   if (me.user.role !== 'admin') {
     document.querySelector('.admin').hidden = true;

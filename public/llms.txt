@@ -1,0 +1,32 @@
+# Video Scripter
+
+> Video Scripter is an AI script studio for short social video. It turns one brief into a separate, timed, shoot-ready script for each platform: 视频号 (WeChat Channels), 抖音 (Douyin), TikTok, Instagram Reels and YouTube Shorts. It also generates 9:16 storyboard images and video clips from the scene notes.
+
+Video Scripter is a web app. It runs on the user's own machine or on a host such as Vercel, and works with the model provider the user already has. It opens in demo mode with placeholder text until an administrator connects a model.
+
+## Key facts
+
+- Platforms: 5. 视频号 and 抖音 scripts are written in Chinese; TikTok, Instagram Reels and YouTube Shorts scripts in English.
+- Script lengths in seconds: 视频号 30, 60, 90, 120. 抖音, TikTok and Instagram Reels 15, 30, 45, 60, 90. YouTube Shorts 30, 45, 60, 90, 180.
+- Each script contains: three hook options; a timed scene list where every scene has voiceover, on-screen text, visual, camera and sound notes; a voiceover-only view; and a publishing package (titles, cover text, description, hashtags, pinned comment).
+- Script structures: 6. Golden retention; Problem – Agitate – Solve; Story with a turn; Listicle; How-to tutorial; Product showcase.
+- Visual styles for storyboard images and clips: 27, in five groups (live action, illustration, 3D and stop motion, graphics and data, era and mood). One style, or two blended.
+- Images per scene: 1 to 3. Video clips run 4, 8 or 12 seconds.
+- Model providers: 10 presets (OpenAI, Anthropic Claude, DeepSeek, 通义千问 Qwen, 豆包 Doubao, Moonshot Kimi, 智谱 GLM, Google Gemini, OpenRouter, Ollama) plus any OpenAI-compatible or Anthropic-compatible endpoint.
+- Export: one .zip per script with the script in Markdown and JSON, the voiceover text, and every generated image and clip, named by scene and timecode.
+- Teams: accounts with member and administrator roles, usage recorded per script, per model and per user, and an activity log.
+- Privacy: API keys stay on the server. A brief and its reference material are sent only to the model provider the user picked.
+- Interface languages: English and Simplified Chinese.
+
+## How it works
+
+1. Write the brief. Only the topic is required; platforms, structure, length, visual style and reference material sharpen the result.
+2. Review the script. Each platform opens in its own tab and streams in as it is written.
+3. Generate the visuals. A scene's visual and camera notes become a 9:16 image or clip.
+4. Export. Download one .zip with the script, voiceover and media.
+
+## Pages
+
+- [Home page (English)](__SITE_URL__/): what Video Scripter is, how it works, platforms, script structures, supported models and FAQ
+- [首页（中文）](__SITE_URL__/zh.html): the same page in Simplified Chinese
+- [The app](__SITE_URL__/app.html): log in or sign up to write scripts
