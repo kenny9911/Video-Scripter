@@ -543,6 +543,39 @@ function refreshMediaStatus() {
   $('navBusy').hidden = !busy && !Object.values(state.runs).some((r) => r.status === 'running');
 }
 
+/**
+ * The large view of a scene's images, opened by clicking one. `items` is [{ url, label }]; with several,
+ * the arrows (or the ← → keys) step through them. Esc, the close button, or a click on the image or
+ * around it closes the view.
+ */
+function viewImages(items, at, alt) {
+  const img = h('img', { alt, title: t('Close'), onclick: () => dlg.close() });
+  const caption = h('span', { class: 'lightbox-caption' });
+  const save = h('a', { class: 'btn small', target: '_blank', rel: 'noopener' }, t('Save'));
+  const many = items.length > 1;
+  const step = (label, by) => h('button', { class: `icon-btn ${by < 0 ? 'prev' : 'next'}`, type: 'button', 'aria-label': label, title: label, onclick: () => show(at + by) }, icon('chevron'));
+  const dlg = h(
+    'dialog',
+    { class: 'lightbox', 'aria-label': alt },
+    img,
+    h('div', { class: 'lightbox-bar' }, caption, many && step(t('Previous image'), -1), many && step(t('Next image'), 1), save, h('button', { class: 'icon-btn', type: 'button', autofocus: true, 'aria-label': t('Close'), onclick: () => dlg.close() }, icon('x'))),
+  );
+  function show(i) {
+    at = (i + items.length) % items.length;
+    const { url, label } = items[at];
+    img.src = url;
+    save.href = url;
+    save.download = url.split('/').pop().split('?')[0];
+    caption.textContent = [many && `${at + 1} / ${items.length}`, label].filter(Boolean).join(' · ');
+  }
+  dlg.addEventListener('keydown', (e) => many && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && show(at + (e.key === 'ArrowLeft' ? -1 : 1)));
+  dlg.addEventListener('click', (e) => e.target === dlg && dlg.close());
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  show(at);
+  dlg.showModal();
+}
+
 /** Buttons and results under one scene. */
 function sceneMedia(run, sc) {
   const g = activeGw();
@@ -568,7 +601,13 @@ function sceneMedia(run, sc) {
                 'div',
                 { class: 'shot' },
                 shotLabel(m.shots?.[i]) && h('span', { class: 'shot-label' }, `${i + 1} · ${shotLabel(m.shots[i])}`),
-                kind === 'image' ? h('img', { src: url, alt: t('Generated image for scene {n}', { n: sc.id }), loading: 'lazy' }) : h('video', { src: url, controls: true, playsinline: true, preload: 'metadata' }),
+                kind === 'image'
+                  ? h(
+                      'button',
+                      { class: 'shot-open', type: 'button', title: t('View larger'), onclick: () => viewImages(m.urls.map((u, n) => ({ url: u, label: shotLabel(m.shots?.[n]) })), i, t('Generated image for scene {n}', { n: sc.id })) },
+                      h('img', { src: url, alt: t('Generated image for scene {n}', { n: sc.id }), loading: 'lazy' }),
+                    )
+                  : h('video', { src: url, controls: true, playsinline: true, preload: 'metadata' }),
                 h('a', { class: 'btn small', href: url, download: url.split('/').pop().split('?')[0] || `scene-${sc.id}`, target: '_blank', rel: 'noopener' }, t('Save')),
               ),
             ),
