@@ -101,3 +101,4 @@ To change how a platform's scripts read, edit its entry in `src/platforms.mjs`; 
 
 The server listens on 127.0.0.1 only and refuses cross-origin API calls.
 # Video-Scripter
+# Video-Scripter
