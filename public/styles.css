@@ -555,6 +555,8 @@ select.compact { width: auto; min-height: 36px; padding-top: 4px; padding-bottom
 /* Scene images, clips and their placeholders take the shape of the script (vertical unless set here). */
 .media[data-aspect="16:9"] .shot :is(img, video, .ph) { width: min(300px, 78vw); max-width: none; aspect-ratio: 16 / 9; }
 .media[data-aspect="1:1"] .shot :is(img, video, .ph) { width: min(200px, 56vw); max-width: none; aspect-ratio: 1; }
+.media[data-aspect="3:4"] .shot :is(img, video, .ph) { width: min(190px, 50vw); max-width: none; aspect-ratio: 3 / 4; }
+.media[data-aspect="4:3"] .shot :is(img, video, .ph) { width: min(260px, 70vw); max-width: none; aspect-ratio: 4 / 3; }
 
 /* ---------- Show / hide password ---------- */
 

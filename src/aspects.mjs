@@ -5,6 +5,8 @@ export const ASPECTS = [
   { id: '9:16', w: 9, h: 16, shape: 'Vertical', name: { en: 'Vertical', zh: '竖屏' } },
   { id: '16:9', w: 16, h: 9, shape: 'Landscape', name: { en: 'Landscape', zh: '横屏' } },
   { id: '1:1', w: 1, h: 1, shape: 'Square', name: { en: 'Square', zh: '方形' } },
+  { id: '3:4', w: 3, h: 4, shape: 'Portrait', name: { en: 'Portrait', zh: '竖版' } },
+  { id: '4:3', w: 4, h: 3, shape: 'Landscape', name: { en: 'Standard', zh: '横版' } },
 ];
 
 export const DEFAULT_ASPECT = ASPECTS[0].id;
@@ -14,8 +16,9 @@ export const getAspect = (id) => ASPECTS.find((a) => a.id === id) || ASPECTS[0];
 
 /**
  * The pixel size to ask a media model for. The gateway's Size setting ("1024x1536") names the
- * model's two edge lengths: they are used short-by-long for vertical, long-by-short for landscape
- * and short-by-short for square, which is how image and video models offer their sizes.
+ * model's two edge lengths: they are used short-by-long for an upright frame (9:16, 3:4), long-by-short
+ * for a wide one (16:9, 4:3) and short-by-short for square, which is how image and video models offer
+ * their sizes. The edges are not rescaled, so 3:4 and 4:3 get the model's nearest size, not an exact one.
  * A blank size stays blank (the provider decides); one that is not WIDTHxHEIGHT is sent as written.
  */
 export function sizeFor(size, aspectId) {

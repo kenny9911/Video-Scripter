@@ -13,7 +13,7 @@ It works with the model provider you already use, runs on your own machine or on
 - **One brief, five platforms.** A 抖音 script and a YouTube Shorts script are different pieces of writing. Each platform gets its own script instead of one draft pasted everywhere.
 - **Ready to shoot.** Every scene is timed and carries its voiceover, on-screen text, visual, camera and sound notes.
 - **Ready to publish.** Titles, cover text, description, hashtags and a pinned comment come with every script.
-- **Storyboards included.** Turn any scene into an image or clip in the video's aspect ratio (9:16, 16:9 or 1:1), in one of 27 visual styles.
+- **Storyboards included.** Turn any scene into an image or clip in the video's aspect ratio (9:16, 16:9, 1:1, 3:4 or 4:3), in one of 27 visual styles.
 - **Any model.** Ten provider presets, from OpenAI and Anthropic to 通义千问, 豆包 and local Ollama, plus any OpenAI-compatible or Anthropic-compatible endpoint. Switch model per script.
 - **Yours to keep.** Every script, image and clip is saved to your account and exports as one tidy `.zip`.
 - **Built for a team.** Accounts with sign-up and log-in, an administrator who manages models and users, token and image usage per script and per user, and an activity log.
@@ -77,7 +77,7 @@ Each platform opens in its own tab, and the script streams in as it is written. 
 
 ### 3. Generate the visuals
 
-Once the gateway in use has an image or video model, every scene gets **Generate image** and **Generate video** buttons that turn its Visual and Camera notes into a frame or clip in the **Aspect ratio** chosen in the brief: 9:16 vertical (the default), 16:9 landscape or 1:1 square. The Size in the image and video settings is entered for vertical video and is turned to match. Tick **Also generate an image for every scene** in the brief to have the images made automatically when the script is finished.
+Once the gateway in use has an image or video model, every scene gets **Generate image** and **Generate video** buttons that turn its Visual and Camera notes into a frame or clip in the **Aspect ratio** chosen in the brief: 9:16 vertical (the default), 16:9 landscape, 1:1 square, 3:4 portrait or 4:3 standard. The Size in the image and video settings is entered for vertical video and is turned to match; its edges are not rescaled, so 3:4 and 4:3 use the model's nearest size. Tick **Also generate an image for every scene** in the brief to have the images made automatically when the script is finished.
 
 ### 4. Export
 

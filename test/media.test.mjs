@@ -151,11 +151,11 @@ test('zip archives keep non-ASCII file names and plain file permissions when unp
 test('aspect ratio: sets the frame of the script and the shape of scene images and clips', async (t) => {
   const { ASPECTS, getAspect, sizeFor } = await import('../src/aspects.mjs');
   const { buildPlan, buildPrompts } = await import('../src/prompt.mjs');
-  assert.deepEqual(ASPECTS.map((a) => a.id), ['9:16', '16:9', '1:1']);
+  assert.deepEqual(ASPECTS.map((a) => a.id), ['9:16', '16:9', '1:1', '3:4', '4:3']);
   assert.deepEqual([getAspect('16:9').id, getAspect().id, getAspect('7:3').id], ['16:9', '9:16', '9:16']); // unknown or missing: vertical
 
   // The gateway's Size names the model's two edges; the aspect ratio decides which way round they go.
-  assert.deepEqual(['9:16', '16:9', '1:1'].map((a) => sizeFor('1024x1536', a)), ['1024x1536', '1536x1024', '1024x1024']);
+  assert.deepEqual(['9:16', '16:9', '1:1', '3:4', '4:3'].map((a) => sizeFor('1024x1536', a)), ['1024x1536', '1536x1024', '1024x1024', '1024x1536', '1536x1024']);
   assert.deepEqual([sizeFor('1280x720', '9:16'), sizeFor(' 720 × 1280 ', '16:9'), sizeFor('1024x1536')], ['720x1280', '1280x720', '1024x1536']);
   assert.deepEqual([sizeFor('', '16:9'), sizeFor('auto', '16:9'), sizeFor('2K', '1:1')], ['', 'auto', '2K']); // blank or not WxH: sent as written
 
@@ -168,6 +168,8 @@ test('aspect ratio: sets the frame of the script and the shape of scene images a
   assert.match(buildVisualPrompt(scene), /^Vertical 9:16 still frame /);
   assert.match(buildVisualPrompt({ ...scene, aspectRatio: '16:9' }, 'video'), /^Landscape 16:9 shot for /);
   assert.match(buildVisualPrompt({ ...scene, aspectRatio: '1:1' }), /^Square 1:1 still frame /);
+  assert.match(buildVisualPrompt({ ...scene, aspectRatio: '3:4' }), /^Portrait 3:4 still frame /);
+  assert.match(buildVisualPrompt({ ...scene, aspectRatio: '4:3' }, 'video'), /^Landscape 4:3 shot for /);
 
   const up = await fakeMedia();
   t.after(() => up.server.close());
@@ -186,5 +188,6 @@ test('aspect ratio: sets the frame of the script and the shape of scene images a
   // Demo mode draws its placeholder in the shape asked for.
   const demo = async (aspectRatio) => decodeURIComponent((await generateImage(mergeConfig({ provider: 'mock' }), { prompt: 'x', aspectRatio })).url);
   assert.match(await demo('16:9'), /viewBox="0 0 480 270"/);
+  assert.match(await demo('3:4'), /viewBox="0 0 360 480"/);
   assert.match(await demo(), /viewBox="0 0 270 480"/);
 });

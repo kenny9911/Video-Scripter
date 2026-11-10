@@ -418,7 +418,7 @@ const ZH = {
   'e.g. sora-2': '例如 sora-2',
   'e.g. 1024x1536': '例如 1024x1536',
   'e.g. 720x1280': '例如 720x1280',
-  'Enter each Size as you would for a vertical video. It is turned on its side for a landscape video and made square for a 1:1 one.': '尺寸请按竖屏视频填写。横屏视频会自动调换宽高，1:1 视频会自动改为正方形。',
+  'Enter each Size as you would for a vertical video. It is turned on its side for a landscape video (16:9, 4:3) and made square for a 1:1 one.': '尺寸请按竖屏视频填写。横屏视频（16:9、4:3）会自动调换宽高，1:1 视频会自动改为正方形。',
   'not set': '未设置',
   'List available image models': '列出可用图像模型',
   'List available video models': '列出可用视频模型',
