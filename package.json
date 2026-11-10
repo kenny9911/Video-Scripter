@@ -10,6 +10,7 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "node --watch server.mjs",
+    "restart": "node scripts/restart.mjs",
     "test": "node --test"
   },
   "dependencies": {

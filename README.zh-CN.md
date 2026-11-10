@@ -306,7 +306,7 @@ npm run dev
 npm test
 ```
 
-`npm run dev` 会在文件变化时重启服务。`npm test` 用 `node --test` 运行测试。
+`npm run dev` 会在文件变化时重启服务。`npm run restart` 会先停掉该端口上已在运行的本应用，再重新启动（加上 `-- --watch` 即为 `dev` 的效果）；端口上的其他程序不会被动到。`npm test` 用 `node --test` 运行测试。
 
 ### 项目结构
 

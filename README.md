@@ -334,7 +334,7 @@ npm run dev
 npm test
 ```
 
-`npm run dev` restarts the server when a file changes. `npm test` runs the suite with `node --test`.
+`npm run dev` restarts the server when a file changes. `npm run restart` stops the copy of the app already running on the port and starts a fresh one (add `-- --watch` for the `dev` behaviour); it leaves any other program on that port alone. `npm test` runs the suite with `node --test`.
 
 ### Project layout
 

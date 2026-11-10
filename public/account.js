@@ -2,7 +2,7 @@
 // The helpers exported here are shared with the admin page (admin.js).
 
 import { t, lang } from './i18n.js';
-import { wireLang, enhancePasswords } from './shell.js';
+import { wireLang, enhancePasswords, concealPassword } from './shell.js';
 
 const $ = (id) => document.getElementById(id);
 export const el = (tag, attrs = {}, ...children) => {
@@ -27,6 +27,21 @@ export async function call(path, options = {}) {
 }
 
 // ---------- Log in / sign up ----------
+
+/**
+ * Ask the browser to offer saving the login that just worked. Chromium browsers take it from here;
+ * Safari and Firefox have no such call and decide from the form itself (named fields, autocomplete
+ * hints, a real password field). Never blocks or fails the log-in.
+ */
+async function offerToSave(email, password) {
+  if (!window.PasswordCredential || !navigator.credentials?.store) return;
+  try {
+    const stored = navigator.credentials.store(new PasswordCredential({ id: email, password, name: email }));
+    await Promise.race([stored, new Promise((done) => setTimeout(done, 1500))]);
+  } catch {
+    // The browser declined (saving is off, private window, ...): nothing to do.
+  }
+}
 
 export function showAuth({ signupOpen }) {
   // The home page links to app.html#signup so "Create an account" opens on the right tab.
@@ -58,8 +73,10 @@ export function showAuth({ signupOpen }) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail(t('Enter a valid email address'), $('authEmail'));
     if (password.length < 8) return fail(t('The password needs at least 8 characters'), $('authPassword'));
     $('authSubmit').disabled = true;
+    concealPassword($('authPassword'));
     try {
       await call(mode === 'signup' ? '/api/auth/signup' : '/api/auth/login', { method: 'POST', body: { email, password, name: $('authName').value.trim() } });
+      await offerToSave(email, password);
       location.reload();
     } catch (ex) {
       fail(ex.message, $('authPassword'));

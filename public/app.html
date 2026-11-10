@@ -36,15 +36,15 @@
       <form id="authForm" class="auth-form" novalidate>
         <label class="field" id="authNameField" hidden>
           <span>Name</span>
-          <input id="authName" type="text" autocomplete="name" maxlength="80" placeholder="What should we call you?">
+          <input id="authName" name="name" type="text" autocomplete="name" maxlength="80" placeholder="What should we call you?">
         </label>
         <label class="field">
           <span>Email</span>
-          <input id="authEmail" type="email" autocomplete="username" inputmode="email" placeholder="you@example.com" required>
+          <input id="authEmail" name="email" type="email" autocomplete="username" inputmode="email" placeholder="you@example.com" required>
         </label>
         <label class="field">
           <span>Password</span>
-          <input id="authPassword" type="password" autocomplete="current-password" required minlength="8">
+          <input id="authPassword" name="password" type="password" autocomplete="current-password" required minlength="8">
         </label>
         <p id="authPwHint" class="hint" hidden>At least 8 characters.</p>
         <p id="authError" class="error" role="alert" hidden></p>

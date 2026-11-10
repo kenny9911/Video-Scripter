@@ -60,6 +60,8 @@ export function enhancePasswords(root = document) {
 
 /** Show a revealed field's content (used after generating a password, so it can be copied). */
 export const revealPassword = (input) => setShown(input, true);
+/** Put a revealed field back to dots. A browser only offers to save a field that is a password field when the form is sent. */
+export const concealPassword = (input) => setShown(input, false);
 
 // A dialog that closes hides its passwords again, so nothing stays readable on screen.
 document.addEventListener('close', (e) => e.target.querySelectorAll?.('input[data-reveal]').forEach((i) => setShown(i, false)), true);
