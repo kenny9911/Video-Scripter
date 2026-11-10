@@ -316,7 +316,7 @@ button.chip:hover { color: var(--ink); }
 .lightbox { border: 0; padding: 0; background: transparent; max-width: 100vw; max-height: 100dvh; overflow: visible; }
 .lightbox[open] { display: grid; gap: 10px; justify-items: center; }
 .lightbox::backdrop { background: rgb(0 0 0 / 0.86); }
-.lightbox img { display: block; height: calc(100dvh - 104px); width: auto; max-width: calc(100vw - 24px); object-fit: contain; cursor: zoom-out; }
+.lightbox img { display: block; height: min(calc(100dvh - 104px), calc((100vw - 24px) / var(--ar, 0.5625))); width: auto; max-width: calc(100vw - 24px); object-fit: contain; cursor: zoom-out; }
 .lightbox-bar { display: flex; align-items: center; gap: 4px; max-width: calc(100vw - 24px); padding: 4px 4px 4px 16px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); box-shadow: var(--shadow); }
 .lightbox-caption { margin-right: 8px; font-size: 13px; font-weight: 550; white-space: nowrap; }
 .lightbox-caption:empty { display: none; }
@@ -551,6 +551,10 @@ select.compact { width: auto; min-height: 36px; padding-top: 4px; padding-bottom
   .status-pill { max-width: 62vw; overflow: hidden; text-overflow: ellipsis; }
   .account-card .btn { flex: 1; }
 }
+
+/* Scene images, clips and their placeholders take the shape of the script (vertical unless set here). */
+.media[data-aspect="16:9"] .shot :is(img, video, .ph) { width: min(300px, 78vw); max-width: none; aspect-ratio: 16 / 9; }
+.media[data-aspect="1:1"] .shot :is(img, video, .ph) { width: min(200px, 56vw); max-width: none; aspect-ratio: 1; }
 
 /* ---------- Show / hide password ---------- */
 

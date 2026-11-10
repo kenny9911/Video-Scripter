@@ -14,6 +14,7 @@ import { FRAMEWORKS } from './src/frameworks.mjs';
 import { PROVIDERS } from './src/gateway/providers.mjs';
 import { STYLES, STYLE_GROUPS, MAX_STYLES } from './src/styles.mjs';
 import { IMAGE_MODES, SHOT_LABELS, MAX_IMAGES, planShots } from './src/shots.mjs';
+import { ASPECTS } from './src/aspects.mjs';
 import { loadStore, loadConfig, saveStore, mergeConfig, publicStore, validateConfig, enabledModels, mediaTarget } from './src/gateway/config.mjs';
 import { streamChat, completeChat, listModels, request } from './src/gateway/client.mjs';
 import { generateImage, createVideo, videoStatus, videoContent, clipSeconds } from './src/gateway/media.mjs';
@@ -291,6 +292,7 @@ const routes = {
       imageModes: IMAGE_MODES,
       shotLabels: SHOT_LABELS,
       maxImages: MAX_IMAGES,
+      aspects: ASPECTS.map(({ id, w, h, name }) => ({ id, w, h, name })),
     });
   }),
 
@@ -407,7 +409,7 @@ const routes = {
   }),
 
   // Media for one scene, made with the image / video settings of the user's gateway,
-  // then stored and linked from the script `historyId`.
+  // then stored and linked from the script `historyId`. The scene carries the `aspectRatio` of its script.
   'POST /api/media/image': route('user', async (req, res, user) => {
     const scene = await readJson(req);
     if (scene.historyId) await ownedHistory(user, scene.historyId);
@@ -422,7 +424,7 @@ const routes = {
         const started = Date.now();
         const usage = { user, taskId: scene.historyId, kind: 'image', config, model: target.model || 'demo' };
         try {
-          const made = await generateImage(config, { prompt, signal: AbortSignal.timeout(180_000) });
+          const made = await generateImage(config, { prompt, aspectRatio: scene.aspectRatio, signal: AbortSignal.timeout(180_000) });
           await recordUsage({ ...usage, images: 1, inputTokens: made.usage?.inputTokens ?? estimateTokens(prompt), outputTokens: made.usage?.outputTokens, estimated: !made.usage, ms: Date.now() - started });
           return keep(scene, 'image', made.url, { demo: target.demo, link: false, userId: user.id });
         } catch (err) {
@@ -451,7 +453,7 @@ const routes = {
     const usage = { user, taskId: scene.historyId, kind: 'video', config, model: mediaTarget(config, 'video').model, inputTokens: estimateTokens(prompt), estimated: true };
     const started = Date.now();
     try {
-      const job = await createVideo(config, { prompt, seconds, signal: AbortSignal.timeout(60_000) });
+      const job = await createVideo(config, { prompt, seconds, aspectRatio: scene.aspectRatio, signal: AbortSignal.timeout(60_000) });
       await recordUsage({ ...usage, videoSeconds: clipSeconds(seconds || 4), ms: Date.now() - started });
       await logActivity(req, user, 'video.generate', { taskId: scene.historyId, scene: scene.sceneId, seconds: clipSeconds(seconds || 4), model: usage.model });
       json(res, 200, job);
@@ -509,6 +511,7 @@ const routes = {
       await record(script ? {} : { ok: false, error: `Unreadable reply: ${parseError}` });
       if (script) {
         const { platformId, ...rest } = brief;
+        rest.aspectRatio = plan.brief.aspect.id; // always recorded, so the script keeps its shape if the default ever changes
         const entry = await addHistory({ id: taskId, userId: user.id, platformId: plan.brief.platform.id, brief: rest, plan: planInfo, script });
         await logActivity(req, user, 'script.generate', { ...about, title: script.title, scenes: script.scenes.length });
         await markFirstScript(user);

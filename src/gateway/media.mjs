@@ -6,10 +6,17 @@
 import { getProvider } from './providers.mjs';
 import { mediaTarget } from './config.mjs';
 import { GatewayError, request } from './client.mjs';
+import { getAspect, sizeFor } from '../aspects.mjs';
 
-const DEMO_IMAGE = `data:image/svg+xml,${encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 270 480"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#5b6cff"/><stop offset="1" stop-color="#19c3a6"/></linearGradient></defs><rect width="270" height="480" fill="url(#g)"/><text x="135" y="244" fill="#fff" font-family="sans-serif" font-size="20" text-anchor="middle">Demo image</text></svg>',
-)}`;
+/** The demo provider's placeholder picture, in the shape asked for. */
+function demoImage(aspectRatio) {
+  const { id, w, h } = getAspect(aspectRatio);
+  const k = 480 / Math.max(w, h);
+  const [W, H] = [Math.round(w * k), Math.round(h * k)];
+  return `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#5b6cff"/><stop offset="1" stop-color="#19c3a6"/></linearGradient></defs><rect width="${W}" height="${H}" fill="url(#g)"/><text x="${W / 2}" y="${H / 2}" fill="#fff" font-family="sans-serif" font-size="20" text-anchor="middle">Demo image</text><text x="${W / 2}" y="${H / 2 + 26}" fill="#fff" fill-opacity=".8" font-family="sans-serif" font-size="14" text-anchor="middle">${id}</text></svg>`,
+  )}`;
+}
 
 function target(config, kind) {
   const t = mediaTarget(config, kind);
@@ -32,11 +39,15 @@ async function json(res, what) {
   return body;
 }
 
-/** Returns { url }: a data: URI when the provider sends base64, otherwise the provider's URL. */
-export async function generateImage(config, { prompt, signal }) {
+/**
+ * Returns { url }: a data: URI when the provider sends base64, otherwise the provider's URL.
+ * `aspectRatio` turns the gateway's Size setting to the shape of the video (see sizeFor).
+ */
+export async function generateImage(config, { prompt, aspectRatio, signal }) {
   const t = target(config, 'image');
-  if (t.demo) return { url: DEMO_IMAGE, usage: null };
-  const body = { model: t.model, prompt, n: 1, ...(t.size && { size: t.size }) };
+  if (t.demo) return { url: demoImage(aspectRatio), usage: null };
+  const size = sizeFor(t.size, aspectRatio);
+  const body = { model: t.model, prompt, n: 1, ...(size && { size }) };
   const res = await request(`${t.base.replace(/\/images\/generations$/, '')}/images/generations`, {
     method: 'POST',
     headers: { ...t.headers, 'content-type': 'application/json' },
@@ -71,9 +82,10 @@ function videoJob(j) {
 /** The provider's clip lengths are fixed; pick the shortest one that covers the scene. */
 export const clipSeconds = (seconds) => [4, 8, 12].find((s) => s >= seconds) || 12;
 
-export async function createVideo(config, { prompt, seconds, signal }) {
+export async function createVideo(config, { prompt, seconds, aspectRatio, signal }) {
   const t = target(config, 'video');
-  const body = { model: t.model, prompt, seconds: String(clipSeconds(Number(seconds) || 4)), ...(t.size && { size: t.size }) };
+  const size = sizeFor(t.size, aspectRatio);
+  const body = { model: t.model, prompt, seconds: String(clipSeconds(Number(seconds) || 4)), ...(size && { size }) };
   const res = await request(`${t.base.replace(/\/videos$/, '')}/videos`, {
     method: 'POST',
     headers: { ...t.headers, 'content-type': 'application/json' },

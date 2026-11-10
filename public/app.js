@@ -114,6 +114,15 @@ function selectedPlatforms() {
   return [...document.querySelectorAll('input[name="platform"]:checked')].map((i) => i.value);
 }
 
+// ---------- Aspect ratio (the frame of the video, and of every scene image and clip) ----------
+
+/** The aspect for an id; an unknown one, or a script from before the option existed, is the first (vertical). */
+const aspectOf = (id) => state.meta.aspects.find((a) => a.id === id) || state.meta.aspects[0];
+const selectedAspect = () => aspectOf(document.querySelector('input[name="aspect"]:checked')?.value).id;
+const setAspect = (id) => document.querySelectorAll('input[name="aspect"]').forEach((i) => (i.checked = i.value === aspectOf(id).id));
+/** A script keeps the shape it was written in, whatever the form says now. */
+const runAspect = (run) => aspectOf(run.brief?.aspectRatio);
+
 // ---------- Visual style (one, or two blended; the first picked leads) ----------
 
 const styleOf = (id) => state.meta.styles.find((s) => s.id === id);
@@ -210,7 +219,7 @@ function refreshBlurb() {
 
 function saveForm() {
   const data = Object.fromEntries(FIELDS.map((f) => [f, $(f).value]));
-  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: $('duration').value, ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: state.styleIds });
+  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: $('duration').value, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: state.styleIds });
   try {
     localStorage.setItem(FORM_KEY, JSON.stringify(data));
   } catch {}
@@ -225,6 +234,7 @@ function fillForm(data) {
   if (Array.isArray(data.platforms)) document.querySelectorAll('input[name="platform"]').forEach((i) => (i.checked = data.platforms.includes(i.value)));
   if (state.meta.frameworks.some((f) => f.id === data.framework)) $('framework').value = data.framework;
   $('ttsReady').checked = Boolean(data.ttsReady);
+  setAspect(data.aspectRatio);
   // autoImages is not restored from a saved brief: it is remembered on the user's account (see buildForm).
   if ('imageCount' in data) $('imageCount').value = ['2', '3'].includes(String(data.imageCount)) ? String(data.imageCount) : '1';
   setStyles(Array.isArray(data.styles) ? data.styles : []);
@@ -252,6 +262,8 @@ function buildForm() {
   document.querySelector('input[name="platform"]').checked = true;
   $('framework').append(...state.meta.frameworks.map((f) => h('option', { value: f.id }, f.name[lang])));
   $('framework').addEventListener('change', refreshBlurb);
+  $('aspects').append(...state.meta.aspects.map((a) => h('label', { class: 'chip' }, h('input', { type: 'radio', name: 'aspect', value: a.id }), h('span', {}, `${a.id} ${a.name[lang]}`))));
+  setAspect();
   refreshDurations();
   buildStyles();
   $('imageMode').append(...state.meta.imageModes.map((m) => h('option', { value: m.id }, m.name[lang])));
@@ -339,7 +351,7 @@ async function runPlatform(platformId, brief) {
 
 async function generate(platformIds) {
   const brief = Object.fromEntries(FIELDS.map((f) => [f, $(f).value.trim()]));
-  Object.assign(brief, { frameworkId: $('framework').value, duration: $('duration').value || undefined, ttsReady: $('ttsReady').checked, styleIds: [...state.styleIds] });
+  Object.assign(brief, { frameworkId: $('framework').value, duration: $('duration').value || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: [...state.styleIds] });
   saveForm();
   if (!platformIds) {
     state.runs = {};
@@ -440,7 +452,7 @@ function renderHistory() {
 function toMarkdown(platformId, run) {
   const s = run.script;
   const p = platformOf(platformId);
-  const L = [`# ${s.title}`, '', `> ${s.logline}`, '', `**${t('Platform')}:** ${p.name} · **${t('Length')}:** ${s.scenes.at(-1).end}s`, ''];
+  const L = [`# ${s.title}`, '', `> ${s.logline}`, '', `**${t('Platform')}:** ${p.name} · **${t('Length')}:** ${s.scenes.at(-1).end}s · **${t('Aspect ratio')}:** ${runAspect(run).id}`, ''];
   L.push(`## ${t('Hook options')}`, '', ...s.hookOptions.map((o) => `- ${o.type ? `**${o.type}:** ` : ''}${plainVo(o.line)}`), '');
   L.push(`## ${t('Script')}`, '');
   for (const sc of s.scenes) {
@@ -494,7 +506,7 @@ async function startMedia(run, sc, kind) {
   const store = mediaOf(run, sc);
   const m = (store[kind] = { status: 'running', note: '', count: kind === 'image' ? Number($('imageCount').value) || 1 : 1 });
   const paint = () => (store.paint?.(), refreshMediaStatus());
-  const body = { ...sc, historyId: run.historyId, sceneId: sc.id, styleIds: run.styleIds?.length ? run.styleIds : state.styleIds };
+  const body = { ...sc, historyId: run.historyId, sceneId: sc.id, aspectRatio: runAspect(run).id, styleIds: run.styleIds?.length ? run.styleIds : state.styleIds };
   paint();
   try {
     if (kind === 'image') ({ urls: m.urls, shots: m.shots } = await makeImage(body));
@@ -546,9 +558,9 @@ function refreshMediaStatus() {
 /**
  * The large view of a scene's images, opened by clicking one. `items` is [{ url, label }]; with several,
  * the arrows (or the ← → keys) step through them. Esc, the close button, or a click on the image or
- * around it closes the view.
+ * around it closes the view. `aspect` (from the script) sizes the picture to fit the window.
  */
-function viewImages(items, at, alt) {
+function viewImages(items, at, alt, aspect) {
   const img = h('img', { alt, title: t('Close'), onclick: () => dlg.close() });
   const caption = h('span', { class: 'lightbox-caption' });
   const save = h('a', { class: 'btn small', target: '_blank', rel: 'noopener' }, t('Save'));
@@ -556,7 +568,7 @@ function viewImages(items, at, alt) {
   const step = (label, by) => h('button', { class: `icon-btn ${by < 0 ? 'prev' : 'next'}`, type: 'button', 'aria-label': label, title: label, onclick: () => show(at + by) }, icon('chevron'));
   const dlg = h(
     'dialog',
-    { class: 'lightbox', 'aria-label': alt },
+    { class: 'lightbox', 'aria-label': alt, style: `--ar:${aspect.w / aspect.h}` },
     img,
     h('div', { class: 'lightbox-bar' }, caption, many && step(t('Previous image'), -1), many && step(t('Next image'), 1), save, h('button', { class: 'icon-btn', type: 'button', autofocus: true, 'aria-label': t('Close'), onclick: () => dlg.close() }, icon('x'))),
   );
@@ -582,7 +594,7 @@ function sceneMedia(run, sc) {
   const store = mediaOf(run, sc);
   const kinds = ['image', 'video'].filter((k) => g[k].ready || store[k]);
   if (!sc.visual || !kinds.length) return null;
-  const box = h('div', { class: 'media' });
+  const box = h('div', { class: 'media', 'data-aspect': runAspect(run).id });
 
   const view = () =>
     kinds.map((kind) => {
@@ -604,7 +616,7 @@ function sceneMedia(run, sc) {
                 kind === 'image'
                   ? h(
                       'button',
-                      { class: 'shot-open', type: 'button', title: t('View larger'), onclick: () => viewImages(m.urls.map((u, n) => ({ url: u, label: shotLabel(m.shots?.[n]) })), i, t('Generated image for scene {n}', { n: sc.id })) },
+                      { class: 'shot-open', type: 'button', title: t('View larger'), onclick: () => viewImages(m.urls.map((u, n) => ({ url: u, label: shotLabel(m.shots?.[n]) })), i, t('Generated image for scene {n}', { n: sc.id }), runAspect(run)) },
                       h('img', { src: url, alt: t('Generated image for scene {n}', { n: sc.id }), loading: 'lazy' }),
                     )
                   : h('video', { src: url, controls: true, playsinline: true, preload: 'metadata' }),
@@ -706,7 +718,7 @@ function renderScript(platformId, run) {
   const count = zh
     ? `${voText.replace(/[\s\p{P}]/gu, '').length} 字`
     : t('{n} words', { n: voText.split(/\s+/).filter(Boolean).length });
-  const meta = [platformOf(platformId).name, `${s.scenes.at(-1).end}s`, t('{n} scenes', { n: s.scenes.length }), t('voiceover {count}', { count }), run.plan && `${run.plan.model}`, styleNames(run.styleIds)].filter(Boolean);
+  const meta = [platformOf(platformId).name, `${s.scenes.at(-1).end}s`, runAspect(run).id, t('{n} scenes', { n: s.scenes.length }), t('voiceover {count}', { count }), run.plan && `${run.plan.model}`, styleNames(run.styleIds)].filter(Boolean);
 
   return h(
     'div',

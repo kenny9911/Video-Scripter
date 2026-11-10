@@ -4,6 +4,7 @@
 import { getPlatform } from './platforms.mjs';
 import { getFramework } from './frameworks.mjs';
 import { pickStyles, styleLook } from './styles.mjs';
+import { getAspect } from './aspects.mjs';
 
 const PACE = { zh: 4.3, en: 2.6 }; // spoken Chinese characters / English words per second
 
@@ -30,6 +31,7 @@ export function normalizeBrief(input = {}) {
     brand: clean(input.brand, 300),
     reference: clean(input.reference, 12000),
     ttsReady: Boolean(input.ttsReady),
+    aspect: getAspect(input.aspectRatio),
     styles: pickStyles(input.styleIds),
   };
 }
@@ -88,7 +90,7 @@ const SCHEMA = `{
 
 export function buildPrompts(plan) {
   const { brief, timeline, budget, unit } = plan;
-  const { platform, framework, lang, duration } = brief;
+  const { platform, framework, lang, duration, aspect } = brief;
   const zh = lang === 'zh';
   const langName = zh ? 'Simplified Chinese (简体中文)' : 'English';
 
@@ -113,7 +115,7 @@ export function buildPrompts(plan) {
     '',
     `# Output language\nWrite every value in the JSON in ${langName}. Keep the JSON keys exactly as given, in English.`,
     '',
-    `# Format\nVertical 9:16 video, ${duration} seconds. Voiceover budget: about ${budget} ${unit} in total (within 10%). A script that runs long gets cut in the edit, so stay inside the budget.`,
+    `# Format\n${aspect.shape} ${aspect.id} video, ${duration} seconds. Compose every "visual" and "camera" note for that frame. Voiceover budget: about ${budget} ${unit} in total (within 10%). A script that runs long gets cut in the edit, so stay inside the budget.`,
     '',
     `# Platform: ${platform.name}\n${platform.notes.map((n) => `- ${n}`).join('\n')}`,
     '',
@@ -215,13 +217,15 @@ export function parseScript(raw) {
 /**
  * Turn a scene's visual and camera notes into a prompt for an image or video model.
  * `shot` (from planShots) places the image within a multi-image set: a moment, a framing, a cutaway or a style.
+ * The frame is the scene's `aspectRatio` (vertical when it has none).
  */
 export function buildVisualPrompt(scene = {}, kind = 'image', styleIds = scene.styleIds, shot = null) {
   const visual = clean(scene.visual, 1500);
   if (!visual) throw new Error('This scene has no visual description to generate from');
   const camera = clean(scene.camera, 400);
+  const frame = getAspect(scene.aspectRatio);
   return [
-    kind === 'video' ? 'Vertical 9:16 shot for a short social video.' : 'Vertical 9:16 still frame from a short social video.',
+    `${frame.shape} ${frame.id} ${kind === 'video' ? 'shot for' : 'still frame from'} a short social video.`,
     visual,
     !shot?.replaceCamera && camera && `Camera: ${camera}`,
     shot?.directive,

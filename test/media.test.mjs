@@ -147,3 +147,44 @@ test('zip archives keep non-ASCII file names and plain file permissions when unp
   assert.equal(await readFile(path.join(dir, '脚本-落地的三个坑', 'script.md'), 'utf8'), '# 你好');
   assert.equal((await stat(path.join(dir, '脚本-落地的三个坑', 'images', 'scene-01.png'))).mode & 0o777, 0o644);
 });
+
+test('aspect ratio: sets the frame of the script and the shape of scene images and clips', async (t) => {
+  const { ASPECTS, getAspect, sizeFor } = await import('../src/aspects.mjs');
+  const { buildPlan, buildPrompts } = await import('../src/prompt.mjs');
+  assert.deepEqual(ASPECTS.map((a) => a.id), ['9:16', '16:9', '1:1']);
+  assert.deepEqual([getAspect('16:9').id, getAspect().id, getAspect('7:3').id], ['16:9', '9:16', '9:16']); // unknown or missing: vertical
+
+  // The gateway's Size names the model's two edges; the aspect ratio decides which way round they go.
+  assert.deepEqual(['9:16', '16:9', '1:1'].map((a) => sizeFor('1024x1536', a)), ['1024x1536', '1536x1024', '1024x1024']);
+  assert.deepEqual([sizeFor('1280x720', '9:16'), sizeFor(' 720 × 1280 ', '16:9'), sizeFor('1024x1536')], ['720x1280', '1280x720', '1024x1536']);
+  assert.deepEqual([sizeFor('', '16:9'), sizeFor('auto', '16:9'), sizeFor('2K', '1:1')], ['', 'auto', '2K']); // blank or not WxH: sent as written
+
+  const brief = { platformId: 'tiktok', topic: 'Coffee' };
+  assert.match(buildPrompts(buildPlan(brief)).system, /# Format\nVertical 9:16 video, /);
+  assert.match(buildPrompts(buildPlan({ ...brief, aspectRatio: '16:9' })).system, /# Format\nLandscape 16:9 video, /);
+  assert.equal(buildPlan({ ...brief, aspectRatio: 'nope' }).brief.aspect.id, '9:16');
+
+  const scene = { visual: 'A founder at a desk' };
+  assert.match(buildVisualPrompt(scene), /^Vertical 9:16 still frame /);
+  assert.match(buildVisualPrompt({ ...scene, aspectRatio: '16:9' }, 'video'), /^Landscape 16:9 shot for /);
+  assert.match(buildVisualPrompt({ ...scene, aspectRatio: '1:1' }), /^Square 1:1 still frame /);
+
+  const up = await fakeMedia();
+  t.after(() => up.server.close());
+  const config = mergeConfig({
+    provider: 'custom',
+    baseUrl: 'https://text.example/v1',
+    model: 'writer',
+    image: { baseUrl: `${up.base}/img`, model: 'painter', size: '1024x1536' },
+    video: { baseUrl: `${up.base}/vid`, model: 'filmer', size: '720x1280' },
+  });
+  await generateImage(config, { prompt: 'a cat', aspectRatio: '16:9' });
+  await generateImage(config, { prompt: 'a cat', aspectRatio: '1:1' });
+  await createVideo(config, { prompt: 'a cat walks', seconds: 4, aspectRatio: '16:9' });
+  assert.deepEqual(up.seen.map((r) => r.body.size), ['1536x1024', '1024x1024', '1280x720']);
+
+  // Demo mode draws its placeholder in the shape asked for.
+  const demo = async (aspectRatio) => decodeURIComponent((await generateImage(mergeConfig({ provider: 'mock' }), { prompt: 'x', aspectRatio })).url);
+  assert.match(await demo('16:9'), /viewBox="0 0 480 270"/);
+  assert.match(await demo(), /viewBox="0 0 270 480"/);
+});

@@ -3,6 +3,7 @@
 // follows the reader's light or dark setting, and prints cleanly.
 
 import { SHOT_LABELS } from './shots.mjs';
+import { getAspect } from './aspects.mjs';
 
 const LABELS = {
   en: {
@@ -62,7 +63,9 @@ dd.screen{font-weight:650}
 .value{white-space:pre-wrap;word-break:break-word}
 ol,ul{margin:0;padding-left:22px}
 footer{margin-top:48px;color:var(--muted);font-size:13px}
-@media (max-width:560px){h1{font-size:24px}dl{grid-template-columns:1fr;gap:2px}dd{margin-bottom:8px}.media img,.media video{width:44vw}}
+.media.a-16-9 img,.media.a-16-9 video{width:300px;aspect-ratio:16/9}
+.media.a-1-1 img,.media.a-1-1 video{width:220px;aspect-ratio:1}
+@media (max-width:560px){h1{font-size:24px}dl{grid-template-columns:1fr;gap:2px}dd{margin-bottom:8px}.media img,.media video{width:44vw}.media.a-16-9 img,.media.a-16-9 video{width:84vw}.media.a-1-1 img,.media.a-1-1 video{width:60vw}}
 @media print{body{background:#fff}main{padding:0}.card{border-color:#ddd}.media video{display:none}}
 `;
 
@@ -75,7 +78,8 @@ export function scriptHtml(entry, { media = [], platformName = '', lang = 'en' }
   const s = entry.script;
   const pub = s.publish || {};
   const last = s.scenes.at(-1);
-  const meta = [platformName || entry.platformId, last && `${last.end}s`, `${s.scenes.length} ${L.scenes}`, entry.plan?.model, new Date(entry.ts).toISOString().slice(0, 10)].filter(Boolean);
+  const aspect = getAspect(entry.brief?.aspectRatio); // the shape the script was written in; vertical before the option existed
+  const meta = [platformName || entry.platformId, last && `${last.end}s`, aspect.id, `${s.scenes.length} ${L.scenes}`, entry.plan?.model, new Date(entry.ts).toISOString().slice(0, 10)].filter(Boolean);
   const section = (title, body) => (body ? `<h2>${esc(title)}</h2>\n${body}` : '');
   const card = (key, body) => `<div class="card">${key ? `<div class="k">${esc(key)}</div>` : ''}${body}</div>`;
 
@@ -89,7 +93,7 @@ export function scriptHtml(entry, { media = [], platformName = '', lang = 'en' }
 ${cues.length ? `<dl>${cues.map(([k, v, cls]) => `<dt>${esc(k)}</dt><dd${cls ? ` class="${cls}"` : ''}>${esc(v)}</dd>`).join('')}</dl>` : ''}
 ${
   files.length
-    ? `<div class="media">${files
+    ? `<div class="media a-${aspect.w}-${aspect.h}">${files
         .map((m) => {
           const src = esc(encodeURI(m.file));
           const tag = m.kind === 'video' ? `<video src="${src}" controls playsinline preload="metadata"></video>` : `<img src="${src}" alt="${esc(L.visual)}: ${esc(sc.visual || '')}" loading="lazy">`;
