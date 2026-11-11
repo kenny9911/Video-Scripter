@@ -30,7 +30,8 @@ const state = {
   user: null,
   autoRun: null, // { done, total } while images are being made for every scene
   history: [],
-  styleIds: [],
+  styleIds: [], // the chips that are ticked: a style id, or "custom:<group>" for a group's own custom style
+  customStyles: {}, // group id -> what the creator wrote for that group's custom style
   // platformId -> { status, raw, script, error, plan, brief, abort, narration }
   // status: 'drafting' (the narration is being written) | 'narration' (it is open in the editor) |
   //         'running' (the script is being written) | 'done' | 'error' | 'stopped'
@@ -131,19 +132,66 @@ const setAspect = (id) => document.querySelectorAll('input[name="aspect"]').forE
 const runAspect = (run) => aspectOf(run.brief?.aspectRatio);
 
 // ---------- Visual style (one, or two blended; the first picked leads) ----------
+// Every group ends with "Custom": a style the creator describes in their own words. On the form its id is
+// "custom:<group>"; when it is sent or saved the words ride along in the id, "custom:<group>:<words>",
+// which is the form the server reads (src/styles.mjs).
 
-const styleOf = (id) => state.meta.styles.find((s) => s.id === id);
+const MAX_CUSTOM_STYLE = 200; // as many characters as the server keeps
+const customOf = (id) => {
+  const m = /^custom:([^:]+)(?::([\s\S]*))?$/.exec(String(id));
+  return m && state.meta.styleGroups.some((g) => g.id === m[1]) ? { group: m[1], text: (m[2] || '').trim() } : null;
+};
+const clip = (text, n = 14) => ([...text].length > n ? `${[...text].slice(0, n).join('')}…` : text);
+
+/** A style by id. A custom one is made up from what was written for it: the words in the id, or in its group's box. */
+function styleOf(id) {
+  const custom = customOf(id);
+  if (!custom) return state.meta.styles.find((s) => s.id === id);
+  const text = custom.text || (state.customStyles[custom.group] || '').trim();
+  const name = text ? t('Custom: {text}', { text: clip(text) }) : t('Custom');
+  return { id: `custom:${custom.group}`, group: custom.group, custom: true, text, name: { en: name, zh: name }, blurb: text };
+}
 const styleNames = (ids) => (ids || []).map((id) => styleOf(id)?.name[lang]).filter(Boolean).join(' + ');
 
-function setStyles(ids) {
-  state.styleIds = ids.filter(styleOf).slice(-state.meta.maxStyles); // a third pick replaces the oldest
-  document.querySelectorAll('input[name="style"]').forEach((i) => (i.checked = state.styleIds.includes(i.value)));
+/** The chosen styles as they are sent and saved: a custom one carries its words, and one with nothing written is left out. */
+const activeStyleIds = () =>
+  state.styleIds
+    .map((id) => {
+      const custom = customOf(id);
+      if (!custom) return id;
+      const text = (state.customStyles[custom.group] || '').trim();
+      return text ? `custom:${custom.group}:${text}` : '';
+    })
+    .filter(Boolean);
+
+function refreshStyleHint() {
   const [a, b] = state.styleIds.map(styleOf);
   $('styleHint').textContent = !a
     ? t('No style chosen: the script and image model decide the look.')
-    : !b
-      ? `${a.name[lang]}: ${t(a.blurb)}`
-      : t('Blend: {a} leads, mixed with {b}.', { a: a.name[lang], b: b.name[lang] });
+    : [a, b].some((s) => s?.custom && !s.text)
+      ? t('Describe the look you want in the box under its group. Until then it is not used.')
+      : !b
+        ? a.custom
+          ? t('Custom: {text}', { text: a.text })
+          : `${a.name[lang]}: ${t(a.blurb)}`
+        : t('Blend: {a} leads, mixed with {b}.', { a: a.name[lang], b: b.name[lang] });
+}
+
+function setStyles(ids) {
+  // A custom style that comes with its words (a saved brief, a script from the history) puts them back in its group's box.
+  const picked = ids.map((id) => {
+    const custom = customOf(id);
+    if (!custom) return id;
+    if (custom.text) state.customStyles[custom.group] = custom.text;
+    return `custom:${custom.group}`;
+  });
+  state.styleIds = [...new Set(picked)].filter(styleOf).slice(-state.meta.maxStyles); // a third pick replaces the oldest
+  document.querySelectorAll('input[name="style"]').forEach((i) => (i.checked = state.styleIds.includes(i.value)));
+  for (const box of document.querySelectorAll('.style-custom')) {
+    box.hidden = !state.styleIds.includes(`custom:${box.dataset.group}`);
+    if (document.activeElement !== box) box.value = state.customStyles[box.dataset.group] || '';
+  }
+  refreshStyleHint();
   if ($('imageMode').options.length) refreshImageMode();
   refreshSummaries();
 }
@@ -152,10 +200,11 @@ function setStyles(ids) {
 function refreshImageMode() {
   const many = Number($('imageCount').value) > 1;
   const mode = state.meta.imageModes.find((m) => m.id === $('imageMode').value);
-  for (const o of $('imageMode').options) o.disabled = (state.meta.imageModes.find((m) => m.id === o.value).needsStyles || 0) > state.styleIds.length;
+  const styles = activeStyleIds().length;
+  for (const o of $('imageMode').options) o.disabled = (state.meta.imageModes.find((m) => m.id === o.value).needsStyles || 0) > styles;
   $('imageMode').hidden = !many;
   $('imageModeHint').hidden = !many;
-  $('imageModeHint').textContent = !mode ? '' : (mode.needsStyles || 0) > state.styleIds.length ? t('Pick two visual styles above to compare them. Until then this makes alternatives.') : mode.blurb[lang];
+  $('imageModeHint').textContent = !mode ? '' : (mode.needsStyles || 0) > styles ? t('Pick two visual styles above to compare them. Until then this makes alternatives.') : mode.blurb[lang];
 }
 
 /** Caption for one image of a set: "Wide", "Start", a style name, or nothing for a plain take. */
@@ -166,28 +215,35 @@ function shotLabel(id) {
 }
 
 function buildStyles() {
+  const chip = (id, label, title, then) =>
+    h(
+      'label',
+      { class: `chip${customOf(id) ? ' custom' : ''}`, title },
+      h('input', { type: 'checkbox', name: 'style', value: id, onchange: (e) => (setStyles(e.target.checked ? [...state.styleIds, id] : state.styleIds.filter((x) => x !== id)), then?.(e.target.checked)) }),
+      h('span', {}, label),
+    );
   $('styleGroups').replaceChildren(
-    ...state.meta.styleGroups.map((g) =>
-      h(
+    ...state.meta.styleGroups.map((g) => {
+      // The group's own style, in the creator's words: the box shows while its chip is ticked.
+      const box = h('input', { type: 'text', class: 'style-custom', 'data-group': g.id, maxlength: MAX_CUSTOM_STYLE, hidden: true, placeholder: t('Describe the look: medium, colours, light, texture'), 'aria-label': t('Custom style: {group}', { group: g.name[lang] }) });
+      box.addEventListener('input', () => {
+        state.customStyles[g.id] = box.value;
+        refreshStyleHint();
+        refreshImageMode();
+      });
+      return h(
         'div',
         { class: 'style-group' },
         h('span', { class: 'group-label' }, g.name[lang]),
         h(
           'div',
           { class: 'chips' },
-          state.meta.styles
-            .filter((s) => s.group === g.id)
-            .map((s) =>
-              h(
-                'label',
-                { class: 'chip', title: t(s.blurb) },
-                h('input', { type: 'checkbox', name: 'style', value: s.id, onchange: (e) => setStyles(e.target.checked ? [...state.styleIds, s.id] : state.styleIds.filter((id) => id !== s.id)) }),
-                h('span', {}, s.name[lang]),
-              ),
-            ),
+          state.meta.styles.filter((s) => s.group === g.id).map((s) => chip(s.id, s.name[lang], t(s.blurb))),
+          chip(`custom:${g.id}`, t('Custom…'), t('Describe your own look for this group'), (on) => on && box.focus()),
+          box,
         ),
-      ),
-    ),
+      );
+    }),
   );
   setStyles([]);
 }
@@ -199,7 +255,7 @@ const IDEAS = {
 
 /** One-line summaries on the folded brief sections, and topic ideas while the topic is empty. */
 function refreshSummaries() {
-  const look = [styleNames(state.styleIds) || t('No style'), $('autoImages').checked && t('{n} per scene', { n: $('imageCount').value })].filter(Boolean);
+  const look = [styleNames(activeStyleIds()) || t('No style'), $('autoImages').checked && t('{n} per scene', { n: $('imageCount').value })].filter(Boolean);
   $('lookSummary').textContent = look.join(' · ');
   const filled = FIELDS.filter((f) => f !== 'topic' && $(f).value.trim()).length + ($('ttsReady').checked ? 1 : 0);
   $('detailsSummary').textContent = filled ? t('{n} filled', { n: filled }) : t('Optional');
@@ -325,7 +381,7 @@ function setNarrationMode(mode) {
 
 function saveForm() {
   const data = Object.fromEntries(FIELDS.map((f) => [f, $(f).value]));
-  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: durationValue(), aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: state.styleIds, narrationMode: state.narrationMode, agent: $('agent').checked });
+  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: durationValue(), aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: activeStyleIds(), narrationMode: state.narrationMode, agent: $('agent').checked });
   try {
     localStorage.setItem(FORM_KEY, JSON.stringify(data));
   } catch {}
@@ -497,7 +553,7 @@ function runChanged(platformId) {
 /** The brief as the form has it now. */
 function collectBrief() {
   const brief = Object.fromEntries(FIELDS.map((f) => [f, $(f).value.trim()]));
-  return Object.assign(brief, { frameworkId: $('framework').value, duration: durationValue() || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: [...state.styleIds], agent: $('agent').checked });
+  return Object.assign(brief, { frameworkId: $('framework').value, duration: durationValue() || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: activeStyleIds(), agent: $('agent').checked });
 }
 
 const isWriting = (run) => run.status === 'running' || run.status === 'drafting';
@@ -689,7 +745,7 @@ async function startMedia(run, sc, kind) {
   const store = mediaOf(run, sc);
   const m = (store[kind] = { status: 'running', note: '', count: kind === 'image' ? Number($('imageCount').value) || 1 : 1 });
   const paint = () => (store.paint?.(), refreshMediaStatus());
-  const body = { ...sc, historyId: run.historyId, sceneId: sc.id, aspectRatio: runAspect(run).id, styleIds: run.styleIds?.length ? run.styleIds : state.styleIds };
+  const body = { ...sc, historyId: run.historyId, sceneId: sc.id, aspectRatio: runAspect(run).id, styleIds: run.styleIds?.length ? run.styleIds : activeStyleIds() };
   paint();
   try {
     if (kind === 'image') ({ urls: m.urls, shots: m.shots } = await makeImage(body));

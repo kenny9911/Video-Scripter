@@ -185,6 +185,8 @@ The **Visual style** picker offers 57 looks in six groups.
 | Bright and light | Bright and clean, bright tech, cream tones, Nordic light, pastel, dopamine brights, soft and airy, fresh green, summer sky, seaside holiday, golden hour, morning mist, soft glow |
 | Era and mood | Ancient China, black-and-white classic, Art Deco, old Shanghai poster, mid-century modern, retro-futurism, retro film, 80s–90s nostalgia, Hong Kong 90s, VHS tape, pixel art, Y2K, vaporwave, neon night, cyberpunk, steampunk, wasteland, dark and moody, dark academia, cozy and warm, wabi-sabi, surreal dream |
 
+Every group ends with **Custom…**: tick it and describe a look in your own words, up to 200 characters ("children's crayon drawing on warm paper"). A custom look is used like any listed style, alone or blended; one with nothing written is ignored.
+
 Pick one, or two to blend. The first one picked leads, and a third pick replaces the oldest. The choice does two things:
 
 1. The scriptwriter is told what the style can show, so each scene's Visual and Camera notes suit it.

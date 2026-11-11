@@ -1,15 +1,37 @@
 // Visual styles for a video's images and clips. The user picks one, or two to blend.
 // `look` is written for image / video models; `brief` tells the scriptwriter what the style can and cannot show.
 // No living artists, studios or brands are named: each look is described by its own traits.
+//
+// Every group also takes a custom style, described by the creator in their own words. Its id carries those
+// words, "custom:<group>:<description>", so it travels wherever a style id does (the brief, a scene, the
+// history) with nothing else to pass along. `medium` is what a group's custom style is made in; the last two
+// groups are a tone rather than a medium, so their custom style is the description alone.
 
 export const STYLE_GROUPS = [
-  { id: 'live', name: { en: 'Live action', zh: '实拍' } },
-  { id: 'illustration', name: { en: 'Illustration', zh: '插画' } },
-  { id: '3d', name: { en: '3D and stop motion', zh: '三维与定格' } },
-  { id: 'graphic', name: { en: 'Graphics and data', zh: '图形与数据' } },
+  { id: 'live', name: { en: 'Live action', zh: '实拍' }, medium: 'live-action photography' },
+  { id: 'illustration', name: { en: 'Illustration', zh: '插画' }, medium: 'illustration' },
+  { id: '3d', name: { en: '3D and stop motion', zh: '三维与定格' }, medium: '3D render' },
+  { id: 'graphic', name: { en: 'Graphics and data', zh: '图形与数据' }, medium: 'graphic design' },
   { id: 'bright', name: { en: 'Bright and light', zh: '明亮与浅色' } },
   { id: 'mood', name: { en: 'Era and mood', zh: '年代与氛围' } },
 ];
+
+export const MAX_CUSTOM_STYLE = 200; // characters of description kept
+
+/**
+ * The custom style an id stands for, or null when the id is not one (unknown group, nothing described).
+ * The description is put on one line, cut to MAX_CUSTOM_STYLE, and loses its closing punctuation, since it
+ * is set inside a sentence of the prompt.
+ */
+export function customStyle(id) {
+  const m = /^custom:([^:]+):([\s\S]+)$/.exec(String(id));
+  const group = m && STYLE_GROUPS.find((g) => g.id === m[1]);
+  if (!group) return null;
+  const text = [...m[2].replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim()].slice(0, MAX_CUSTOM_STYLE).join('').replace(/[\s.。,，;；:：]+$/, '');
+  if (!text) return null;
+  const look = group.medium ? `${group.medium}, ${text}` : text;
+  return { id: `custom:${group.id}:${text}`, group: group.id, custom: true, name: { en: 'Custom style', zh: '自定义风格' }, blurb: text, look, brief: look };
+}
 
 const S = (id, group, en, zh, blurb, look, brief) => ({ id, group, name: { en, zh }, blurb, look, brief });
 
@@ -200,10 +222,11 @@ export const STYLES = [
 
 export const MAX_STYLES = 2;
 
-/** Valid, de-duplicated style ids in the order chosen, at most two. */
+/** The styles for the ids chosen, in that order, at most two: unknown ids are dropped, a custom id becomes its style. */
 export function pickStyles(ids) {
   const list = Array.isArray(ids) ? ids : ids ? [ids] : [];
-  return [...new Set(list.map(String))].map((id) => STYLES.find((s) => s.id === id)).filter(Boolean).slice(0, MAX_STYLES);
+  const styles = list.map((id) => STYLES.find((s) => s.id === String(id)) || customStyle(id)).filter(Boolean);
+  return styles.filter((s, i) => styles.findIndex((x) => x.id === s.id) === i).slice(0, MAX_STYLES);
 }
 
 /** One line for an image / video prompt. Two styles are blended, the first one leading. */

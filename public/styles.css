@@ -222,6 +222,11 @@ input:disabled, select:disabled, textarea:disabled { opacity: 0.55; cursor: not-
 .chip input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 .chip input:disabled + span { opacity: 0.5; }
 .style-group .chip span { min-height: 30px; padding: 2px 11px; font-size: 13px; }
+/* A group's own style, described by the creator: a dashed chip, and a box under the chips while it is ticked. */
+.style-group .chips { flex: 1; min-width: 0; }
+.chip.custom span { border-style: dashed; color: var(--muted); }
+.chip.custom input:checked + span { border-style: solid; }
+.style-group .style-custom { flex: 1 1 100%; min-height: 34px; padding: 4px 11px; font-size: 13px; }
 button.chip { text-align: left; white-space: normal; border-style: dashed; color: var(--muted); border-radius: var(--r-sm); }
 button.chip:hover { color: var(--ink); }
 
@@ -576,6 +581,7 @@ details.media-settings > summary { cursor: pointer; font-size: 14px; font-weight
   .platform-group, .style-group { flex-direction: column; align-items: stretch; gap: 6px; }
   .group-label, .style-group .group-label { flex: none; }
   .chip span, .style-group .chip span, button.chip { min-height: 44px; padding: 6px 15px; font-size: 15px; }
+  .style-group .style-custom { min-height: 44px; padding: 8px 12px; font-size: 16px; }
   .chips { gap: 8px; }
   .check { min-height: 44px; align-items: center; }
   .check input { width: 22px; height: 22px; margin: 0; }

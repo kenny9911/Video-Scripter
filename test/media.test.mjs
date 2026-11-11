@@ -91,6 +91,46 @@ test('every visual style has its own name in both languages and a translated not
   }
 });
 
+test('a custom style carries the creator\'s own words through the script and the media prompts', async () => {
+  const { STYLE_GROUPS, MAX_CUSTOM_STYLE, customStyle, pickStyles, styleLook } = await import('../src/styles.mjs');
+  const { buildPlan, buildPrompts } = await import('../src/prompt.mjs');
+  const { planShots } = await import('../src/shots.mjs');
+  const { shotTag } = await import('../src/package.mjs');
+
+  // Every group takes one. A group that is a medium says so; a tone (bright, mood) is the description alone.
+  for (const g of STYLE_GROUPS) {
+    const s = customStyle(`custom:${g.id}:warm crayon lines`);
+    assert.deepEqual([s.id, s.group, s.custom], [`custom:${g.id}:warm crayon lines`, g.id, true]);
+    assert.equal(s.look, g.medium ? `${g.medium}, warm crayon lines` : 'warm crayon lines');
+  }
+  assert.deepEqual(STYLE_GROUPS.filter((g) => !g.medium).map((g) => g.id), ['bright', 'mood']);
+
+  // The description is put on one line, loses its closing punctuation, and is cut to length.
+  assert.equal(customStyle('custom:illustration:  儿童蜡笔画，\n暖黄纸底。 ').blurb, '儿童蜡笔画， 暖黄纸底');
+  assert.equal(customStyle('custom:mood:a: b').blurb, 'a: b', 'a colon in the description is kept');
+  assert.equal([...customStyle(`custom:mood:${'字'.repeat(500)}`).blurb].length, MAX_CUSTOM_STYLE);
+  for (const id of ['custom:nope:x', 'custom:mood:   ', 'custom:mood', 'custom:', 'flat', '', null]) assert.equal(customStyle(id), null, String(id));
+
+  // It is picked like any other style: alone, blended with a listed one, or with another custom one.
+  const custom = 'custom:illustration:儿童蜡笔画';
+  assert.deepEqual(pickStyles([custom, 'clay', 'ink']).map((s) => s.id), [custom, 'clay']);
+  assert.deepEqual(pickStyles([custom, `${custom} `, 'custom:nope:x', 'custom:mood:雨夜']).map((s) => s.id), [custom, 'custom:mood:雨夜']);
+  assert.equal(styleLook(pickStyles([custom])), 'Visual style: illustration, 儿童蜡笔画.');
+  const scene = { visual: 'A founder at a desk', camera: 'wide', styleIds: [custom, 'clay'] };
+  const prompt = buildVisualPrompt(scene);
+  assert.ok(prompt.includes('Lead with custom style (illustration, 儿童蜡笔画)') && prompt.includes('mix in claymation'));
+
+  // The scriptwriter is told what the style is, in the creator's words.
+  const { system } = buildPrompts(buildPlan({ platformId: 'douyin', topic: 'x', styleIds: [custom] }));
+  assert.ok(system.includes('# Visual style') && system.includes('- 自定义风格: illustration, 儿童蜡笔画.'));
+
+  // Comparing two styles side by side works with a custom one, and its image gets a plain file name.
+  const shots = planShots('styles', 3, scene.styleIds);
+  assert.deepEqual(shots.map((s) => s.id), [`style-${custom}`, 'style-clay', 'blend']);
+  assert.ok(buildVisualPrompt(scene, 'image', scene.styleIds, shots[0]).includes('Visual style: illustration, 儿童蜡笔画.'));
+  assert.deepEqual([`style-${custom}`, 'style-clay', 'wide', '', undefined].map(shotTag), ['custom-illustration', 'clay', 'wide', '', '']);
+});
+
 test('visual styles: one or two, applied to the script brief and to media prompts', async () => {
   const { STYLES, STYLE_GROUPS, pickStyles, styleLook } = await import('../src/styles.mjs');
   const { buildPlan, buildPrompts } = await import('../src/prompt.mjs');

@@ -33,6 +33,13 @@ export function packageName(entry) {
   return `${date}_${slug(entry.platformId, 20)}_${slug(entry.script.title || entry.brief?.topic)}`;
 }
 
+/** A shot's id as part of a file name: "wide", "clay" for a style, "custom-illustration" for a custom one. */
+export const shotTag = (shot) =>
+  String(shot || '')
+    .replace(/^style-/, '')
+    .replace(/^custom:([^:]+):[\s\S]*$/, 'custom-$1')
+    .replace(/[^\w-]/g, '');
+
 const sceneFile = (sc, i, ext, n = '') => `scene-${pad(i + 1)}_${stamp(sc.start)}-${stamp(sc.end)}${n && `_${n}`}.${ext}`;
 const spoken = (s) => String(s || '').replace(/\[\[|\]\]/g, '').replace(/\s*⏸\s*/g, ' ').trim();
 
@@ -51,7 +58,7 @@ export async function buildPackage(entry, { markdown, lang } = {}) {
         if (!stored) continue; // only a provider link that could not be saved
         const data = await readMedia(stored[1]).catch(() => null);
         if (!data) continue; // the file is gone from storage: leave it out
-        const shot = String(m.shots?.[n] || '').replace(/^style-/, '').replace(/[^\w-]/g, '');
+        const shot = shotTag(m.shots?.[n]);
         const name = `${dir}/${sceneFile(sc, i, stored[2], urls.length > 1 ? `${n + 1}${shot && `-${shot}`}` : '')}`;
         files.push({ name: `${root}/${name}`, data, store: stored[2] !== 'svg' });
         manifest.push({ scene: sc.id, kind, file: name, ...(shot && { shot }) });
