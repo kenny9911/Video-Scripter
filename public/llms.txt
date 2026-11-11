@@ -11,7 +11,7 @@ Video Scripter is a web app. It runs on the user's own machine or on a host such
 - Each script contains: three hook options; a timed scene list where every scene has voiceover, on-screen text, visual, camera and sound notes; a voiceover-only view; and a publishing package (titles, cover text, description, hashtags, pinned comment).
 - Script structures: 9. Golden retention; Problem – Agitate – Solve; Story with a turn; Listicle; How-to tutorial; Product showcase; and three narration styles for tech and business commentary: Hard tech, demystified and deployed; Tech news, the insider read; Earnings teardown and business model.
 - Narration editor: the narration can be drafted first, pasted in or rewritten beat by beat, and the script is then built around it word for word.
-- Visual styles for storyboard images and clips: 45, in five groups (live action, illustration, 3D and stop motion, graphics and data, era and mood). One style, or two blended.
+- Visual styles for storyboard images and clips: 57, in six groups (live action, illustration, 3D and stop motion, graphics and data, bright and light, era and mood). One style, or two blended.
 - Images per scene: 1 to 3. Video clips run 4, 8 or 12 seconds.
 - Model providers: 10 presets (OpenAI, Anthropic Claude, DeepSeek, 通义千问 Qwen, 豆包 Doubao, Moonshot Kimi, 智谱 GLM, Google Gemini, OpenRouter, Ollama) plus any OpenAI-compatible or Anthropic-compatible endpoint.
 - Export: one .zip per script with the script in Markdown and JSON, the voiceover text, and every generated image and clip, named by scene and timecode.

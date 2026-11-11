@@ -568,6 +568,18 @@ const ZH = {
   'Lamplight, rain on the window, a warm drink; calm and comforting.': '灯光、窗上的雨和一杯热饮，安静而治愈。',
   'Pale, slightly overexposed daylight; quiet everyday poetry.': '略微过曝的浅淡日光，安静的日常诗意。',
   'Raw clay, linen and shadow; quiet, premium restraint.': '粗陶、亚麻和光影，安静克制的高级感。',
+  'White on white in even light; fresh, honest and optimistic.': '白底白景、光线均匀，清爽、真诚、积极。',
+  'White space, glass and soft blue; technology that feels open, not dark.': '白色空间、玻璃和淡蓝光，让科技显得开阔明亮，而不是暗黑。',
+  'Warm off-white and beige with soft curves; gentle, modern, homely.': '暖白和米色配柔和的曲线，温柔、现代、有家的感觉。',
+  'Pale wood, white walls and big windows; calm, practical clarity.': '浅色原木、白墙和大窗，平静、实用、清爽。',
+  'Soft pink, mint and lilac; sweet, light and friendly.': '浅粉、薄荷绿和淡紫，甜美、轻盈、亲切。',
+  'Bold happy colour blocks in full sun; energy and good mood.': '阳光下大胆明快的撞色，有活力，心情好。',
+  'Sunlight through leaves, linen and wild flowers; natural and unhurried.': '透过树叶的阳光、亚麻和野花，自然而从容。',
+  'Deep blue sky, big white clouds, sunlit green; youth and fresh starts.': '湛蓝的天、大朵白云和阳光下的绿，适合青春和新的开始。',
+  'Whitewashed walls, turquoise water and hard sun; travel and escape.': '白墙、碧蓝海水和强烈的阳光，适合旅行和出逃。',
+  'Low warm sun, long shadows and glow; hope, endings and reflection.': '低角度的暖阳、长影和光晕，适合希望、收尾和回望。',
+  'Pale fog and quiet light; stillness and room to think.': '淡淡的雾和安静的光，沉静，留出思考的空间。',
+  'Soft-focus bloom and sparkle; beauty, romance and gentle wonder.': '柔焦的光晕和点点闪光，适合美、浪漫和温柔的惊喜。',
 
   // Visitors tab on the admin page
   'Visitors': '访客',
