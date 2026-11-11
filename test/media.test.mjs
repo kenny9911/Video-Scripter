@@ -80,6 +80,17 @@ test('visual prompt is built from the scene', () => {
   assert.throws(() => buildVisualPrompt({ visual: ' ' }), /no visual description/);
 });
 
+test('every visual style has its own name in both languages and a translated note', async () => {
+  const { STYLES } = await import('../src/styles.mjs');
+  const { readFile } = await import('node:fs/promises');
+  const i18n = await readFile(new URL('../public/i18n.js', import.meta.url), 'utf8');
+  for (const lang of ['en', 'zh']) assert.equal(new Set(STYLES.map((s) => s.name[lang])).size, STYLES.length, `${lang} names must differ`);
+  for (const s of STYLES) {
+    assert.ok(i18n.includes(`'${s.blurb.replaceAll("'", "\\'")}': '`) || i18n.includes(`"${s.blurb}": '`), `${s.id}: its note has no Chinese translation in public/i18n.js`);
+    assert.ok(s.look.length > 40 && s.brief.length > 20, `${s.id}: the look and the brief describe the style`);
+  }
+});
+
 test('visual styles: one or two, applied to the script brief and to media prompts', async () => {
   const { STYLES, STYLE_GROUPS, pickStyles, styleLook } = await import('../src/styles.mjs');
   const { buildPlan, buildPrompts } = await import('../src/prompt.mjs');

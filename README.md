@@ -14,7 +14,7 @@ It works with the model provider you already use, runs on your own machine or on
 - **Ready to shoot.** Every scene is timed and carries its voiceover, on-screen text, visual, camera and sound notes.
 - **Ready to publish.** Titles, cover text, description, hashtags and a pinned comment come with every script.
 - **Your words, if you want.** Have the narration drafted first, paste your own, or rewrite any beat in the narration editor. The script is then built around it word for word.
-- **Storyboards included.** Turn any scene into an image or clip in the video's aspect ratio (9:16, 16:9, 1:1, 3:4 or 4:3), in one of 27 visual styles.
+- **Storyboards included.** Turn any scene into an image or clip in the video's aspect ratio (9:16, 16:9, 1:1, 3:4 or 4:3), in one of 45 visual styles.
 - **Any model.** Ten provider presets, from OpenAI and Anthropic to 通义千问, 豆包 and local Ollama, plus any OpenAI-compatible or Anthropic-compatible endpoint. Switch model per script.
 - **Yours to keep.** Every script, image and clip is saved to your account and exports as one tidy `.zip`.
 - **Built for a team.** Accounts with sign-up and log-in, an administrator who manages models and users, token and image usage per script and per user, and an activity log.
@@ -117,7 +117,7 @@ A narration style adds its own writing rules to the prompt. The hard-tech style 
 
 ## Visual styles
 
-The **Visual style** picker offers 27 looks in five groups.
+The **Visual style** picker offers 45 looks in five groups.
 
 | Group | Styles |
 | --- | --- |
@@ -125,7 +125,7 @@ The **Visual style** picker offers 27 looks in five groups.
 | Illustration | Flat vector, isometric, hand-drawn sketch, watercolour, Chinese ink, anime, comic pop, paper collage |
 | 3D and stop motion | Stylised 3D, claymation, glossy 3D objects |
 | Graphics and data | Motion infographic, minimal geometric, tech interface, screen recording |
-| Era and mood | Retro film, neon night, dark and moody, pixel art, surreal dream |
+| Era and mood | Ancient China, black-and-white classic, Art Deco, old Shanghai poster, mid-century modern, retro-futurism, retro film, 80s–90s nostalgia, Hong Kong 90s, VHS tape, pixel art, Y2K, vaporwave, neon night, cyberpunk, steampunk, wasteland, dark and moody, dark academia, cozy and warm, soft and airy, wabi-sabi, surreal dream |
 
 Pick one, or two to blend. The first one picked leads, and a third pick replaces the oldest. The choice does two things:
 
