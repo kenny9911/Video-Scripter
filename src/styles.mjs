@@ -5,13 +5,14 @@
 // Every group also takes a custom style, described by the creator in their own words. Its id carries those
 // words, "custom:<group>:<description>", so it travels wherever a style id does (the brief, a scene, the
 // history) with nothing else to pass along. `medium` is what a group's custom style is made in; the last two
-// groups are a tone rather than a medium, so their custom style is the description alone.
+// groups are a format or a tone rather than a medium, so their custom style is the description alone.
 
 export const STYLE_GROUPS = [
   { id: 'live', name: { en: 'Live action', zh: '实拍' }, medium: 'live-action photography' },
   { id: 'illustration', name: { en: 'Illustration', zh: '插画' }, medium: 'illustration' },
   { id: '3d', name: { en: '3D and stop motion', zh: '三维与定格' }, medium: '3D render' },
   { id: 'graphic', name: { en: 'Graphics and data', zh: '图形与数据' }, medium: 'graphic design' },
+  { id: 'present', name: { en: 'Presenting and launching', zh: '演示与发布' } },
   { id: 'bright', name: { en: 'Bright and light', zh: '明亮与浅色' } },
   { id: 'mood', name: { en: 'Era and mood', zh: '年代与氛围' } },
 ];
@@ -109,6 +110,32 @@ export const STYLES = [
   S('screen', 'graphic', 'Screen recording', '屏幕演示', 'Product UI and step-by-step tutorials.',
     'clean screen-capture look, crisp app interface on a device or full frame, tidy cursor highlights, soft backdrop behind the window',
     'the actual screen: apps, dashboards, chats and the steps being taken'),
+
+  // Presenting and launching: the consultant's slides and room, the expert at a board, then the product on show
+  S('deck', 'present', 'Consulting deck', '咨询汇报', 'One message per slide: the clean frameworks and charts a partner would present.',
+    'management-consulting slide look, white background with wide margins, one framework or chart per frame, 2x2 matrices, pyramids, waterfall and bar charts in thin precise lines, navy and grey with a single accent colour, flat and exact, no decoration',
+    'one message per frame, shown as a framework or a chart: a 2x2 matrix, a pyramid, a waterfall, three pillars, a before-and-after pair'),
+  S('boardroom', 'present', 'Boardroom briefing', '顾问现场汇报', 'A consultant presenting to decision-makers; credible and high-stakes.',
+    'boardroom presentation scene, a presenter standing beside a large wall screen that shows a simple chart, executives around a long table seen from behind, glass walls and soft daylight, restrained navy and grey palette, composed documentary framing',
+    'a consultant walking leaders through a recommendation: the presenter at the screen, a hand pointing at a chart, listeners taking notes, a printed deck on the table'),
+  S('whiteboard', 'present', 'Whiteboard session', '白板讲解', 'An expert thinking aloud with a marker: boxes, arrows and the moment it clicks.',
+    'whiteboard explanation scene, an expert drawing on a large whiteboard with black, blue and red markers, boxes, arrows and simple diagrams building up, seen over the shoulder or from the side, bright even office light, marker in hand',
+    'an expert at a whiteboard building one diagram step by step: a box, an arrow, a circle around the key part, a hand tapping the point'),
+  S('lightboard', 'present', 'Lightboard', '玻璃板书', 'Glowing marker lines on glass with the presenter facing you; modern tech explainers.',
+    'lightboard explanation, a presenter behind a clear glass board facing the camera, diagrams drawn in glowing neon marker lines floating in front of them, black background, soft key light on the face, luminous blue, green and orange strokes',
+    'a presenter facing the viewer while a glowing diagram grows between them: nodes, arrows and layers drawn one at a time'),
+  S('chalkboard', 'present', "Professor's chalkboard", '教授板书', 'Chalk, a full blackboard and a lecture hall; depth, rigour and first principles.',
+    'university lecture scene, a professor at a wide dark chalkboard covered in chalk diagrams and derivations, chalk dust in warm side light, wooden lecture hall, rolled sleeves, caught mid-gesture',
+    'a professor working an idea out on a blackboard: a diagram half drawn, an underlined result, a pause to face the room'),
+  S('productdemo', 'present', 'Product walkthrough', '产品介绍', 'The product, its parts and how it is used; clear, calm and practical.',
+    'product introduction look, the product centred on a clean surface against a soft neutral gradient, bright even light, hands demonstrating one feature at a time, thin callout lines and exploded-view layouts, crisp true-to-life colour',
+    'the product shown feature by feature: the whole thing, one part up close, a hand using it, its pieces laid out in order'),
+  S('keynote', 'present', 'Launch keynote', '新品发布会', 'A dark stage, a giant screen and one spotlight; the big reveal.',
+    'product launch keynote, a presenter in a spotlight on a wide dark stage, a giant LED wall behind showing the product at huge scale, audience silhouettes and phone glow in the foreground, deep blacks with one saturated accent colour, wide dramatic angles',
+    'moments from a launch event: the walk on stage, the product appearing on the giant screen, the presenter holding it up, the crowd reacting'),
+  S('launchfilm', 'present', 'Launch film', '产品发布片', 'The product emerging from the dark in sweeping light; premium teaser energy.',
+    'cinematic product launch film look, the product emerging from darkness under a sweeping rim light, glossy reflections on a black surface, macro passes over materials and edges, slow-motion dust and droplets, high contrast with one saturated accent',
+    'the product revealed piece by piece: an edge catching light, a texture in macro, a slow turn, then the whole thing at last'),
 
   // Bright and light: clean and pale first, then colour, then daylight outdoors
   S('highkey', 'bright', 'Bright and clean', '明亮通透', 'White on white in even light; fresh, honest and optimistic.',

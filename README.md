@@ -15,7 +15,7 @@ It works with the model provider you already use, runs on your own machine or on
 - **Ready to publish.** Titles, cover text, description, hashtags and a pinned comment come with every script.
 - **A narration agent, not a one-shot prompt.** The spoken words are planned on a viewpoint card, written with the skills that fit the brief, then measured, reviewed and corrected before a script is built around them.
 - **Your words, if you want.** Have the narration drafted first, paste your own, or rewrite any beat in the narration editor. The script is then built around it word for word.
-- **Storyboards included.** Turn any scene into an image or clip in the video's aspect ratio (9:16, 16:9, 1:1, 3:4 or 4:3), in one of 57 visual styles.
+- **Storyboards included.** Turn any scene into an image or clip in the video's aspect ratio (9:16, 16:9, 1:1, 3:4 or 4:3), in one of 65 visual styles.
 - **Any model.** Ten provider presets, from OpenAI and Anthropic to 通义千问, 豆包 and local Ollama, plus any OpenAI-compatible or Anthropic-compatible endpoint. Switch model per script.
 - **Yours to keep.** Every script, image and clip is saved to your account and exports as one tidy `.zip`.
 - **Built for a team.** Accounts with sign-up and log-in, an administrator who manages models and users, token and image usage per script and per user, and an activity log.
@@ -174,7 +174,7 @@ Paces are Chinese characters per second; English is paced in proportion. A narra
 
 ## Visual styles
 
-The **Visual style** picker offers 57 looks in six groups.
+The **Visual style** picker offers 65 looks in seven groups.
 
 | Group | Styles |
 | --- | --- |
@@ -182,6 +182,7 @@ The **Visual style** picker offers 57 looks in six groups.
 | Illustration | Flat vector, isometric, hand-drawn sketch, watercolour, Chinese ink, anime, comic pop, paper collage |
 | 3D and stop motion | Stylised 3D, claymation, glossy 3D objects |
 | Graphics and data | Motion infographic, minimal geometric, tech interface, screen recording |
+| Presenting and launching | Consulting deck, boardroom briefing, whiteboard session, lightboard, professor's chalkboard, product walkthrough, launch keynote, launch film |
 | Bright and light | Bright and clean, bright tech, cream tones, Nordic light, pastel, dopamine brights, soft and airy, fresh green, summer sky, seaside holiday, golden hour, morning mist, soft glow |
 | Era and mood | Ancient China, black-and-white classic, Art Deco, old Shanghai poster, mid-century modern, retro-futurism, retro film, 80s–90s nostalgia, Hong Kong 90s, VHS tape, pixel art, Y2K, vaporwave, neon night, cyberpunk, steampunk, wasteland, dark and moody, dark academia, cozy and warm, wabi-sabi, surreal dream |
 
