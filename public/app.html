@@ -114,6 +114,7 @@
             </label>
           </div>
           <p id="frameworkBlurb" class="hint"></p>
+          <p id="frameworkNeeds" class="hint note" data-icon="info" data-icon-size="16" hidden><span>This style reports facts. Paste the news or the figures under Details → Reference material. Where a fact is missing, the script leaves a marked gap instead of inventing one.</span></p>
           <fieldset class="field">
             <legend>Aspect ratio</legend>
             <div id="aspects" class="chips"></div>
@@ -191,6 +192,12 @@
 
       <div class="brief-footer">
         <p id="formError" class="error" role="alert" hidden></p>
+        <div id="narrationMode" class="seg narration-pick" role="radiogroup" aria-label="How the narration is written">
+          <button class="seg-btn" type="button" role="radio" data-mode="auto" aria-checked="true" title="The narration is written together with the script, in one go.">With script</button>
+          <button class="seg-btn" type="button" role="radio" data-mode="draft" aria-checked="false" title="The narration is written first. Edit and refine it, then the script is built around it.">Narration first</button>
+          <button class="seg-btn" type="button" role="radio" data-mode="own" aria-checked="false" title="Paste or write your own narration. The script is built around it word for word.">My narration</button>
+        </div>
+        <p id="narrationModeHint" class="hint" hidden></p>
         <label class="field model-pick">
           <span>Written by</span>
           <select id="llm" aria-label="Gateway and model"></select>

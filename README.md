@@ -13,6 +13,7 @@ It works with the model provider you already use, runs on your own machine or on
 - **One brief, five platforms.** A 抖音 script and a YouTube Shorts script are different pieces of writing. Each platform gets its own script instead of one draft pasted everywhere.
 - **Ready to shoot.** Every scene is timed and carries its voiceover, on-screen text, visual, camera and sound notes.
 - **Ready to publish.** Titles, cover text, description, hashtags and a pinned comment come with every script.
+- **Your words, if you want.** Have the narration drafted first, paste your own, or rewrite any beat in the narration editor. The script is then built around it word for word.
 - **Storyboards included.** Turn any scene into an image or clip in the video's aspect ratio (9:16, 16:9, 1:1, 3:4 or 4:3), in one of 27 visual styles.
 - **Any model.** Ten provider presets, from OpenAI and Anthropic to 通义千问, 豆包 and local Ollama, plus any OpenAI-compatible or Anthropic-compatible endpoint. Switch model per script.
 - **Yours to keep.** Every script, image and clip is saved to your account and exports as one tidy `.zip`.
@@ -56,15 +57,28 @@ Only the topic is required. The rest sharpens the result.
 | --- | --- |
 | Topic | What the video is about |
 | Platforms | One script is written per platform you tick |
-| Structure and Length | The story framework and the running time |
+| Structure and Length | The story framework, or a narration style that also sets the voice, and the running time |
 | Visual style | One look, or two blended, for the scene notes and all generated media |
 | Key message, Audience, Tone | The one thing to remember, who it is for, and how it should sound |
 | Brand or creator, Call to action | Who is speaking and what the viewer should do next |
 | Reference material | Facts, quotes or an article. The model is told to use only figures and quotes found here or in the brief |
 | Voiceover is for text-to-speech | Spells out numbers and symbols so a TTS voice reads them correctly |
+| Narration | **With script** writes everything in one go. **Narration first** drafts the narration for you to edit. **My narration** opens the editor for your own text |
 | Written by | The gateway and model that writes this script |
 
-### 2. Review the script
+### 2. Edit the narration (optional)
+
+Choose **Narration first** or **My narration** under the brief to work on the spoken words before anything else is written. Each platform gets its own narration editor:
+
+- **One beat per stage.** A drafted narration has one beat for each stage of the story line. Every beat shows what it has to do, its estimated time code, and its length against the room that stage has.
+- **A length meter.** Characters (Chinese) or words (English) against the budget for the length you asked for, and how long the video will run. Keep a longer narration and the video gets longer; **Fit the length** brings it back.
+- **Refine.** On one beat or on the whole narration: fit the length, more spoken, punchier, plainer words, ready for text-to-speech, reshape to the structure, or your own instruction. Each rewrite can be undone.
+- **Your own text.** Paste it into an empty editor or with **Paste narration**. Blank lines separate beats; without blank lines, each line is a beat.
+- **Beats.** Add, delete and reorder them. The story line stays visible as a reference.
+
+**Generate the script** builds the scenes, visuals and publishing package around the narration exactly as it stands. The model may only add stress and pause marks; if it changes a word anyway, your text is put back and the script says so. **Edit narration** on a finished script opens the editor on its narration, to change it and build a new script. A narration that is not a script yet is kept in the browser, so a reload does not lose it.
+
+### 3. Review the script
 
 Each platform opens in its own tab, and the script streams in as it is written. A script contains:
 
@@ -75,17 +89,17 @@ Each platform opens in its own tab, and the script streams in as it is written. 
 
 **Regenerate** rewrites a script. **Copy Markdown** and **Copy voiceover** put it on the clipboard.
 
-### 3. Generate the visuals
+### 4. Generate the visuals
 
 Once the gateway in use has an image or video model, every scene gets **Generate image** and **Generate video** buttons that turn its Visual and Camera notes into a frame or clip in the **Aspect ratio** chosen in the brief: 9:16 vertical (the default), 16:9 landscape, 1:1 square, 3:4 portrait or 4:3 standard. The Size in the image and video settings is entered for vertical video and is turned to match; its edges are not rescaled, so 3:4 and 4:3 use the model's nearest size. Tick **Also generate an image for every scene** in the brief to have the images made automatically when the script is finished.
 
-### 4. Export
+### 5. Export
 
 **Download .zip** packs the script, the voiceover and every generated image and clip into one archive, named and numbered by scene (see [Your work](#your-work)).
 
 ## Script structures
 
-Six frameworks set the story arc and how the running time is divided between its stages.
+Nine frameworks set the story arc and how the running time is divided between its stages. Six are general structures; three are narration styles for tech and business commentary, which also set how the narration sounds.
 
 | Structure | Arc | Best for |
 | --- | --- | --- |
@@ -95,6 +109,11 @@ Six frameworks set the story arc and how the running time is divided between its
 | Listicle | "3 things…", strongest item last | Tips, mistakes and round-ups |
 | How-to tutorial | Show the result first, then teach the steps | Demos, software and skills |
 | Product showcase | Scenario, reveal, proof, offer | Product, launch and review videos |
+| Hard tech, demystified and deployed | Hook, one-line answer, one analogy, mechanism, myth, three steps to deploy, where it fits | Explaining a technical idea to decision-makers, e.g. "What is an ontology?" |
+| Tech news, the insider read | News hook, what happened, headline vs. signal, why now, who it hits, what to watch | Launches, acquisitions and reorganisations |
+| Earnings teardown and business model | Number hook, the answer up front, three numbers, the logic, so what | How a company makes its money, read from its earnings |
+
+A narration style adds its own writing rules to the prompt. The hard-tech style states the value before the mechanism, names each term once after saying it plainly, and carries one analogy through the whole video. The news and earnings styles keep fact apart from judgment, give every figure its scope and source on screen, and make no share-price or investment calls. Both report facts, so paste the news or the figures under **Reference material**: where a fact is missing, the script leaves a marked gap (`[TO VERIFY: …]`, `[TO ADD: …]`) and lists it in the production notes instead of inventing it.
 
 ## Visual styles
 
@@ -342,10 +361,11 @@ npm test
 server.mjs              HTTP server, API routes, static files
 src/gateway/            providers, config store, streaming client, demo provider
 src/platforms.mjs       per-platform writing, publishing and compliance guidance
-src/frameworks.mjs      script structures and their stage timing
+src/frameworks.mjs      script structures and narration styles: stage timing and, for a style, its voice
+src/narration.mjs       narration as beats: counting, timing, and keeping a locked narration word for word
 src/styles.mjs          visual styles for images and clips
 src/shots.mjs           how several images of one scene relate (multi-image modes)
-src/prompt.mjs          brief -> timeline + prompts; model reply -> script
+src/prompt.mjs          brief -> timeline + prompts; model reply -> script, narration or refinement
 src/db.mjs              storage: JSON documents and blobs, on disk or in Postgres
 src/auth.mjs            accounts, password hashing, sessions, the first administrator
 src/audit.mjs           usage records (every model call) and the activity log
@@ -365,13 +385,14 @@ test/                   node --test
 | To change | Edit |
 | --- | --- |
 | How a platform's scripts read | Its entry in `src/platforms.mjs`. The text goes straight into the system prompt. |
-| Script structures and stage timing | `src/frameworks.mjs` |
+| Script structures, narration styles and stage timing | `src/frameworks.mjs` |
+| The refinements the narration editor offers | `REFINE_PRESETS` in `src/prompt.mjs` |
 | Visual styles | `src/styles.mjs` |
 | Multi-image modes | `src/shots.mjs` |
 | Provider presets | `src/gateway/providers.mjs` |
 | Interface translations | `public/i18n.js` |
 
-The Golden retention structure comes from the B2B 4K short-video skill (hook, suspense anchor, three value waves, structured wrap, cold close), as do the Chinese rules that keep English on screen and out of the voiceover.
+The Golden retention structure comes from the B2B 4K short-video skill (hook, suspense anchor, three value waves, structured wrap, cold close), as do the Chinese rules that keep English on screen and out of the voiceover. The three tech and business styles draw on the narration, story-spine and explainer skills: the hook speaks the viewer's language, the value comes before the evidence, detail goes on screen while the voice carries the backbone, and every claim is either sourced or marked as the creator's judgment.
 
 ### Wire protocols
 
@@ -406,7 +427,7 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `POST` | `/api/admin/users/delete` | Administrators: `{ id, scripts?: "transfer" }` Deletes a user and their scripts, or moves the scripts |
 | `POST` | `/api/auth/profile` | `{ name }` Change your own name |
 | `POST` | `/api/auth/password` | `{ current, password }` Change your own password |
-| `GET` | `/api/meta` | Platforms, frameworks and provider presets |
+| `GET` | `/api/meta` | Platforms, frameworks and their groups, refinements, speaking pace and provider presets |
 | `GET` | `/api/gateway/config` | Every saved gateway (keys masked) and the one in use |
 | `PUT` | `/api/gateway/config` | Administrators: create a gateway, or update the one with the given `id`. `activate: true` makes it the default |
 | `POST` | `/api/gateway/select` | `{ id, model? }` Choose the gateway and model the signed-in user writes with |
@@ -420,4 +441,7 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `POST` | `/api/media/video` | `{ visual, camera, start, end }` Starts a video job |
 | `POST` | `/api/media/video/status` | `{ id, historyId, sceneId }` Polls a job and stores the file when ready |
 | `GET` | `/media/<file>` | A stored image or video |
-| `POST` | `/api/generate` | Writes a script, saves it and records the call. Server-sent events: `plan`, `delta`, `done` or `error` |
+| `POST` | `/api/plan` | The plan for a brief without writing anything: story line with times, length and voiceover budget |
+| `POST` | `/api/narration/draft` | Writes the narration alone, one beat per stage. Server-sent events: `plan`, `delta`, `done` or `error`. Nothing is saved |
+| `POST` | `/api/narration/refine` | `{ ...brief, narration, index?, preset?, instruction?, target? }` Rewrites one beat (`{ text }`) or the whole narration (`{ beats }`) |
+| `POST` | `/api/generate` | Writes a script, saves it and records the call. With `narration: [{ stage, text }]` the script is built around those words as they are. Server-sent events: `plan`, `delta`, `done` or `error` |

@@ -10,6 +10,38 @@ const sleep = (ms, signal) =>
     });
   });
 
+/** Scenes for a locked narration: one per beat, word for word, each given its share of the running time. */
+function lockedScenes(plan) {
+  const { brief } = plan;
+  const zh = brief.lang === 'zh';
+  const total = brief.narration.reduce((n, b) => n + b.text.length, 0) || 1;
+  let said = 0;
+  let prev = 0;
+  return brief.narration.map((b, i) => {
+    said += b.text.length;
+    const end = i === brief.narration.length - 1 ? brief.duration : Math.max(prev + 1, Math.round((said / total) * brief.duration));
+    const scene = { id: i + 1, start: prev, end, stage: b.stage, voiceover: b.text, onScreenText: `${String(i + 1).padStart(2, '0')}`, visual: zh ? '演示占位：此处为画面描述。' : 'Demo placeholder: the shot description goes here.', camera: zh ? '中景，硬切' : 'Medium shot, hard cut', sfx: '' };
+    prev = end;
+    return scene;
+  });
+}
+
+/** A placeholder narration: one beat per stage of the story line. */
+function demoNarration(plan) {
+  const { brief, timeline } = plan;
+  const zh = brief.lang === 'zh';
+  return {
+    title: zh ? `【演示】${brief.topic}` : `[Demo] ${brief.topic}`,
+    beats: timeline.map((s) => ({ stage: s.key, text: zh ? `（演示占位）这一段对应：${s.label}。主题是${brief.topic}。` : `(Demo placeholder) This beat covers: ${s.label}. The topic is ${brief.topic}.` })),
+  };
+}
+
+/** A placeholder refinement: the same text, visibly marked, so the editor's flow can be tried offline. */
+function demoRefined({ beats, index, plan }) {
+  const mark = (text) => (plan.brief.lang === 'zh' ? `${text.replace(/（演示：已润色）$/, '')}（演示：已润色）` : `${text.replace(/ \(demo: refined\)$/, '')} (demo: refined)`);
+  return Number.isInteger(index) ? { text: mark(beats[index].text) } : { beats: beats.map((b) => ({ stage: b.stage, text: mark(b.text) })) };
+}
+
 function demoScript(plan) {
   const { brief, timeline } = plan;
   const zh = brief.lang === 'zh';
@@ -28,7 +60,7 @@ function demoScript(plan) {
           { type: 'Loss warning', line: `If ${t} still confuses you, give me one minute.` },
           { type: 'Open question', line: `${t}: which step actually trips people up?` },
         ],
-    scenes: timeline.map((s, i) => ({
+    scenes: brief.narration?.length ? lockedScenes(plan) : timeline.map((s, i) => ({
       id: i + 1,
       start: s.start,
       end: s.end,
@@ -51,7 +83,8 @@ function demoScript(plan) {
 }
 
 export async function* mockStream({ signal, meta }) {
-  const text = meta?.plan ? JSON.stringify(demoScript(meta.plan), null, 2) : 'OK';
+  const reply = !meta?.plan ? null : meta.kind === 'narration' ? demoNarration(meta.plan) : meta.kind === 'refine' ? demoRefined(meta) : demoScript(meta.plan);
+  const text = reply ? JSON.stringify(reply, null, 2) : 'OK';
   for (let i = 0; i < text.length; i += 90) {
     await sleep(25, signal);
     yield text.slice(i, i + 90);

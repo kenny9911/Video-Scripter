@@ -4,6 +4,7 @@ import { t, lang, applyI18n } from './i18n.js';
 import { icon, hydrateIcons } from './icons.js';
 import { showAuth, wireAccount } from './account.js';
 import { wireTheme, wireLang, enhancePasswords } from './shell.js';
+import { countSpoken, fitDuration, splitNarration, spokenText } from './narration.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -30,9 +31,14 @@ const state = {
   autoRun: null, // { done, total } while images are being made for every scene
   history: [],
   styleIds: [],
-  runs: {}, // platformId -> { status: 'running'|'done'|'error', raw, script, error, plan, brief, abort }
+  // platformId -> { status, raw, script, error, plan, brief, abort, narration }
+  // status: 'drafting' (the narration is being written) | 'narration' (it is open in the editor) |
+  //         'running' (the script is being written) | 'done' | 'error' | 'stopped'
+  runs: {},
   active: null,
   teleprompter: {},
+  narrationMode: 'auto', // 'auto' with the script | 'draft' written first, then edited | 'own' the creator's own
+  emptyNode: null, // the "No script yet" block, kept so it can be shown again
 };
 
 const HISTORY_KEY = 'video-scripter.history';
@@ -76,7 +82,7 @@ function download(name, text, type) {
 
 const platformOf = (id) => state.meta.platforms.find((p) => p.id === id);
 const fmtTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.round(s % 60)).padStart(2, '0')}`;
-const plainVo = (s) => s.replace(/\[\[|\]\]/g, '').replace(/\s*⏸\s*/g, ' ').trim();
+const plainVo = spokenText;
 
 /** Render voiceover markup: [[stress]] -> <mark>, ⏸ -> pause glyph. */
 function voNodes(text) {
@@ -103,6 +109,7 @@ function setView(view) {
     else b.removeAttribute('aria-current');
   }
   if (isMobile()) scrollTo({ top: 0 });
+  state.runs[state.active]?.narration?.dom?.settle(); // an editor that was hidden could not measure its text
 }
 
 /** A button with an icon and a label, the way every action in the app is drawn. */
@@ -212,14 +219,39 @@ function refreshDurations() {
   sel.value = [...sel.options].some((o) => o.value === keep) ? keep : '';
 }
 
+const frameworkOf = (id) => state.meta.frameworks.find((f) => f.id === id);
+
+/** The blurb under the structure picker, its warning when the style needs facts, and topic ideas that suit it. */
 function refreshBlurb() {
-  const f = state.meta.frameworks.find((x) => x.id === $('framework').value);
+  const f = frameworkOf($('framework').value);
   $('frameworkBlurb').textContent = f ? f.blurb[lang] : '';
+  $('frameworkNeeds').hidden = !f?.needsReference || Boolean($('reference').value.trim());
+  $('topicIdeaList').replaceChildren(
+    ...(f?.topics?.[lang] || IDEAS[lang]).map((idea) =>
+      h('button', { class: 'chip', type: 'button', onclick: () => (($('topic').value = idea), refreshSummaries(), saveForm(), $('topic').focus()) }, idea),
+    ),
+  );
+}
+
+// ---------- Narration mode (how the narration comes to be: with the script, drafted first, or the creator's own) ----------
+
+const MODE = {
+  auto: { cta: 'Generate scripts', hint: '' },
+  draft: { cta: 'Draft the narration', hint: 'The narration is written first. Edit and refine it, then the script is built around it.' },
+  own: { cta: 'Open the narration editor', hint: 'Paste or write your own narration. The script is built around it word for word.' },
+};
+
+function setNarrationMode(mode) {
+  state.narrationMode = MODE[mode] ? mode : 'auto';
+  for (const b of $('narrationMode').children) b.setAttribute('aria-checked', String(b.dataset.mode === state.narrationMode));
+  $('narrationModeHint').textContent = t(MODE[state.narrationMode].hint);
+  $('narrationModeHint').hidden = !MODE[state.narrationMode].hint;
+  if (!$('generate').disabled) $('generateLabel').textContent = t(MODE[state.narrationMode].cta);
 }
 
 function saveForm() {
   const data = Object.fromEntries(FIELDS.map((f) => [f, $(f).value]));
-  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: $('duration').value, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: state.styleIds });
+  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: $('duration').value, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: state.styleIds, narrationMode: state.narrationMode });
   try {
     localStorage.setItem(FORM_KEY, JSON.stringify(data));
   } catch {}
@@ -243,6 +275,7 @@ function fillForm(data) {
   refreshDurations();
   const duration = String(data.duration || '');
   $('duration').value = [...$('duration').options].some((o) => o.value === duration) ? duration : ''; // a length the platform no longer offers -> Auto
+  if (data.narrationMode) setNarrationMode(data.narrationMode); // a script from the history does not say: leave the choice alone
   refreshBlurb();
 }
 
@@ -260,8 +293,24 @@ function buildForm() {
     $(p.lang === 'zh' ? 'platformsZh' : 'platformsEn').append(chip);
   }
   document.querySelector('input[name="platform"]').checked = true;
-  $('framework').append(...state.meta.frameworks.map((f) => h('option', { value: f.id }, f.name[lang])));
+  $('framework').append(
+    ...state.meta.frameworkGroups.map((g) => h('optgroup', { label: g.name[lang] }, state.meta.frameworks.filter((f) => f.group === g.id).map((f) => h('option', { value: f.id }, f.name[lang])))),
+  );
   $('framework').addEventListener('change', refreshBlurb);
+  $('reference').addEventListener('input', refreshBlurb);
+  for (const b of $('narrationMode').children) b.addEventListener('click', () => (setNarrationMode(b.dataset.mode), saveForm()));
+  // Arrow keys move the choice, as in any radio group.
+  $('narrationMode').addEventListener('keydown', (e) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const all = [...$('narrationMode').children];
+    const next = all[(all.findIndex((b) => b.dataset.mode === state.narrationMode) + step + all.length) % all.length];
+    setNarrationMode(next.dataset.mode);
+    saveForm();
+    next.focus();
+  });
+  setNarrationMode('auto');
   $('aspects').append(...state.meta.aspects.map((a) => h('label', { class: 'chip' }, h('input', { type: 'radio', name: 'aspect', value: a.id }), h('span', {}, `${a.id} ${a.name[lang]}`))));
   setAspect();
   refreshDurations();
@@ -270,11 +319,6 @@ function buildForm() {
   $('imageCount').addEventListener('change', refreshImageMode);
   $('imageMode').addEventListener('change', refreshImageMode);
   refreshImageMode();
-  $('topicIdeaList').replaceChildren(
-    ...IDEAS[lang].map((idea) =>
-      h('button', { class: 'chip', type: 'button', onclick: () => (($('topic').value = idea), refreshSummaries(), saveForm(), $('topic').focus()) }, idea),
-    ),
-  );
   $('briefForm').addEventListener('input', refreshSummaries);
   restoreForm();
   // "Also generate an image for every scene": off unless this user last left it on. Kept on their account,
@@ -311,8 +355,10 @@ async function* sse(res) {
 
 async function runPlatform(platformId, brief) {
   const abort = new AbortController();
-  const run = (state.runs[platformId] = { status: 'running', raw: '', brief, abort, styleIds: brief.styleIds });
-  render();
+  // A script built around a narration keeps the editor's copy, so it can be opened and changed again.
+  const narration = brief.narration && state.runs[platformId]?.narration;
+  const run = (state.runs[platformId] = { status: 'running', raw: '', brief, abort, styleIds: brief.styleIds, ...(narration && { narration }) });
+  runChanged(platformId);
   try {
     const res = await fetch('/api/generate', {
       method: 'POST',
@@ -332,7 +378,11 @@ async function runPlatform(platformId, brief) {
           run.script = data.script;
           run.status = 'done';
           run.historyId = data.historyId;
-          if (data.entry) state.history.unshift(data.entry);
+          if (run.narration) run.narration.dirty = false; // it is a script now, and in the history
+          if (data.entry) {
+            state.history.unshift(data.entry);
+            run.plan = { ...run.plan, ...data.entry.plan }; // says whether a locked narration had to be put back
+          }
           renderHistory();
         } else {
           run.raw = data.raw || run.raw;
@@ -345,31 +395,68 @@ async function runPlatform(platformId, brief) {
     run.status = err.name === 'AbortError' ? 'stopped' : 'error';
     run.error = err.name === 'AbortError' ? t('Stopped.') : err.message;
   }
-  render();
+  runChanged(platformId);
   if (run.status === 'done' && $('autoImages').checked) autoImages(run);
 }
 
-async function generate(platformIds) {
+/**
+ * A run changed state. It is redrawn when it is the tab on screen; otherwise only the tab strip is, because
+ * the tab on screen may be a narration editor someone is typing in, and rebuilding it would drop the cursor.
+ */
+function runChanged(platformId) {
+  if (state.active === platformId || !state.runs[state.active]) return render();
+  renderTabs();
+  state.runs[state.active].narration?.dom?.repaint();
+}
+
+/** The brief as the form has it now. */
+function collectBrief() {
   const brief = Object.fromEntries(FIELDS.map((f) => [f, $(f).value.trim()]));
-  Object.assign(brief, { frameworkId: $('framework').value, duration: $('duration').value || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: [...state.styleIds] });
+  return Object.assign(brief, { frameworkId: $('framework').value, duration: $('duration').value || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: [...state.styleIds] });
+}
+
+const isWriting = (run) => run.status === 'running' || run.status === 'drafting';
+const anyWriting = () => Object.values(state.runs).some(isWriting);
+
+/** Start over with the platforms picked in the form; every earlier tab goes. */
+function resetRuns() {
+  state.runs = {};
+  state.teleprompter = {};
+  const ids = selectedPlatforms();
+  state.active = ids[0];
+  return ids;
+}
+
+/** Write scripts. Without `platformIds` this starts over with the platforms in the form; with them, only those tabs are rewritten. */
+async function generate(platformIds, brief = collectBrief()) {
   saveForm();
-  if (!platformIds) {
-    state.runs = {};
-    state.teleprompter = {};
-    platformIds = selectedPlatforms();
-    state.active = platformIds[0];
-  }
+  platformIds ??= resetRuns();
   setView('script');
   setBusy(true);
   await Promise.all(platformIds.map((id) => runPlatform(id, brief)));
-  setBusy(Object.values(state.runs).some((r) => r.status === 'running'));
+  setBusy(anyWriting());
+}
+
+/** Write again what a tab holds: the narration draft, or the script (around the same narration when it was built on one). */
+function rerun(platformId) {
+  const run = state.runs[platformId];
+  if (run?.retry === 'draft') return draftNarrations([platformId]);
+  return generate([platformId], run?.brief?.narration ? { ...collectBrief(), narration: run.brief.narration } : undefined);
 }
 
 function setBusy(busy) {
   $('generate').disabled = busy;
-  $('generateLabel').textContent = busy ? t('Generating…') : t('Generate scripts');
+  $('generateLabel').textContent = busy ? t('Generating…') : t(MODE[state.narrationMode].cta);
   $('stop').hidden = !busy;
   refreshMediaStatus();
+}
+
+/** The form's main button: scripts in one go, or the narration first (drafted, or the creator's own). */
+function start() {
+  if (!mayReplaceRuns()) return;
+  if (state.narrationMode === 'draft') return draftNarrations();
+  if (state.narrationMode === 'own') return openEditors();
+  return generate();
 }
 
 // ---------- History ----------
@@ -392,6 +479,7 @@ async function loadHistory() {
  * generated again. Generating always saves a new history entry: the one opened here is never changed.
  */
 function openHistory(entry) {
+  if (!mayReplaceRuns()) return;
   const media = {};
   for (const [sceneId, kinds] of Object.entries(entry.media || {})) {
     media[sceneId] = Object.fromEntries(Object.entries(kinds).map(([kind, m]) => [kind, { status: 'done', urls: m.urls?.length ? m.urls : [m.url], shots: m.shots }]));
@@ -552,7 +640,7 @@ function refreshMediaStatus() {
       : running.image && !running.video
         ? t('Generating images…')
         : t('Generating images and video…');
-  $('navBusy').hidden = !busy && !Object.values(state.runs).some((r) => r.status === 'running');
+  $('navBusy').hidden = !busy && !anyWriting();
 }
 
 /**
@@ -665,6 +753,498 @@ async function downloadPackage(platformId, run, btn) {
   btn.disabled = false;
 }
 
+// ---------- Narration first: draft it or bring your own, edit and refine it, then build the script around it ----------
+// A run's narration is { beats: [{ id, stage, text, prev, busy }], title, target, undo, dirty, busy }.
+// `target` is the plan for the brief as the form has it (story line, length, budget): what there is room for.
+
+let beatSeq = 0;
+const newBeat = (b = {}) => ({ id: ++beatSeq, stage: b.stage || '', text: b.text || '' });
+const showsEditor = (run) => Boolean(run?.narration) && (run.status === 'narration' || Boolean(run.editing));
+const filledBeats = (run) => run.narration.beats.filter((b) => b.text.trim());
+const forServer = (beats) => beats.map(({ stage, text }) => ({ stage, text: text.trim() }));
+const narrationText = (run) => filledBeats(run).map((b) => b.text.trim()).join('\n\n');
+const scriptLang = (platformId, run) => run.plan?.lang || (run.plan?.unit === '汉字' ? 'zh' : run.plan?.unit ? 'en' : platformOf(platformId).lang);
+
+/** True when no narration that would be lost is on screen, or the user agrees to let it go. */
+function mayReplaceRuns() {
+  const atRisk = Object.values(state.runs).some((run) => showsEditor(run) && narrationText(run) && (run.status === 'narration' || run.narration.dirty));
+  return !atRisk || confirm(t('Replace the narration you are editing? It has not been turned into a script yet.'));
+}
+
+/** What there is room for, when the server could not say (no topic yet): the platform's usual length. */
+function fallbackTarget(platformId) {
+  const p = platformOf(platformId);
+  const pace = state.meta.pace[p.lang];
+  return { timeline: [], duration: p.defaultDuration, lang: p.lang, pace, budget: Math.round(p.defaultDuration * pace), unit: p.lang === 'zh' ? '汉字' : 'words' };
+}
+
+async function loadTarget(platformId) {
+  const run = state.runs[platformId];
+  if (!run?.narration) return;
+  try {
+    const target = await api('/api/plan', { method: 'POST', body: { ...collectBrief(), platformId } });
+    if (run.narration) run.narration.target = target;
+  } catch {
+    run.narration.target ??= fallbackTarget(platformId);
+  }
+}
+
+/** The brief changed while an editor is open: what there is room for may have changed with it. */
+function refreshTargets() {
+  clearTimeout(refreshTargets.timer);
+  refreshTargets.timer = setTimeout(async () => {
+    const open = Object.entries(state.runs).filter(([, run]) => showsEditor(run));
+    await Promise.all(open.map(([id]) => loadTarget(id)));
+    for (const [, run] of open) run.narration.dom?.repaint();
+  }, 400);
+}
+
+// Narration that is not a script yet is kept in this browser, per user, so a reload does not lose it.
+const draftsKey = () => `video-scripter.narration.${state.user.id}`;
+
+function saveDrafts() {
+  const out = {};
+  for (const [id, run] of Object.entries(state.runs)) {
+    if (showsEditor(run) && !run.script && narrationText(run)) out[id] = { beats: forServer(run.narration.beats), title: run.narration.title || '', brief: run.brief || null };
+  }
+  try {
+    if (Object.keys(out).length) localStorage.setItem(draftsKey(), JSON.stringify(out));
+    else localStorage.removeItem(draftsKey());
+  } catch {}
+}
+const saveDraftsSoon = () => (clearTimeout(saveDraftsSoon.timer), (saveDraftsSoon.timer = setTimeout(saveDrafts, 400)));
+
+async function restoreDrafts() {
+  let saved;
+  try {
+    saved = JSON.parse(localStorage.getItem(draftsKey()) || 'null');
+  } catch {}
+  const ids = Object.keys(saved || {}).filter((id) => platformOf(id) && Array.isArray(saved[id]?.beats));
+  if (!ids.length || Object.keys(state.runs).length) return;
+  for (const id of ids) state.runs[id] = { status: 'narration', raw: '', brief: saved[id].brief, styleIds: saved[id].brief?.styleIds || [], narration: { beats: saved[id].beats.map(newBeat), title: saved[id].title } };
+  state.active = ids[0];
+  await Promise.all(ids.map(loadTarget));
+  render();
+}
+
+async function draftNarration(platformId, brief) {
+  const abort = new AbortController();
+  const before = state.runs[platformId]; // a redraft from the editor: put this back if the new draft fails
+  const run = (state.runs[platformId] = { status: 'drafting', raw: '', brief, abort, styleIds: brief.styleIds, retry: 'draft' });
+  runChanged(platformId);
+  try {
+    const res = await fetch('/api/narration/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...brief, platformId }), signal: abort.signal });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || t('Request failed ({status})', { status: res.status }));
+    for await (const { event, data } of sse(res)) {
+      if (event === 'plan') run.plan = data;
+      else if (event === 'delta') {
+        run.raw += data.text;
+        if (state.active === platformId) updateStream(run);
+      } else if (event === 'error') throw new Error(data.error);
+      else if (event === 'done') {
+        if (!data.narration) {
+          run.raw = data.raw || run.raw;
+          throw new Error(t("The model's reply could not be read as a narration ({reason}). The raw reply is shown below.", { reason: data.parseError }));
+        }
+        const old = before?.narration?.beats;
+        run.narration = { beats: data.narration.beats.map(newBeat), title: data.narration.title, target: run.plan, undo: old?.some((b) => b.text.trim()) ? old : null };
+        run.status = 'narration';
+      }
+    }
+    if (run.status === 'drafting') throw new Error(t('The connection closed before the narration was finished.'));
+  } catch (err) {
+    const stopped = err.name === 'AbortError';
+    if (before?.narration && narrationText(before)) {
+      state.runs[platformId] = before; // keep what was there
+      if (!stopped) toast(err.message);
+    } else {
+      run.status = stopped ? 'stopped' : 'error';
+      run.error = stopped ? t('Stopped.') : err.message;
+    }
+  }
+  runChanged(platformId);
+}
+
+/** Have the narration written: for the platforms in the form, or again for the tabs given. */
+async function draftNarrations(platformIds) {
+  const brief = collectBrief();
+  saveForm();
+  platformIds ??= resetRuns();
+  setView('script');
+  setBusy(true);
+  await Promise.all(platformIds.map((id) => draftNarration(id, brief)));
+  setBusy(anyWriting());
+}
+
+/** An empty editor for each platform in the form: the creator pastes or writes the narration. */
+async function openEditors() {
+  const brief = collectBrief();
+  saveForm();
+  const ids = resetRuns();
+  for (const id of ids) state.runs[id] = { status: 'narration', raw: '', brief, styleIds: brief.styleIds, narration: { beats: [] } };
+  await Promise.all(ids.map(loadTarget));
+  setView('script');
+  render();
+}
+
+/** The narration of a finished script as beats: the one it was built on, or its scenes' voiceover gathered by stage. */
+function beatsOfScript(platformId, run) {
+  if (run.brief?.narration?.length) return run.brief.narration.map(newBeat);
+  const glue = scriptLang(platformId, run) === 'zh' ? '' : ' ';
+  const beats = [];
+  for (const sc of run.script.scenes) {
+    const text = plainVo(sc.voiceover);
+    if (!text) continue;
+    const last = beats.at(-1);
+    if (last && last.stage === sc.stage) last.text += glue + text;
+    else beats.push(newBeat({ stage: sc.stage, text }));
+  }
+  return beats;
+}
+
+/** Open the editor on a finished script. The script stays as it is until a new one is built from the editor. */
+async function editNarration(platformId) {
+  const run = state.runs[platformId];
+  run.narration ??= { beats: beatsOfScript(platformId, run), title: run.script.title };
+  run.editing = true;
+  await loadTarget(platformId);
+  render();
+}
+
+/** Build the script around the narration as the editor has it, word for word. */
+function buildFromNarration(platformId) {
+  const run = state.runs[platformId];
+  const beats = filledBeats(run);
+  if (!beats.length) return toast(t('Write or paste the narration first.'));
+  if (!$('topic').value.trim()) {
+    setView('brief');
+    $('topic').focus();
+    return toast(t('Add a topic to the brief first.'));
+  }
+  generate([platformId], { ...collectBrief(), narration: forServer(beats) });
+}
+
+/** The room a beat has: its stage's share of the length, when it has that stage to itself. 0 when unknown. */
+function beatTarget(n, beat) {
+  const stage = n.target.timeline.find((s) => s.key === beat.stage);
+  if (!stage || n.beats.filter((b) => b.stage === beat.stage).length !== 1) return 0;
+  return Math.max(1, Math.round((stage.end - stage.start) * n.target.pace));
+}
+
+/** Have one beat, or the whole narration (no `beat`), rewritten: by a preset, by the creator's own instruction, or both. */
+async function refine(platformId, beat, { preset, instruction }) {
+  const run = state.runs[platformId];
+  const n = run.narration;
+  const beats = filledBeats(run);
+  if (!beats.length || (beat && !beat.text.trim())) return toast(t('There is nothing to rewrite yet.'));
+  const body = { ...collectBrief(), platformId, narration: forServer(beats), preset, instruction, ...(beat && { index: beats.indexOf(beat), target: beatTarget(n, beat) || undefined }) };
+  const current = () => state.runs[platformId] === run;
+  const mark = (busy) => {
+    if (beat) {
+      beat.busy = busy;
+      if (current()) n.dom?.paintBeat(beat);
+    } else {
+      n.busy = busy;
+      if (current() && state.active === platformId && showsEditor(run)) render();
+    }
+  };
+  mark(true);
+  try {
+    const r = await api('/api/narration/refine', { method: 'POST', body });
+    if (beat && n.beats.includes(beat)) {
+      beat.prev = beat.text;
+      beat.text = r.text;
+    } else if (!beat) {
+      n.undo = n.beats;
+      n.beats = r.beats.map(newBeat);
+    }
+    n.dirty = true;
+    if (current()) toast(beat ? t('Beat rewritten. Undo is on the beat.') : t('Narration rewritten. Undo is in the toolbar.'));
+  } catch (err) {
+    toast(err.message);
+  }
+  mark(false);
+  saveDrafts();
+}
+
+/** A sparkles button that opens the refinements for one beat (`scope` 'beat') or the whole narration ('all'). */
+function refineMenu({ scope, label, fit, onPick, small = true }) {
+  const input = h('input', { type: 'text', maxlength: 600, placeholder: t('Or say what to change…'), 'aria-label': t('What to change') });
+  const pick = (how) => ((menu.open = false), onPick(how));
+  const custom = () => input.value.trim() && pick({ instruction: input.value.trim() });
+  input.addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), custom()));
+  const presets = state.meta.refinePresets.filter((p) => (p.scope === 'both' || p.scope === scope) && (p.id !== 'fit' || fit));
+  const menu = h(
+    'details',
+    { class: 'menu' },
+    h('summary', { class: small ? 'btn small' : 'btn' }, icon('sparkles', 16), h('span', {}, label)),
+    h(
+      'div',
+      { class: 'menu-panel' },
+      presets.map((p) => h('button', { class: 'menu-item', type: 'button', onclick: () => pick({ preset: p.id }) }, p.id === 'fit' ? fit : p.name[lang])),
+      h('div', { class: 'menu-custom' }, input, h('button', { class: 'btn small primary', type: 'button', onclick: custom }, t('Rewrite'))),
+    ),
+  );
+  return menu;
+}
+
+/** Paste a whole narration in place of the one in the editor. */
+function pasteNarration(platformId) {
+  const run = state.runs[platformId];
+  const area = h('textarea', { rows: 12, placeholder: t('Paste your narration here.'), 'aria-label': t('Your narration') });
+  const use = () => {
+    const beats = splitNarration(area.value).map(newBeat);
+    if (!beats.length) return area.focus();
+    setBeats(run, beats);
+    dlg.close();
+  };
+  const dlg = h(
+    'dialog',
+    { class: 'dialog', 'aria-label': t('Paste narration') },
+    h(
+      'div',
+      { class: 'dialog-shell' },
+      h('header', { class: 'dialog-head' }, h('h2', {}, t('Paste narration')), h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => dlg.close() }, icon('x'))),
+      h('div', { class: 'dialog-body' }, h('p', { class: 'hint' }, t('This replaces the narration in the editor (Undo brings it back). Blank lines separate beats; without blank lines, each line is a beat.')), area),
+      h('footer', { class: 'dialog-foot' }, h('div', { class: 'dialog-actions' }, h('span', { class: 'spacer' }), h('button', { class: 'btn', type: 'button', onclick: () => dlg.close() }, t('Cancel')), h('button', { class: 'btn primary', type: 'button', onclick: use }, t('Use this narration')))),
+    ),
+  );
+  dlg.addEventListener('click', (e) => e.target === dlg && dlg.close());
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
+  area.focus();
+}
+
+/** Replace every beat at once, keeping the old ones for Undo when they held anything. */
+function setBeats(run, beats) {
+  const n = run.narration;
+  n.undo = n.beats.some((b) => b.text.trim()) ? n.beats : null;
+  n.beats = beats;
+  n.dirty = true;
+  render();
+}
+
+/** A stage of the story line as a short name and what the beat has to do: "Hook: open on…" -> { name, guide }. */
+function stageParts(target, key) {
+  const label = target.timeline.find((s) => s.key === key)?.label;
+  if (!label) return { name: key, guide: '' };
+  const m = /^(.+?)[：:]\s*(.+)$/.exec(label);
+  return m ? { name: m[1], guide: m[2] } : { name: label, guide: '' };
+}
+
+const autosizes = typeof CSS !== 'undefined' && CSS.supports('field-sizing', 'content');
+/** Grow a textarea to its text where the browser cannot do it by itself. */
+function autosize(area) {
+  if (autosizes || !area.scrollHeight) return;
+  area.style.height = 'auto';
+  area.style.height = `${area.scrollHeight + 2}px`;
+}
+
+function renderNarration(platformId, run) {
+  const n = run.narration;
+  n.target ??= fallbackTarget(platformId);
+  const T = () => n.target; // read at use: the brief can change what there is room for while the editor is open
+  const zh = () => T().lang === 'zh';
+  const amount = (count, room) => (zh() ? `${count}${room ? ` / ${room}` : ''} 字` : room ? t('{n} / {room} words', { n: count, room }) : t('{n} words', { n: count }));
+  const secs = (count) => Math.max(count ? 1 : 0, Math.round(count / T().pace));
+  const count = (text) => countSpoken(text, T().lang);
+  const frozen = () => Boolean(n.busy); // the whole narration is being rewritten
+  const waiting = () => frozen() || anyWriting(); // nothing new can be started from here yet
+  const has = n.beats.some((b) => b.text.trim());
+  const cards = new Map(); // beat id -> { el, count, time }
+
+  const meter = { count: h('b'), rest: h('span'), verdict: h('span', { class: 'narr-verdict' }), fill: h('i'), note: h('p', { class: 'hint' }), fit: null };
+  meter.bar = h('div', { class: 'narr-bar' }, meter.fill, h('em')); // the mark is the budget; the bar is full at 130% of it
+  meter.fit = h('button', { class: 'btn small', type: 'button', hidden: true, onclick: () => refine(platformId, null, { preset: 'fit' }) }, t('Fit the length'));
+  const foot = h('p', { class: 'hint' });
+  const aim = h('span'); // the length asked for, in the chips under the title
+
+  function repaint() {
+    const { duration, pace, budget } = T();
+    let total = 0;
+    for (const beat of n.beats) {
+      const c = count(beat.text);
+      const card = cards.get(beat.id);
+      if (card) {
+        const room = beatTarget(n, beat);
+        card.count.textContent = `${amount(c, room)} · ${t('{n} s', { n: secs(c) })}`;
+        card.count.classList.toggle('over', Boolean(room) && c > room * 1.25);
+        card.time.textContent = c ? `${fmtTime(Math.round(total / pace))}–${fmtTime(Math.round((total + c) / pace))}` : '';
+      }
+      total += c;
+    }
+    const natural = Math.round(total / pace);
+    const off = natural - duration;
+    const fits = Math.abs(total / pace - duration) <= duration * 0.1;
+    const runs = fitDuration(duration, total, pace);
+    aim.textContent = t('{d} s target', { d: duration });
+    meter.count.textContent = total;
+    meter.rest.textContent = ` / ${amount(budget)} · ${t('about {n} s', { n: natural })}`;
+    meter.fill.style.width = `${Math.min(100, (total / (budget * 1.3)) * 100)}%`;
+    meter.bar.dataset.state = !total ? 'empty' : fits ? 'ok' : off > 0 ? 'over' : 'under';
+    meter.verdict.textContent = !total ? '' : fits ? t('Fits the {d} s target', { d: duration }) : off > 0 ? t('{n} s over the {d} s target', { n: off, d: duration }) : t('{n} s under the {d} s target', { n: -off, d: duration });
+    meter.note.textContent = !total || fits ? '' : t('Keep it and the video runs about {n} s, or bring it back to length.', { n: runs });
+    meter.note.hidden = !meter.note.textContent;
+    meter.fit.hidden = !total || fits || frozen();
+    build.disabled = waiting();
+    draft.disabled = waiting();
+    foot.textContent = total ? t('The video will run about {n} s. Everything else comes from the brief as it is now.', { n: runs }) : t('Write or paste the narration first.');
+  }
+
+  function beatCard(beat) {
+    const i = n.beats.indexOf(beat);
+    const { name, guide } = beat.stage ? stageParts(T(), beat.stage) : { name: '', guide: '' };
+    const busy = Boolean(beat.busy);
+    const locked = busy || frozen();
+    const area = h('textarea', { rows: 2, 'aria-label': t('Narration of beat {n}', { n: i + 1 }), placeholder: t('What is said in this beat'), readonly: locked });
+    area.value = beat.text;
+    area.addEventListener('input', () => {
+      beat.text = area.value;
+      n.dirty = true;
+      autosize(area);
+      repaint();
+      saveDraftsSoon();
+    });
+    const move = (by) => {
+      const j = i + by;
+      if (j < 0 || j >= n.beats.length) return;
+      n.beats.splice(j, 0, n.beats.splice(i, 1)[0]);
+      n.dirty = true;
+      render();
+    };
+    const tool = (name, label, onclick, off) => h('button', { class: 'icon-btn', type: 'button', title: label, 'aria-label': label, disabled: locked || off, onclick }, icon(name, 16));
+    const card = { count: h('span', { class: 'beat-count' }), time: h('span', { class: 'time' }), area };
+    card.el = h(
+      'li',
+      { class: `beat${busy ? ' busy' : ''}` },
+      h('div', { class: 'beat-head' }, h('span', { class: 'beat-no' }, String(i + 1).padStart(2, '0')), name && h('span', { class: 'stage' }, name), card.time, h('span', { class: 'spacer' }), card.count),
+      guide && h('p', { class: 'beat-guide' }, guide),
+      area,
+      h(
+        'div',
+        { class: 'beat-actions' },
+        busy
+          ? h('span', { class: 'beat-status', role: 'status' }, h('span', { class: 'spin' }), t('Rewriting…'))
+          : !locked && refineMenu({ scope: 'beat', label: t('Refine'), fit: beatTarget(n, beat) ? t('Fit to {room}', { room: amount(beatTarget(n, beat)) }) : '', onPick: (how) => refine(platformId, beat, how) }),
+        beat.prev != null && !locked && iconBtn('undo', t('Undo'), { class: 'btn small', onclick: () => ((beat.text = beat.prev), (beat.prev = null), paintBeat(beat), saveDrafts()) }),
+        h('span', { class: 'spacer' }),
+        tool('arrowUp', t('Move up'), () => move(-1), i === 0),
+        tool('arrowDown', t('Move down'), () => move(1), i === n.beats.length - 1),
+        tool('plus', t('Add a beat below'), () => addBeat(i + 1)),
+        tool('trash', t('Delete this beat'), () => {
+          n.undo = [...n.beats];
+          n.beats.splice(i, 1);
+          n.dirty = true;
+          render();
+        }),
+      ),
+    );
+    cards.set(beat.id, card);
+    return card.el;
+  }
+
+  /** Redraw one beat without touching the others, so typing elsewhere is not interrupted. */
+  function paintBeat(beat) {
+    const old = cards.get(beat.id)?.el;
+    if (!old || !n.beats.includes(beat)) return;
+    old.replaceWith(beatCard(beat));
+    autosize(cards.get(beat.id).area);
+    repaint();
+  }
+
+  function addBeat(at) {
+    const beat = newBeat();
+    n.beats.splice(at, 0, beat);
+    render();
+    state.runs[platformId]?.narration?.dom?.focus(beat);
+  }
+
+  n.dom = {
+    repaint,
+    paintBeat,
+    focus: (beat) => cards.get(beat.id)?.area.focus(),
+    settle: () => (cards.forEach((c) => autosize(c.area)), repaint()),
+  };
+
+  const framework = frameworkOf($('framework').value);
+  const storyline =
+    T().timeline.length > 0 &&
+    h(
+      'details',
+      { class: 'storyline', open: !n.beats.some((b) => b.stage) },
+      h('summary', {}, h('span', {}, t('Story line')), framework && h('span', { class: 'hint' }, framework.name[lang])),
+      h(
+        'ol',
+        {},
+        T().timeline.map((s) => {
+          const { name, guide } = stageParts(T(), s.key);
+          return h('li', {}, h('span', { class: 'time' }, `${fmtTime(s.start)}–${fmtTime(s.end)}`), h('span', { class: 'storyline-what' }, h('b', {}, name), guide && ` ${guide}`), h('span', { class: 'beat-count' }, amount(Math.max(1, Math.round((s.end - s.start) * T().pace)))));
+        }),
+      ),
+    );
+
+  const redraft = () => (!has || confirm(t('Replace the narration with a new draft? Undo brings this one back.'))) && draftNarrations([platformId]);
+  const draft = iconBtn('sparkles', has ? t('Redraft') : t('Draft with AI'), { title: t('The narration is written from the brief, one beat per stage of the story line.'), onclick: redraft });
+  const build = iconBtn('arrowRight', run.script ? t('Rebuild the script') : t('Generate the script'), { class: 'btn cta', onclick: () => buildFromNarration(platformId) });
+  const discard = () => {
+    if (has && !confirm(t('Discard this narration?'))) return;
+    delete state.runs[platformId];
+    state.active = Object.keys(state.runs)[0] || null;
+    render();
+  };
+  const blank = h('textarea', { class: 'narr-paste', rows: 9, placeholder: t('Paste or write your narration here. Blank lines separate beats; without blank lines, each line is a beat.'), 'aria-label': t('Your narration') });
+
+  return h(
+    'div',
+    { class: 'narr' },
+    h(
+      'div',
+      { class: 'script-head' },
+      h(
+        'div',
+        {},
+        h('h2', {}, t('Narration')),
+        h('p', { class: 'logline' }, t('Edit it, paste your own, or have any beat rewritten. The script is then built around these words exactly as they are.')),
+        h('div', { class: 'meta' }, h('span', {}, platformOf(platformId).name), framework && h('span', {}, framework.name[lang]), aim),
+      ),
+      h(
+        'div',
+        { class: 'actions' },
+        draft,
+        has && iconBtn('clipboard', t('Paste narration'), { disabled: frozen(), onclick: () => pasteNarration(platformId) }),
+        has && !frozen() && refineMenu({ scope: 'all', label: t('Refine all'), fit: t('Fit the length'), small: false, onPick: (how) => refine(platformId, null, how) }),
+        n.busy && h('span', { class: 'status-pill', role: 'status' }, h('span', { class: 'spin' }), t('Rewriting the narration…')),
+        n.undo && !frozen() && iconBtn('undo', t('Undo'), { title: t('Bring back the narration as it was before the last rewrite, paste or deletion.'), onclick: () => (([n.beats, n.undo] = [n.undo, null]), render()) }),
+        has && iconBtn('copy', t('Copy'), { onclick: () => copy(narrationText(run), t('Narration copied')) }),
+        run.script ? iconBtn('back', t('Back to the script'), { onclick: () => ((run.editing = false), render()) }) : iconBtn('trash', t('Discard'), { class: 'btn danger', disabled: frozen(), onclick: discard }),
+      ),
+    ),
+    has || n.beats.length
+      ? [
+          h('div', { class: 'narr-meter' }, h('div', { class: 'narr-meter-top' }, h('span', { class: 'narr-total' }, meter.count, meter.rest), meter.verdict, meter.fit), meter.bar, meter.note),
+          storyline,
+          h('ol', { class: 'beats' }, n.beats.map(beatCard)),
+          h('button', { class: 'btn add-beat', type: 'button', disabled: frozen(), onclick: () => addBeat(n.beats.length) }, icon('plus', 16), h('span', {}, t('Add a beat'))),
+          h('div', { class: 'narr-foot' }, foot, build),
+        ]
+      : [
+          h(
+            'div',
+            { class: 'narr-empty' },
+            blank,
+            h(
+              'div',
+              { class: 'actions' },
+              iconBtn('check', t('Use this narration'), { class: 'btn primary', onclick: () => (splitNarration(blank.value).length ? setBeats(run, splitNarration(blank.value).map(newBeat)) : blank.focus()) }),
+              iconBtn('plus', t('Start with one empty beat'), { onclick: () => addBeat(0) }),
+            ),
+          ),
+          storyline,
+        ],
+  );
+}
+
 // ---------- Rendering ----------
 
 /** How far the model has got, read from the partial reply. */
@@ -672,6 +1252,10 @@ const scenesSoFar = (raw) => (raw.match(/"voiceover"\s*:/g) || []).length;
 
 function progressNote(run) {
   if (!run.plan) return t('Contacting the model…');
+  if (run.status === 'drafting') {
+    const beats = (run.raw.match(/"text"\s*:/g) || []).length;
+    return beats ? t('Writing beat {n}…', { n: beats }) : t('Planning the story line…');
+  }
   const n = scenesSoFar(run.raw);
   return n ? t('Writing scene {n}…', { n }) : t('Planning the hook and structure…');
 }
@@ -694,7 +1278,8 @@ function renderTabs() {
         'button',
         { class: 'tab', role: 'tab', type: 'button', 'aria-selected': String(id === state.active), onclick: () => ((state.active = id), render()) },
         platformOf(id).name,
-        run.status === 'running' && h('span', { class: 'spin', 'aria-label': 'generating' }),
+        isWriting(run) && h('span', { class: 'spin', 'aria-label': 'generating' }),
+        showsEditor(run) && !isWriting(run) && icon('edit', 14),
         run.status === 'error' && h('span', { class: 'bad', 'aria-label': 'failed' }, '!'),
       );
     }),
@@ -714,11 +1299,11 @@ function renderScript(platformId, run) {
   const s = run.script;
   const tele = state.teleprompter[platformId];
   const voText = s.scenes.map((sc) => plainVo(sc.voiceover)).join('\n\n');
-  const zh = run.plan ? run.plan.unit === '汉字' : platformOf(platformId).lang === 'zh';
-  const count = zh
-    ? `${voText.replace(/[\s\p{P}]/gu, '').length} 字`
-    : t('{n} words', { n: voText.split(/\s+/).filter(Boolean).length });
-  const meta = [platformOf(platformId).name, `${s.scenes.at(-1).end}s`, runAspect(run).id, t('{n} scenes', { n: s.scenes.length }), t('voiceover {count}', { count }), run.plan && `${run.plan.model}`, styleNames(run.styleIds)].filter(Boolean);
+  const zh = scriptLang(platformId, run) === 'zh';
+  const spoken = countSpoken(voText, zh ? 'zh' : 'en');
+  const count = zh ? `${spoken} 字` : t('{n} words', { n: spoken });
+  const locked = run.plan?.narration; // built around a narration from the editor: { locked, repaired }
+  const meta = [platformOf(platformId).name, `${s.scenes.at(-1).end}s`, runAspect(run).id, t('{n} scenes', { n: s.scenes.length }), t('voiceover {count}', { count }), locked && t('Your narration, word for word'), run.plan?.model && `${run.plan.model}`, styleNames(run.styleIds)].filter(Boolean);
 
   return h(
     'div',
@@ -734,9 +1319,11 @@ function renderScript(platformId, run) {
         iconBtn('copy', t('Copy Markdown'), { onclick: () => copy(toMarkdown(platformId, run), t('Script copied as Markdown')) }),
         iconBtn('download', '.md', { onclick: () => download(`${fileStem(platformId, run)}.md`, toMarkdown(platformId, run), 'text/markdown') }),
         iconBtn('download', '.json', { onclick: () => download(`${fileStem(platformId, run)}.json`, JSON.stringify({ platform: platformId, brief: run.brief, ...s }, null, 2), 'application/json') }),
-        run.brief && iconBtn('refresh', t('Regenerate'), { title: t('Writes a new script from the brief. This one stays in History.'), onclick: () => generate([platformId]) }),
+        iconBtn('mic', t('Edit narration'), { title: t('Change the narration, then build a new script around it. This one stays in History.'), onclick: () => editNarration(platformId) }),
+        run.brief && iconBtn('refresh', t('Regenerate'), { title: t('Writes a new script from the brief. This one stays in History.'), onclick: () => rerun(platformId) }),
       ),
     ),
+    locked?.repaired && h('p', { class: 'note', role: 'status' }, icon('info', 16), h('span', {}, t('The model changed some of the wording, so your narration was put back word for word. Stress and pause marks were left out.'))),
 
     s.hookOptions.length > 0 &&
       h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h3', {}, t('Hook options'))), h('div', { class: 'hooks' }, s.hookOptions.map((o) => h('div', { class: 'hook' }, o.type && h('div', { class: 'type' }, o.type), h('div', {}, voNodes(o.line)))))),
@@ -807,10 +1394,26 @@ function render() {
   renderTabs();
   const run = state.runs[state.active];
   const box = $('result');
-  if (!run) return;
+  if (!run) {
+    if (!Object.keys(state.runs).length && state.emptyNode) box.replaceChildren(state.emptyNode);
+    return saveDrafts();
+  }
+  if (showsEditor(run)) {
+    box.replaceChildren(renderNarration(state.active, run));
+    run.narration.dom.settle();
+    return saveDrafts();
+  }
+  saveDrafts();
   if (run.status === 'done') return box.replaceChildren(renderScript(state.active, run));
-  if (run.status === 'running') {
-    const note = run.plan ? t('Writing for {platform} with {model} · target about {budget} {unit} of voiceover', { platform: platformOf(state.active).name, model: run.plan.model, budget: run.plan.budget, unit: run.plan.unit }) : t('Contacting the model…');
+  if (isWriting(run)) {
+    const about = { platform: platformOf(state.active).name, model: run.plan?.model, budget: run.plan?.budget, unit: run.plan?.unit };
+    const note = !run.plan
+      ? t('Contacting the model…')
+      : run.status === 'drafting'
+        ? t('Writing the narration for {platform} with {model} · target about {budget} {unit}', about)
+        : run.plan.narration || run.brief?.narration
+          ? t('Building the script for {platform} around your narration with {model}', about)
+          : t('Writing for {platform} with {model} · target about {budget} {unit} of voiceover', about);
     const pre = h('pre', { class: 'stream' }, run.raw);
     box.replaceChildren(
       h(
@@ -825,9 +1428,25 @@ function render() {
     );
     return;
   }
+  const id = state.active;
+  // Open the editor from here: on the narration the script was being built around, or on an empty one after a failed draft.
+  const toEditor = async () => {
+    run.narration ??= { beats: [] };
+    run.status = 'narration';
+    await loadTarget(id);
+    render();
+  };
   box.replaceChildren(
     h('p', { class: 'error', role: 'alert' }, run.error),
-    h('div', { class: 'actions', style: 'margin:14px 0' }, iconBtn('refresh', t('Try again'), { class: 'btn primary', onclick: () => generate([state.active]) }), iconBtn('settings', t('LLM settings'), { onclick: openSettings }), iconBtn('edit', t('Edit the brief'), { class: 'btn mobile-only', onclick: () => setView('brief') })),
+    h(
+      'div',
+      { class: 'actions', style: 'margin:14px 0' },
+      iconBtn('refresh', t('Try again'), { class: 'btn primary', onclick: () => rerun(id) }),
+      run.narration && iconBtn('mic', t('Back to the narration'), { onclick: toEditor }),
+      !run.narration && run.retry === 'draft' && iconBtn('edit', t('Write it myself'), { onclick: toEditor }),
+      iconBtn('settings', t('LLM settings'), { onclick: openSettings }),
+      iconBtn('edit', t('Edit the brief'), { class: 'btn mobile-only', onclick: () => setView('brief') }),
+    ),
     run.raw && h('details', { class: 'raw' }, h('summary', {}, t('Show the raw reply')), h('pre', { class: 'stream' }, run.raw)),
   );
 }
@@ -1181,6 +1800,7 @@ async function boot() {
   document.body.dataset.auth = 'in';
   wireShell();
   [state.meta, state.gateway] = await Promise.all([api('/api/meta'), api('/api/gateway/config')]);
+  state.emptyNode = $('result').firstElementChild;
   state.openAccount = wireAccount({ user: me.user, storage: me.storage, platformName: (id) => platformOf(id)?.name || id || '', openSettings });
   buildForm();
   wireSettings();
@@ -1198,10 +1818,14 @@ async function boot() {
       err.hidden = false;
       return;
     }
-    generate();
+    start();
   });
-  $('briefForm').addEventListener('change', saveForm);
-  $('stop').addEventListener('click', () => Object.values(state.runs).forEach((r) => r.status === 'running' && r.abort.abort()));
+  $('briefForm').addEventListener('change', () => (saveForm(), refreshTargets()));
+  $('stop').addEventListener('click', () => Object.values(state.runs).forEach((r) => isWriting(r) && r.abort.abort()));
+  // A refine menu closes when something else is clicked, or on Escape.
+  document.addEventListener('click', (e) => document.querySelectorAll('details.menu[open]').forEach((m) => m.contains(e.target) || (m.open = false)));
+  document.addEventListener('keydown', (e) => e.key === 'Escape' && document.querySelectorAll('details.menu[open]').forEach((m) => (m.open = false)));
+  restoreDrafts();
 }
 
 /** Navigation, the history drawer, and dialog behaviour shared by both dialogs. */

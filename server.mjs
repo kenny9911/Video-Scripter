@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 
 import { PLATFORMS } from './src/platforms.mjs';
-import { FRAMEWORKS } from './src/frameworks.mjs';
+import { FRAMEWORKS, FRAMEWORK_GROUPS } from './src/frameworks.mjs';
 import { PROVIDERS } from './src/gateway/providers.mjs';
 import { STYLES, STYLE_GROUPS, MAX_STYLES } from './src/styles.mjs';
 import { IMAGE_MODES, SHOT_LABELS, MAX_IMAGES, planShots } from './src/shots.mjs';
@@ -20,7 +20,8 @@ import { streamChat, completeChat, listModels, request } from './src/gateway/cli
 import { generateImage, createVideo, videoStatus, videoContent, clipSeconds } from './src/gateway/media.mjs';
 import { listHistory, getHistory, addHistory, newHistoryId, saveMedia, linkMedia, serveMedia, mediaOwner, deleteUserHistory, transferHistory } from './src/store.mjs';
 import { buildPackage } from './src/package.mjs';
-import { buildPlan, buildPrompts, parseScript, buildVisualPrompt } from './src/prompt.mjs';
+import { buildPlan, planSummary, buildPrompts, parseScript, buildVisualPrompt, buildNarrationPrompts, parseNarration, buildRefinePrompts, parseRefined, REFINE_PRESETS } from './src/prompt.mjs';
+import { PACE, normalizeNarration, lockNarration } from './src/narration.mjs';
 import { db, storage } from './src/db.mjs';
 import { AuthError, authenticate, checkLogin, createUser, startSession, endSession, endAllSessions, ensureAdmin, publicUser, signupOpen, verifyPassword, setPassword, updateProfile, countSessions, activeAdmins, deleteUser } from './src/auth.mjs';
 import { recordUsage, logActivity, summarizeUsage, listActivity, estimateTokens } from './src/audit.mjs';
@@ -105,6 +106,14 @@ async function keep({ historyId, sceneId }, kind, source, { demo = false, link =
     console.warn(`[media] could not save the ${kind}: ${err.message}`);
   }
   return { url: remote || (typeof source === 'string' ? source : ''), saved: false };
+}
+
+/** Start a Server-Sent Events reply: `send(event, data)` writes one event, `signal` fires when the browser goes away. */
+function eventStream(res) {
+  res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no' });
+  const abort = new AbortController();
+  res.on('close', () => abort.abort());
+  return { send: (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`), signal: abort.signal };
 }
 
 // Each route says who may call it: 'public', 'user' (signed in) or 'admin'.
@@ -284,7 +293,10 @@ const routes = {
   'GET /api/meta': route('user', async (req, res) => {
     json(res, 200, {
       platforms: PLATFORMS.map(({ id, name, nameEn, lang, defaultDuration, durations }) => ({ id, name, nameEn, lang, defaultDuration, durations })),
-      frameworks: FRAMEWORKS.map(({ id, name, blurb }) => ({ id, name, blurb })),
+      frameworkGroups: FRAMEWORK_GROUPS,
+      frameworks: FRAMEWORKS.map(({ id, group = 'general', name, blurb, topics, needsReference = false }) => ({ id, group, name, blurb, topics, needsReference })),
+      pace: PACE,
+      refinePresets: REFINE_PRESETS,
       providers: PROVIDERS,
       styleGroups: STYLE_GROUPS,
       styles: STYLES.map(({ id, group, name, blurb }) => ({ id, group, name, blurb })),
@@ -473,8 +485,92 @@ const routes = {
     json(res, 200, { ...job, ...(await keep(body, 'video', source, { userId: user.id })) });
   }),
 
+  // ---------- Narration first ----------
+
+  // The plan for a brief, without writing anything: the story line with its times, the length and the
+  // voiceover budget. The narration editor shows it as what there is room for.
+  'POST /api/plan': route('user', async (req, res) => {
+    const { narration, ...brief } = await readJson(req);
+    json(res, 200, planSummary(buildPlan(brief)));
+  }),
+
+  // Writes the narration alone, one beat per stage, for the editor. Nothing is saved here: it becomes a
+  // script, and a history entry, when /api/generate is called with the narration as the creator left it.
+  'POST /api/narration/draft': route('user', async (req, res, user) => {
+    const { narration, ...brief } = await readJson(req);
+    const plan = buildPlan(brief); // throws on a bad brief -> 400 below
+    const config = await loadConfig();
+    const invalid = validateConfig(config);
+    if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
+
+    const { send, signal } = eventStream(res);
+    const model = config.model || config.name;
+    const about = { platform: plan.brief.platform.id, topic: plan.brief.topic.slice(0, 120), model };
+    send('plan', { ...planSummary(plan), model, provider: config.provider });
+    const started = Date.now();
+    const prompts = buildNarrationPrompts(plan);
+    let raw = '';
+    let usage = null;
+    const record = (extra) => recordUsage({ user, kind: 'narration', config, ...tokens(usage, prompts, raw), ms: Date.now() - started, ...extra });
+    try {
+      for await (const text of streamChat(config, { ...prompts, signal, meta: { plan, kind: 'narration' }, onUsage: (u) => (usage = u) })) {
+        raw += text;
+        send('delta', { text });
+      }
+      let drafted = null;
+      let parseError = '';
+      try {
+        drafted = parseNarration(raw);
+      } catch (err) {
+        parseError = err.message;
+      }
+      await record(drafted ? {} : { ok: false, error: `Unreadable reply: ${parseError}` });
+      await logActivity(req, user, drafted ? 'narration.draft' : 'narration.failed', { ...about, ...(drafted ? { beats: drafted.beats.length } : { error: parseError }) });
+      send('done', drafted ? { narration: drafted } : { narration: null, raw, parseError });
+    } catch (err) {
+      const stopped = err.name === 'AbortError';
+      await record({ ok: false, error: stopped ? 'Stopped by the user' : err.message });
+      if (!stopped) {
+        await logActivity(req, user, 'narration.failed', { ...about, error: err.message.slice(0, 200) });
+        send('error', { error: err.message });
+      }
+    }
+    res.end();
+  }),
+
+  // Rewrites one beat (`index`) or the whole narration: as a `preset` asks, as the creator's own
+  // `instruction` asks, or both. Answers { text } for a beat and { beats } for the whole narration.
+  'POST /api/narration/refine': route('user', async (req, res, user) => {
+    const { narration, index, preset, instruction, target, ...brief } = await readJson(req);
+    const plan = buildPlan(brief);
+    const beats = normalizeNarration(narration);
+    const at = Number.isInteger(index) ? index : null;
+    const prompts = buildRefinePrompts(plan, beats, { index: at, preset, instruction, target }); // throws when there is nothing to do -> 400
+    const config = await loadConfig();
+    const invalid = validateConfig(config);
+    if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
+
+    const started = Date.now();
+    let raw = '';
+    let usage = null;
+    const record = (extra) => recordUsage({ user, kind: 'narration', config, ...tokens(usage, prompts, raw), ms: Date.now() - started, ...extra });
+    try {
+      raw = await completeChat(config, { ...prompts, signal: AbortSignal.timeout(120_000), meta: { plan, kind: 'refine', beats, index: at }, onUsage: (u) => (usage = u) });
+      const refined = parseRefined(raw, { index: at });
+      await record({});
+      await logActivity(req, user, 'narration.refine', { platform: plan.brief.platform.id, topic: plan.brief.topic.slice(0, 120), model: config.model || config.name, beat: at == null ? 'all' : at + 1, change: REFINE_PRESETS.some((p) => p.id === preset) ? preset : 'custom' });
+      json(res, 200, refined);
+    } catch (err) {
+      const error = err.name === 'TimeoutError' ? 'Timed out after 120s' : err.message;
+      await record({ ok: false, error });
+      json(res, 502, { error });
+    }
+  }),
+
   // Writes one script. The server saves it to the user's history and records the model call,
   // so the task exists even if the browser tab closes before the reply ends.
+  // A brief with a `narration` ([{ stage, text }], from the narration editor) gets a script built around
+  // those words as they are: the video runs as long as they take, and the scenes carry them word for word.
   'POST /api/generate': route('user', async (req, res, user) => {
     const brief = await readJson(req);
     const plan = buildPlan(brief); // throws on a bad brief -> 400 below
@@ -482,13 +578,9 @@ const routes = {
     const invalid = validateConfig(config);
     if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
 
-    res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no' });
-    const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    const abort = new AbortController();
-    res.on('close', () => abort.abort());
-
+    const { send, signal } = eventStream(res);
     const taskId = newHistoryId();
-    const planInfo = { timeline: plan.timeline, budget: plan.budget, unit: plan.unit, model: config.model || config.name, provider: config.provider };
+    const planInfo = { ...planSummary(plan), model: config.model || config.name, provider: config.provider };
     const about = { taskId, platform: plan.brief.platform.id, topic: plan.brief.topic.slice(0, 120), model: planInfo.model };
     send('plan', { ...planInfo, taskId });
     const started = Date.now();
@@ -497,7 +589,7 @@ const routes = {
     let usage = null;
     const record = (extra) => recordUsage({ user, taskId, kind: 'script', config, ...tokens(usage, prompts, raw), ms: Date.now() - started, ...extra });
     try {
-      for await (const text of streamChat(config, { ...prompts, signal: abort.signal, meta: { plan }, onUsage: (u) => (usage = u) })) {
+      for await (const text of streamChat(config, { ...prompts, signal, meta: { plan }, onUsage: (u) => (usage = u) })) {
         raw += text;
         send('delta', { text });
       }
@@ -510,10 +602,17 @@ const routes = {
       }
       await record(script ? {} : { ok: false, error: `Unreadable reply: ${parseError}` });
       if (script) {
-        const { platformId, ...rest } = brief;
+        const { platformId, narration, ...rest } = brief;
         rest.aspectRatio = plan.brief.aspect.id; // always recorded, so the script keeps its shape if the default ever changes
+        // A script built around a final narration carries it word for word, whatever the model did with it.
+        if (plan.brief.narration.length) {
+          const locked = lockNarration(script.scenes, plan.brief.narration, plan.brief.lang);
+          script.scenes = locked.scenes;
+          planInfo.narration = { locked: true, repaired: locked.repaired };
+          rest.narration = plan.brief.narration;
+        }
         const entry = await addHistory({ id: taskId, userId: user.id, platformId: plan.brief.platform.id, brief: rest, plan: planInfo, script });
-        await logActivity(req, user, 'script.generate', { ...about, title: script.title, scenes: script.scenes.length });
+        await logActivity(req, user, 'script.generate', { ...about, title: script.title, scenes: script.scenes.length, ...(planInfo.narration && { narration: planInfo.narration.repaired ? 'restored' : 'kept' }) });
         await markFirstScript(user);
         send('done', { script, historyId: entry.id, entry });
       } else {

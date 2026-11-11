@@ -99,6 +99,9 @@ export const ACTIVITY = {
   'script.failed': 'Script failed',
   'script.stopped': 'Stopped a script',
   'script.download': 'Downloaded a package',
+  'narration.draft': 'Drafted a narration',
+  'narration.refine': 'Refined a narration',
+  'narration.failed': 'Narration failed',
   'image.generate': 'Generated images',
   'video.generate': 'Started a video',
   'gateway.create': 'Added a gateway',
@@ -113,7 +116,7 @@ export const ACTIVITY = {
   'admin.user_logout': 'Logged a user out everywhere',
   'admin.user_delete': 'Deleted a user',
 };
-const KIND = { script: 'Scripts', image: 'Images', video: 'Videos', test: 'Connection tests' };
+const KIND = { script: 'Scripts', narration: 'Narration', image: 'Images', video: 'Videos', test: 'Connection tests' };
 
 export function activityDetail(a) {
   const d = a.detail || {};
