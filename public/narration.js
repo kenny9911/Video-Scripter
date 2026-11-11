@@ -3,7 +3,7 @@
 // stay identical: test/narration.test.mjs runs both on the same text.
 
 export const MIN_DURATION = 10;
-export const MAX_DURATION = 300;
+export const MAX_DURATION = 360;
 
 /** Spoken text without the delivery marks a script carries: [[stress]] and ⏸ pauses. */
 export const spokenText = (s) => String(s ?? '').replace(/\[\[|\]\]/g, '').replace(/\s*⏸\s*/g, ' ').trim();

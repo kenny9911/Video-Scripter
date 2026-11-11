@@ -114,12 +114,13 @@
                 <select id="duration"></select>
               </label>
               <div id="durationCustomBox" class="unit-input" hidden>
-                <input id="durationCustom" type="number" min="10" max="300" step="1" inputmode="numeric" placeholder="10–300" aria-label="Length in seconds" required disabled>
+                <input id="durationCustom" type="number" min="10" max="360" step="1" inputmode="numeric" placeholder="10–360" aria-label="Length in seconds" required disabled>
                 <span aria-hidden="true">s</span>
               </div>
             </div>
           </div>
           <p id="frameworkBlurb" class="hint"></p>
+          <p id="frameworkFit" class="hint fit-hint" hidden><span id="frameworkFitText"></span> <button id="frameworkFitUse" class="link-btn" type="button"></button></p>
           <p id="frameworkNeeds" class="hint note" data-icon="info" data-icon-size="16" hidden><span>This style reports facts. Paste the news or the figures under Details → Reference material. Where a fact is missing, the script leaves a marked gap instead of inventing one.</span></p>
           <fieldset class="field">
             <legend>Aspect ratio</legend>
@@ -185,6 +186,10 @@
               </label>
             </div>
             <label class="field">
+              <span>Your experience</span>
+              <textarea id="experience" rows="3" placeholder="What you have seen first-hand: a client situation, a mistake, a result. The narration tells it in your voice, and nothing here is invented for you."></textarea>
+            </label>
+            <label class="field">
               <span>Reference material</span>
               <textarea id="reference" rows="5" placeholder="Paste facts, quotes, notes or an article. The script will only use figures and quotes that appear here or in the brief."></textarea>
             </label>
@@ -204,6 +209,10 @@
           <button class="seg-btn" type="button" role="radio" data-mode="own" aria-checked="false" title="Paste or write your own narration. The script is built around it word for word.">My narration</button>
         </div>
         <p id="narrationModeHint" class="hint" hidden></p>
+        <label class="check agent-pick" title="The narration is planned on a viewpoint card, written with the skills that fit your brief, then measured, reviewed and corrected. Slower than a single pass.">
+          <input id="agent" type="checkbox" checked>
+          <span>Narration agent: plan, write, review</span>
+        </label>
         <label class="field model-pick">
           <span>Written by</span>
           <select id="llm" aria-label="Gateway and model"></select>

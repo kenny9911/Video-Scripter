@@ -21,7 +21,10 @@ import { generateImage, createVideo, videoStatus, videoContent, clipSeconds } fr
 import { listHistory, getHistory, addHistory, newHistoryId, saveMedia, linkMedia, serveMedia, mediaOwner, deleteUserHistory, transferHistory } from './src/store.mjs';
 import { buildPackage } from './src/package.mjs';
 import { buildPlan, planSummary, buildPrompts, parseScript, buildVisualPrompt, buildNarrationPrompts, parseNarration, buildRefinePrompts, parseRefined, REFINE_PRESETS } from './src/prompt.mjs';
-import { PACE, normalizeNarration, lockNarration } from './src/narration.mjs';
+import { PACE, MIN_DURATION, MAX_DURATION, normalizeNarration, lockNarration } from './src/narration.mjs';
+import { writeNarration, reviseNarration, checkNarration, AGENT_STEPS } from './src/agent/narrator.mjs';
+import { normalizeCard } from './src/agent/card.mjs';
+import { SKILLS, publicSkill } from './src/agent/skills.mjs';
 import { db, storage } from './src/db.mjs';
 import { AuthError, authenticate, checkLogin, createUser, startSession, endSession, endAllSessions, ensureAdmin, publicUser, signupOpen, verifyPassword, setPassword, updateProfile, countSessions, activeAdmins, deleteUser } from './src/auth.mjs';
 import { recordUsage, logActivity, summarizeUsage, listActivity, estimateTokens } from './src/audit.mjs';
@@ -115,6 +118,10 @@ function eventStream(res) {
   res.on('close', () => abort.abort());
   return { send: (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`), signal: abort.signal };
 }
+
+// A review takes a second, narrower pass when measured errors are left, but only while the request is still young:
+// a model that reasons for minutes per call must not push one request past a serverless host's time limit.
+const REVIEW_SECOND_PASS_MS = 100_000;
 
 // Each route says who may call it: 'public', 'user' (signed in) or 'admin'.
 const route = (access, run) => ({ access, run });
@@ -294,9 +301,12 @@ const routes = {
     json(res, 200, {
       platforms: PLATFORMS.map(({ id, name, nameEn, lang, defaultDuration, durations }) => ({ id, name, nameEn, lang, defaultDuration, durations })),
       frameworkGroups: FRAMEWORK_GROUPS,
-      frameworks: FRAMEWORKS.map(({ id, group = 'general', name, blurb, topics, needsReference = false }) => ({ id, group, name, blurb, topics, needsReference })),
+      frameworks: FRAMEWORKS.map(({ id, group = 'general', name, blurb, topics, needsReference = false, pace, length, board = false }) => ({ id, group, name, blurb, topics, needsReference, pace, length, board })),
       pace: PACE,
+      duration: { min: MIN_DURATION, max: MAX_DURATION },
       refinePresets: REFINE_PRESETS,
+      skills: SKILLS.map(publicSkill),
+      agentSteps: AGENT_STEPS,
       providers: PROVIDERS,
       styleGroups: STYLE_GROUPS,
       styles: STYLES.map(({ id, group, name, blurb }) => ({ id, group, name, blurb })),
@@ -487,8 +497,8 @@ const routes = {
 
   // ---------- Narration first ----------
 
-  // The plan for a brief, without writing anything: the story line with its times, the length and the
-  // voiceover budget. The narration editor shows it as what there is room for.
+  // The plan for a brief, without writing anything: the story line with its times, the length, the
+  // voiceover budget and the skills that apply. The narration editor shows it as what there is room for.
   'POST /api/plan': route('user', async (req, res) => {
     const { narration, ...brief } = await readJson(req);
     json(res, 200, planSummary(buildPlan(brief)));
@@ -496,8 +506,11 @@ const routes = {
 
   // Writes the narration alone, one beat per stage, for the editor. Nothing is saved here: it becomes a
   // script, and a history entry, when /api/generate is called with the narration as the creator left it.
+  // The narration agent plans and writes it (the viewpoint card, then the narration, with the skills that
+  // apply) unless the brief says `agent: false`, which asks for a plain quick draft. The agent's review is a
+  // request of its own, /api/narration/review, so that no request carries two long model calls.
   'POST /api/narration/draft': route('user', async (req, res, user) => {
-    const { narration, ...brief } = await readJson(req);
+    const { narration, agent, card: _card, ...brief } = await readJson(req);
     const plan = buildPlan(brief); // throws on a bad brief -> 400 below
     const config = await loadConfig();
     const invalid = validateConfig(config);
@@ -505,8 +518,25 @@ const routes = {
 
     const { send, signal } = eventStream(res);
     const model = config.model || config.name;
+    const useAgent = agent !== false;
     const about = { platform: plan.brief.platform.id, topic: plan.brief.topic.slice(0, 120), model };
-    send('plan', { ...planSummary(plan), model, provider: config.provider });
+    send('plan', { ...planSummary(plan), model, provider: config.provider, ...(useAgent && { agent: true }) });
+
+    if (useAgent) {
+      try {
+        const written = await writeNarration({ config, plan, signal, emit: send, onCall: usageRecorder(user, config) });
+        await logActivity(req, user, 'narration.draft', { ...about, beats: written.beats.length, agent: true, skills: plan.skills.length, errors: written.report.errors, warns: written.report.warns });
+        send('done', { narration: { title: written.title, beats: written.beats }, card: written.card, report: written.report });
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          await logActivity(req, user, 'narration.failed', { ...about, agent: true, error: err.message.slice(0, 200) });
+          if (err.unreadable) send('done', { narration: null, raw: err.raw, parseError: err.message });
+          else send('error', { error: err.message });
+        }
+      }
+      return res.end();
+    }
+
     const started = Date.now();
     const prompts = buildNarrationPrompts(plan);
     let raw = '';
@@ -526,7 +556,7 @@ const routes = {
       }
       await record(drafted ? {} : { ok: false, error: `Unreadable reply: ${parseError}` });
       await logActivity(req, user, drafted ? 'narration.draft' : 'narration.failed', { ...about, ...(drafted ? { beats: drafted.beats.length } : { error: parseError }) });
-      send('done', drafted ? { narration: drafted } : { narration: null, raw, parseError });
+      send('done', drafted ? { narration: drafted, report: checkNarration(plan, drafted.beats) } : { narration: null, raw, parseError });
     } catch (err) {
       const stopped = err.name === 'AbortError';
       await record({ ok: false, error: stopped ? 'Stopped by the user' : err.message });
@@ -538,17 +568,64 @@ const routes = {
     res.end();
   }),
 
-  // Rewrites one beat (`index`) or the whole narration: as a `preset` asks, as the creator's own
-  // `instruction` asks, or both. Answers { text } for a beat and { beats } for the whole narration.
-  'POST /api/narration/refine': route('user', async (req, res, user) => {
-    const { narration, index, preset, instruction, target, ...brief } = await readJson(req);
+  // Measures a narration against its brief: length, breath-length sentences, wrap-up phrases, throttled
+  // words, missing names, rhythm, the balance of the viewpoint card. No model is called and nothing is changed.
+  'POST /api/narration/check': route('user', async (req, res) => {
+    const { narration, card, agent, ...brief } = await readJson(req);
+    const plan = buildPlan(brief);
+    json(res, 200, checkNarration(plan, normalizeNarration(narration), normalizeCard(card, plan.timeline.map((s) => s.key))));
+  }),
+
+  // The agent's review of a narration: the measured findings go to an editor with the skills and the card,
+  // and the corrected narration comes back with what is still left. Streams its progress like a draft does.
+  'POST /api/narration/review': route('user', async (req, res, user) => {
+    const { narration, card, agent, ...brief } = await readJson(req);
     const plan = buildPlan(brief);
     const beats = normalizeNarration(narration);
-    const at = Number.isInteger(index) ? index : null;
-    const prompts = buildRefinePrompts(plan, beats, { index: at, preset, instruction, target }); // throws when there is nothing to do -> 400
+    if (!beats.length) throw fail('There is no narration to review');
     const config = await loadConfig();
     const invalid = validateConfig(config);
     if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
+
+    const { send, signal } = eventStream(res);
+    const model = config.model || config.name;
+    const about = { platform: plan.brief.platform.id, topic: plan.brief.topic.slice(0, 120), model };
+    send('plan', { ...planSummary(plan), model, provider: config.provider, agent: true });
+    try {
+      const revised = await reviseNarration({ config, plan, beats, card: normalizeCard(card, plan.timeline.map((s) => s.key)), signal, emit: send, onCall: usageRecorder(user, config), until: Date.now() + REVIEW_SECOND_PASS_MS });
+      await logActivity(req, user, 'narration.refine', { ...about, beat: 'all', change: 'review', errors: revised.report.errors, warns: revised.report.warns });
+      send('done', revised);
+    } catch (err) {
+      if (err.name !== 'AbortError') send('error', { error: err.message });
+    }
+    res.end();
+  }),
+
+  // Rewrites one beat (`index`) or the whole narration: as a `preset` asks, as the creator's own
+  // `instruction` asks, or both. Answers { text } for a beat and { beats } for the whole narration.
+  // The "review" preset is the agent's review step: it answers { beats, report }.
+  'POST /api/narration/refine': route('user', async (req, res, user) => {
+    const { narration, index, preset, instruction, target, card, agent, ...brief } = await readJson(req);
+    const plan = buildPlan(brief);
+    const beats = normalizeNarration(narration);
+    const at = Number.isInteger(index) ? index : null;
+    const agentReview = preset === 'review' && at == null;
+    if (agentReview && !beats.length) throw fail('There is no narration to refine');
+    const prompts = agentReview ? null : buildRefinePrompts(plan, beats, { index: at, preset, instruction, target }); // throws when there is nothing to do -> 400
+    const config = await loadConfig();
+    const invalid = validateConfig(config);
+    if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
+    const about = { platform: plan.brief.platform.id, topic: plan.brief.topic.slice(0, 120), model: config.model || config.name };
+
+    if (agentReview) {
+      try {
+        const revised = await reviseNarration({ config, plan, beats, card: normalizeCard(card, plan.timeline.map((s) => s.key)), signal: AbortSignal.timeout(280_000), onCall: usageRecorder(user, config), until: Date.now() + REVIEW_SECOND_PASS_MS });
+        await logActivity(req, user, 'narration.refine', { ...about, beat: 'all', change: 'review', errors: revised.report.errors, warns: revised.report.warns });
+        return json(res, 200, revised);
+      } catch (err) {
+        return json(res, 502, { error: err.name === 'TimeoutError' ? 'Timed out after 280s' : err.message });
+      }
+    }
 
     const started = Date.now();
     let raw = '';
@@ -558,7 +635,7 @@ const routes = {
       raw = await completeChat(config, { ...prompts, signal: AbortSignal.timeout(120_000), meta: { plan, kind: 'refine', beats, index: at }, onUsage: (u) => (usage = u) });
       const refined = parseRefined(raw, { index: at });
       await record({});
-      await logActivity(req, user, 'narration.refine', { platform: plan.brief.platform.id, topic: plan.brief.topic.slice(0, 120), model: config.model || config.name, beat: at == null ? 'all' : at + 1, change: REFINE_PRESETS.some((p) => p.id === preset) ? preset : 'custom' });
+      await logActivity(req, user, 'narration.refine', { ...about, beat: at == null ? 'all' : at + 1, change: REFINE_PRESETS.some((p) => p.id === preset) ? preset : 'custom' });
       json(res, 200, refined);
     } catch (err) {
       const error = err.name === 'TimeoutError' ? 'Timed out after 120s' : err.message;
@@ -569,10 +646,12 @@ const routes = {
 
   // Writes one script. The server saves it to the user's history and records the model call,
   // so the task exists even if the browser tab closes before the reply ends.
-  // A brief with a `narration` ([{ stage, text }], from the narration editor) gets a script built around
-  // those words as they are: the video runs as long as they take, and the scenes carry them word for word.
+  // A brief with a `narration` ([{ stage, text }]) gets a script built around those words as they are: the
+  // video runs as long as they take, and the scenes carry them word for word. The narration comes from the
+  // editor, or straight from the narration agent when the page chains a draft into a script (`narrationBy:
+  // "agent"`); its viewpoint `card`, when there is one, is kept with the script.
   'POST /api/generate': route('user', async (req, res, user) => {
-    const brief = await readJson(req);
+    const { agent, narrationBy, ...brief } = await readJson(req);
     const plan = buildPlan(brief); // throws on a bad brief -> 400 below
     const config = await loadConfig();
     const invalid = validateConfig(config);
@@ -602,17 +681,20 @@ const routes = {
       }
       await record(script ? {} : { ok: false, error: `Unreadable reply: ${parseError}` });
       if (script) {
-        const { platformId, narration, ...rest } = brief;
+        const { platformId, narration, card, ...rest } = brief;
         rest.aspectRatio = plan.brief.aspect.id; // always recorded, so the script keeps its shape if the default ever changes
         // A script built around a final narration carries it word for word, whatever the model did with it.
         if (plan.brief.narration.length) {
+          const byAgent = narrationBy === 'agent';
           const locked = lockNarration(script.scenes, plan.brief.narration, plan.brief.lang);
           script.scenes = locked.scenes;
-          planInfo.narration = { locked: true, repaired: locked.repaired };
+          planInfo.narration = { locked: true, repaired: locked.repaired, ...(byAgent && { agent: true }) };
           rest.narration = plan.brief.narration;
+          // The viewpoint card the narration was written to stays with the script: it is the first page of the package.
+          if (plan.brief.card) script.card = plan.brief.card;
         }
         const entry = await addHistory({ id: taskId, userId: user.id, platformId: plan.brief.platform.id, brief: rest, plan: planInfo, script });
-        await logActivity(req, user, 'script.generate', { ...about, title: script.title, scenes: script.scenes.length, ...(planInfo.narration && { narration: planInfo.narration.repaired ? 'restored' : 'kept' }) });
+        await logActivity(req, user, 'script.generate', { ...about, title: script.title, scenes: script.scenes.length, ...(planInfo.narration && { narration: planInfo.narration.agent ? 'agent' : planInfo.narration.repaired ? 'restored' : 'kept' }) });
         await markFirstScript(user);
         send('done', { script, historyId: entry.id, entry });
       } else {
@@ -628,6 +710,11 @@ const routes = {
     res.end();
   }),
 };
+
+/** A recorder for the narration agent: one usage record per model call it makes, as "narration". */
+function usageRecorder(user, config) {
+  return ({ prompts, raw, usage, ms, ok, error }) => recordUsage({ user, kind: 'narration', config, ...tokens(usage, prompts, raw), ms, ...(!ok && { ok: false, error }) });
+}
 
 /** Token counts for a usage record: the provider's when it reported them, otherwise an estimate from the text. */
 function tokens(usage, prompts, reply) {

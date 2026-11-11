@@ -169,13 +169,13 @@ test('every platform x framework yields a continuous timeline and a prompt', () 
   }
 });
 
-test('a custom length is taken as given, within 10 to 300 seconds', () => {
+test('a custom length is taken as given, within 10 to 360 seconds', () => {
   const at = (duration) => buildPlan({ platformId: 'douyin', topic: 'x', duration });
   assert.equal(at(75).brief.duration, 75);
   assert.equal(at('42').brief.duration, 42);
   assert.equal(at(75).timeline.at(-1).end, 75);
   assert.equal(at(75).budget, Math.round(75 * 4.3));
-  assert.deepEqual([at(3).brief.duration, at(999).brief.duration], [10, 300]);
+  assert.deepEqual([at(3).brief.duration, at(999).brief.duration], [10, 360]);
   assert.equal(at(undefined).brief.duration, 45); // Auto: the platform's usual length
 });
 

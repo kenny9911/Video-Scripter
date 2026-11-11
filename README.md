@@ -13,6 +13,7 @@ It works with the model provider you already use, runs on your own machine or on
 - **One brief, five platforms.** A 抖音 script and a YouTube Shorts script are different pieces of writing. Each platform gets its own script instead of one draft pasted everywhere.
 - **Ready to shoot.** Every scene is timed and carries its voiceover, on-screen text, visual, camera and sound notes.
 - **Ready to publish.** Titles, cover text, description, hashtags and a pinned comment come with every script.
+- **A narration agent, not a one-shot prompt.** The spoken words are planned on a viewpoint card, written with the skills that fit the brief, then measured, reviewed and corrected before a script is built around them.
 - **Your words, if you want.** Have the narration drafted first, paste your own, or rewrite any beat in the narration editor. The script is then built around it word for word.
 - **Storyboards included.** Turn any scene into an image or clip in the video's aspect ratio (9:16, 16:9, 1:1, 3:4 or 4:3), in one of 57 visual styles.
 - **Any model.** Ten provider presets, from OpenAI and Anthropic to 通义千问, 豆包 and local Ollama, plus any OpenAI-compatible or Anthropic-compatible endpoint. Switch model per script.
@@ -57,13 +58,15 @@ Only the topic is required. The rest sharpens the result.
 | --- | --- |
 | Topic | What the video is about |
 | Platforms | One script is written per platform you tick |
-| Structure and Length | The story framework, or a narration style that also sets the voice, and the running time: Auto, one of the platform's lengths, or **Custom** for any length from 10 to 300 seconds |
+| Structure and Length | The story framework, or a narration style that also sets the voice and the pace, and the running time: Auto (the length the style is made for, otherwise the platform's usual one), one of the platform's lengths, or **Custom** for any length from 10 to 360 seconds |
 | Visual style | One look, or two blended, for the scene notes and all generated media |
 | Key message, Audience, Tone | The one thing to remember, who it is for, and how it should sound |
 | Brand or creator, Call to action | Who is speaking and what the viewer should do next |
+| Your experience | What you have seen first-hand: a client situation, a mistake, a result. The narration tells it in your voice. Without it, the agent describes a common pattern with no numbers or client names and asks you to confirm or replace it |
 | Reference material | Facts, quotes or an article. The model is told to use only figures and quotes found here or in the brief |
 | Voiceover is for text-to-speech | Spells out numbers and symbols so a TTS voice reads them correctly |
-| Narration | **With script** writes everything in one go. **Narration first** drafts the narration for you to edit. **My narration** opens the editor for your own text |
+| Narration | **With script** writes the narration, then the script around it, without stopping. **Narration first** drafts the narration for you to edit. **My narration** opens the editor for your own text |
+| Narration agent | On by default: the narration is planned, written and reviewed in steps (see [The narration agent](#the-narration-agent)). Untick it for a single quick pass |
 | Written by | The gateway and model that writes this script |
 
 ### 2. Edit the narration (optional)
@@ -72,7 +75,9 @@ Choose **Narration first** or **My narration** under the brief to work on the sp
 
 - **One beat per stage.** A drafted narration has one beat for each stage of the story line. Every beat shows what it has to do, its estimated time code, and its length against the room that stage has.
 - **A length meter.** Characters (Chinese) or words (English) against the budget for the length you asked for, and how long the video will run. Keep a longer narration and the video gets longer; **Fit the length** brings it back.
-- **Refine.** On one beat or on the whole narration: fit the length, more spoken, punchier, plainer words, ready for text-to-speech, reshape to the structure, or your own instruction. Each rewrite can be undone.
+- **Checks.** The narration is measured as you type: length against the budget, sentences too long to say in one breath, greetings and wrap-up phrases, words the platform throttles, names from the topic that are never spoken, stretches with no turn, and the balance of the three layers. Each finding sits under the beat it belongs to.
+- **The viewpoint card.** What the agent decided the video says: who is speaking, the core insight and the belief it overturns, the insider points, the first-hand experience, the names that must be spoken, and what to confirm before you record.
+- **Refine.** On one beat or on the whole narration: fit the length, more spoken, punchier, plainer words, ready for text-to-speech, reshape to the structure, or your own instruction. **Agent review** runs the agent's review step on the narration as it stands, your own text included. Each rewrite can be undone.
 - **Your own text.** Paste it into an empty editor or with **Paste narration**. Blank lines separate beats; without blank lines, each line is a beat.
 - **Beats.** Add, delete and reorder them. The story line stays visible as a reference.
 
@@ -85,7 +90,9 @@ Each platform opens in its own tab, and the script streams in as it is written. 
 - **Three hook options** to choose from for the opening
 - **A timed scene list**, each scene with voiceover, on-screen text, visual, camera and sound
 - **A voiceover-only view**, for recording or pasting into a TTS tool
-- **A publishing package**: titles, cover text, description, hashtags and a pinned comment
+- **A publishing package**: titles, cover text, description, a line for sharing, hashtags, a pinned comment and, from three minutes up, chapters with timestamps
+- **The viewpoint card** the narration was written to, when the agent wrote it
+- **A whiteboard blueprint**, when the style teaches a structure: the board or slide the video builds, as a plain-text diagram
 
 **Regenerate** rewrites a script. **Copy Markdown** and **Copy voiceover** put it on the clipboard.
 
@@ -97,9 +104,48 @@ Once the gateway in use has an image or video model, every scene gets **Generate
 
 **Download .zip** packs the script, the voiceover and every generated image and clip into one archive, named and numbered by scene (see [Your work](#your-work)).
 
+## The narration agent
+
+A single prompt writes a narration that reads like any other. The agent writes one the way a writing team does, in steps, each with the playbooks that apply:
+
+1. **Pick the skills.** From the platform, the language, the style, the length and what the brief mentions.
+2. **Plan and write.** First the viewpoint card: who is speaking, the one idea the viewer leaves with and the belief it overturns, the insider points, the first-hand experience, the names that must be spoken. Then the narration, written to that card, one beat per stage.
+3. **Measure, review and correct.** The draft is measured in code, because a model cannot count its own characters or notice the name it dropped. The findings go to an editor step with the same skills and the card; it says what is wrong and returns the corrected narration. An edit that measures worse than the draft is not taken.
+
+The card follows the 3 + 3 + 4 rule for commentary: about 30% insider explanation, 30% first-hand experience and 40% core insight, so a technical topic never comes out as an encyclopedia entry or a news read. The editor shows the measured balance.
+
+It needs nothing from the provider beyond text in and text out, so it runs on every model the gateway reaches, and in demo mode. Planning and writing share one model call and the review is a second request: a model that reasons for minutes per call never has one request carry two of them.
+
+### Skills
+
+A skill is a Markdown playbook in `skills/<name>/SKILL.md`. Its header says when it applies and which steps read it. To teach the agent something new, add a folder; no code changes are needed.
+
+| Skill | Applies to | What it holds |
+| --- | --- | --- |
+| `spoken-delivery-zh` | Chinese narration | Writing for the ear: 14–20 characters a breath, names said out loud, no greeting, no wrap-up phrase |
+| `spoken-delivery-en` | English narration | The same for English: short sentences, one idea each, a turn every few seconds |
+| `retention-rhythm` | Chinese narration | The first 3 seconds, the reason to stay, a turn every 12–15 seconds, chapters for long lectures, the cold close |
+| `viewpoint-card` | Chinese narration | The 3 + 3 + 4 rule and how to fill in and check the card |
+| `wechat-channels-growth` | 视频号 | Completion and social sharing, words that get a video throttled, the two compliant ways to capture leads, the publishing package |
+| `enterprise-ai-ontology` | Briefs that mention Palantir, Ontology, agents, enterprise AI… | The four-layer architecture, how an ontology is built (objects, links, state, events, logic, actions, write-back) and the "three brains" model |
+| `consultant-whiteboard-lecture` | The whiteboard lecture style | One diagram built step by step, chapters, pointing language, the handout |
+| `honest-sourcing` | Everything | Fact, judgment and experience kept apart; no invented numbers, clients or quotes |
+
+```
+---
+name: my-domain
+title-en: My domain knowledge
+description: one sentence on what it is for
+lang: zh                     # optional conditions: lang, platforms, frameworks, groups, keywords, min-duration
+keywords: Kubernetes, 容器
+steps: plan, write, review   # plan, write, review (the narration) and script (visuals and the publishing package)
+---
+The playbook, in Markdown.
+```
+
 ## Script structures
 
-Nine frameworks set the story arc and how the running time is divided between its stages. Six are general structures; three are narration styles for tech and business commentary, which also set how the narration sounds.
+Fourteen frameworks set the story arc and how the running time is divided between its stages. Six are general structures. Eight are narration styles, which also set how the narration sounds, how fast it is spoken and the length it is made for.
 
 | Structure | Arc | Best for |
 | --- | --- | --- |
@@ -109,11 +155,22 @@ Nine frameworks set the story arc and how the running time is divided between it
 | Listicle | "3 things…", strongest item last | Tips, mistakes and round-ups |
 | How-to tutorial | Show the result first, then teach the steps | Demos, software and skills |
 | Product showcase | Scenario, reveal, proof, offer | Product, launch and review videos |
-| Hard tech, demystified and deployed | Hook, one-line answer, one analogy, mechanism, myth, three steps to deploy, where it fits | Explaining a technical idea to decision-makers, e.g. "What is an ontology?" |
-| Tech news, the insider read | News hook, what happened, headline vs. signal, why now, who it hits, what to watch | Launches, acquisitions and reorganisations |
-| Earnings teardown and business model | Number hook, the answer up front, three numbers, the logic, so what | How a company makes its money, read from its earnings |
 
-A narration style adds its own writing rules to the prompt. The hard-tech style states the value before the mechanism, names each term once after saying it plainly, and carries one analogy through the whole video. The news and earnings styles keep fact apart from judgment, give every figure its scope and source on screen, and make no share-price or investment calls. Both report facts, so paste the news or the figures under **Reference material**: where a fact is missing, the script leaves a marked gap (`[TO VERIFY: …]`, `[TO ADD: …]`) and lists it in the production notes instead of inventing it.
+| General content style | Arc | Length and pace | Best for |
+| --- | --- | --- | --- |
+| Counter-intuitive hit, stop the loss | The loss, the real cause, three steps to stop it, who to send it to | 45–75 s, 4.5 chars/s | Correcting a costly move the viewer is making |
+| Saying what they can't | A concrete clash, the unwritten rule, a way to see it, a line worth sharing | 45–60 s, 4.2 | Speaking for founders, executives and tech leads |
+| Take-away toolkit | The result, a tease for step three, steps one to three, the template | 60–100 s, 4.0 | Procedures, checklists and worked cases |
+| A quiet story | A real detail, how it went, the turn, a line left open | 45–75 s, 3.5 | Founder reflections and delivery retrospectives |
+
+| Tech, business and consultant style | Arc | Length and pace | Best for |
+| --- | --- | --- | --- |
+| Hard tech, demystified (short) | A business pain asked, the plain-words analogy, what goes wrong in practice, three steps to deploy | 60–90 s, 4.3 | One technical idea, e.g. "What is an ontology?" |
+| Consultant whiteboard lecture | A business myth broken, how we got here, the whole architecture, one part taken apart, the idea that ties it together, three steps and the handout | 3–6 min, 4.2 | A full teardown on one board: Palantir, Ontology, enterprise AI architecture |
+| Tech news, the insider read | Cold water on the consensus, what happened, the detail outsiders miss, what it means in production, what to do next | 60–120 s, 4.2 | Model and agent launches, big-tech moves |
+| Earnings teardown and business model | One odd set of numbers, what they are made of, what customers are paying for, what we see in real deals, what to copy | 90–180 s, 4.0 | How a company makes its money, read from its earnings |
+
+Paces are Chinese characters per second; English is paced in proportion. A narration style adds its own writing rules to the prompt. The hard-tech style states the value before the mechanism, names each term once after saying it plainly, and carries one analogy through the whole video. The whiteboard lecture builds one diagram chapter by chapter and comes with a whiteboard blueprint and chapters. The news and earnings styles keep fact apart from judgment, give every figure its scope and source on screen, and make no share-price or investment calls. Both report facts, so paste the news or the figures under **Reference material**: where a fact is missing, the script leaves a marked gap (`[TO VERIFY: …]`, `[TO ADD: …]`) and lists it in the production notes instead of inventing it.
 
 ## Visual styles
 
@@ -367,6 +424,9 @@ src/narration.mjs       narration as beats: counting, timing, and keeping a lock
 src/styles.mjs          visual styles for images and clips
 src/shots.mjs           how several images of one scene relate (multi-image modes)
 src/prompt.mjs          brief -> timeline + prompts; model reply -> script, narration or refinement
+src/agent/              the narration agent: narrator.mjs (the steps), review.mjs (the measured checks),
+                        card.mjs (the viewpoint card), prompts.mjs (the editor step), skills.mjs (loads skills/)
+skills/                 the agent's playbooks, one folder with a SKILL.md each
 src/db.mjs              storage: JSON documents and blobs, on disk or in Postgres
 src/auth.mjs            accounts, password hashing, sessions, the first administrator
 src/audit.mjs           usage records (every model call) and the activity log
@@ -386,14 +446,16 @@ test/                   node --test
 | To change | Edit |
 | --- | --- |
 | How a platform's scripts read | Its entry in `src/platforms.mjs`. The text goes straight into the system prompt. |
-| Script structures, narration styles and stage timing | `src/frameworks.mjs` |
+| Script structures, narration styles, their pace, length and stage timing | `src/frameworks.mjs` |
+| What the narration agent knows and holds a narration to | The playbooks in `skills/`: edit one, or add a folder |
+| What the narration checks measure, and the words a platform throttles | `src/agent/review.mjs`, and `banned` in `src/platforms.mjs` |
 | The refinements the narration editor offers | `REFINE_PRESETS` in `src/prompt.mjs` |
 | Visual styles | `src/styles.mjs` |
 | Multi-image modes | `src/shots.mjs` |
 | Provider presets | `src/gateway/providers.mjs` |
 | Interface translations | `public/i18n.js` |
 
-The Golden retention structure comes from the B2B 4K short-video skill (hook, suspense anchor, three value waves, structured wrap, cold close), as do the Chinese rules that keep English on screen and out of the voiceover. The three tech and business styles draw on the narration, story-spine and explainer skills: the hook speaks the viewer's language, the value comes before the evidence, detail goes on screen while the voice carries the backbone, and every claim is either sourced or marked as the creator's judgment.
+The Golden retention structure comes from the B2B 4K short-video skill (hook, suspense anchor, three value waves, structured wrap, cold close), as do the Chinese rules that keep English on screen and out of the voiceover. The three tech and business styles draw on the narration, story-spine and explainer skills: the hook speaks the viewer's language, the value comes before the evidence, detail goes on screen while the voice carries the backbone, and every claim is either sourced or marked as the creator's judgment. The general content styles, the whiteboard lecture, the 3 + 3 + 4 viewpoint card, the 视频号 growth and compliance rules and the enterprise-AI knowledge base come from the WeChat Channels consultant script specification, split into the skills above.
 
 ### Wire protocols
 
@@ -443,6 +505,8 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `POST` | `/api/media/video/status` | `{ id, historyId, sceneId }` Polls a job and stores the file when ready |
 | `GET` | `/media/<file>` | A stored image or video |
 | `POST` | `/api/plan` | The plan for a brief without writing anything: story line with times, length and voiceover budget |
-| `POST` | `/api/narration/draft` | Writes the narration alone, one beat per stage. Server-sent events: `plan`, `delta`, `done` or `error`. Nothing is saved |
-| `POST` | `/api/narration/refine` | `{ ...brief, narration, index?, preset?, instruction?, target? }` Rewrites one beat (`{ text }`) or the whole narration (`{ beats }`) |
-| `POST` | `/api/generate` | Writes a script, saves it and records the call. With `narration: [{ stage, text }]` the script is built around those words as they are. Server-sent events: `plan`, `delta`, `done` or `error` |
+| `POST` | `/api/narration/draft` | Writes the narration alone, one beat per stage: the agent's plan-and-write step, or a plain draft with `agent: false`. Server-sent events: `plan`, `step`, `delta`, `done` (`{ narration, card, report }`) or `error`. Nothing is saved |
+| `POST` | `/api/narration/review` | `{ ...brief, narration, card? }` The agent's review step. Server-sent events: `plan`, `step`, `delta`, `done` (`{ beats, report }`) or `error` |
+| `POST` | `/api/narration/check` | `{ ...brief, narration, card? }` The measured checks alone: `{ findings, errors, warns, stats }`. No model call |
+| `POST` | `/api/narration/refine` | `{ ...brief, narration, index?, preset?, instruction?, target? }` Rewrites one beat (`{ text }`) or the whole narration (`{ beats }`); `preset: "review"` runs the agent's review and answers `{ beats, report }` |
+| `POST` | `/api/generate` | Writes a script, saves it and records the call. With `narration: [{ stage, text }]` the script is built around those words as they are, and a `card` sent with it is kept on the script. Server-sent events: `plan`, `delta`, `done` or `error` |

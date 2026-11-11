@@ -43,7 +43,7 @@ const state = {
 
 const HISTORY_KEY = 'video-scripter.history';
 const FORM_KEY = 'video-scripter.brief';
-const FIELDS = ['topic', 'keyMessage', 'audience', 'tone', 'brand', 'cta', 'reference'];
+const FIELDS = ['topic', 'keyMessage', 'audience', 'tone', 'brand', 'cta', 'experience', 'reference'];
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
@@ -201,7 +201,7 @@ const IDEAS = {
 function refreshSummaries() {
   const look = [styleNames(state.styleIds) || t('No style'), $('autoImages').checked && t('{n} per scene', { n: $('imageCount').value })].filter(Boolean);
   $('lookSummary').textContent = look.join(' · ');
-  const filled = ['keyMessage', 'audience', 'tone', 'brand', 'cta', 'reference'].filter((f) => $(f).value.trim()).length + ($('ttsReady').checked ? 1 : 0);
+  const filled = FIELDS.filter((f) => f !== 'topic' && $(f).value.trim()).length + ($('ttsReady').checked ? 1 : 0);
   $('detailsSummary').textContent = filled ? t('{n} filled', { n: filled }) : t('Optional');
   $('topicIdeas').hidden = Boolean($('topic').value.trim());
 }
@@ -209,6 +209,7 @@ function refreshSummaries() {
 // ---------- Length: Auto (the platform's usual length), one of the platform's lengths, or a custom number of seconds ----------
 
 const clampSeconds = (v) => Math.min(MAX_DURATION, Math.max(MIN_DURATION, Math.round(Number(v))));
+const lengthLabel = (d) => (d >= 120 && d % 60 === 0 ? `${d / 60} min` : `${d} s`);
 
 /** The length asked for, in seconds as a string. '' is Auto. */
 function durationValue() {
@@ -245,11 +246,12 @@ function refreshDurations() {
   if (!options.size) [15, 30, 45, 60, 90].forEach((d) => options.add(d));
   sel.replaceChildren(
     h('option', { value: '' }, t('Auto')),
-    ...[...options].sort((a, b) => a - b).map((d) => h('option', { value: d }, d >= 120 ? `${d / 60} min` : `${d} s`)),
+    ...[...options].sort((a, b) => a - b).map((d) => h('option', { value: d }, lengthLabel(d))),
     h('option', { value: 'custom' }, t('Custom…')),
   );
   sel.value = [...sel.options].some((o) => o.value === keep) ? keep : ''; // a length the platforms no longer offer -> Auto
   syncCustomDuration();
+  refreshFit();
 }
 
 /** The picker changed. Choosing "Custom" starts from the length that was showing, so the field is never empty. */
@@ -263,12 +265,35 @@ function onDurationPick() {
 }
 
 const frameworkOf = (id) => state.meta.frameworks.find((f) => f.id === id);
+/** How fast a structure is spoken in a language: its own pace when it is a narration style that sets one. */
+const paceFor = (framework, language) => framework?.pace?.[language] ?? state.meta.pace[language];
+
+/**
+ * A narration style is made for a length and a pace: say so under the picker. "Auto" follows the style, so
+ * the hint only offers to change the length when one that does not suit the style was picked by hand.
+ */
+function refreshFit() {
+  const f = frameworkOf($('framework')?.value);
+  const box = $('frameworkFit');
+  if (!box) return;
+  box.hidden = !f?.length;
+  if (!f?.length) return;
+  const language = platformOf(selectedPlatforms()[0])?.lang || lang;
+  const pace = language === 'zh' ? t('{n} characters per second', { n: paceFor(f, language) }) : t('{n} words per second', { n: paceFor(f, language) });
+  const picked = Number(durationValue()) || 0;
+  const off = picked > 0 && (picked < f.length.min || picked > f.length.max);
+  $('frameworkFitText').textContent = t('Made for {min}–{max}, spoken at about {pace}.', { min: lengthLabel(f.length.min), max: lengthLabel(f.length.max), pace }) + (picked ? '' : ` ${t('Auto gives {n}.', { n: lengthLabel(f.length.default) })}`);
+  $('frameworkFitUse').hidden = !off;
+  $('frameworkFitUse').textContent = t('Use {n}', { n: lengthLabel(f.length.default) });
+  box.classList.toggle('note', off);
+}
 
 /** The blurb under the structure picker, its warning when the style needs facts, and topic ideas that suit it. */
 function refreshBlurb() {
   const f = frameworkOf($('framework').value);
   $('frameworkBlurb').textContent = f ? f.blurb[lang] : '';
   $('frameworkNeeds').hidden = !f?.needsReference || Boolean($('reference').value.trim());
+  refreshFit();
   $('topicIdeaList').replaceChildren(
     ...(f?.topics?.[lang] || IDEAS[lang]).map((idea) =>
       h('button', { class: 'chip', type: 'button', onclick: () => (($('topic').value = idea), refreshSummaries(), saveForm(), $('topic').focus()) }, idea),
@@ -284,17 +309,23 @@ const MODE = {
   own: { cta: 'Open the narration editor', hint: 'Paste or write your own narration. The script is built around it word for word.' },
 };
 
+/** The agent writes narration; with "My narration" there is none to write, only to review from the editor. */
+function refreshAgent() {
+  $('agent').closest('.agent-pick').classList.toggle('muted', state.narrationMode === 'own');
+}
+
 function setNarrationMode(mode) {
   state.narrationMode = MODE[mode] ? mode : 'auto';
   for (const b of $('narrationMode').children) b.setAttribute('aria-checked', String(b.dataset.mode === state.narrationMode));
   $('narrationModeHint').textContent = t(MODE[state.narrationMode].hint);
   $('narrationModeHint').hidden = !MODE[state.narrationMode].hint;
   if (!$('generate').disabled) $('generateLabel').textContent = t(MODE[state.narrationMode].cta);
+  refreshAgent();
 }
 
 function saveForm() {
   const data = Object.fromEntries(FIELDS.map((f) => [f, $(f).value]));
-  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: durationValue(), aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: state.styleIds, narrationMode: state.narrationMode });
+  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: durationValue(), aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: state.styleIds, narrationMode: state.narrationMode, agent: $('agent').checked });
   try {
     localStorage.setItem(FORM_KEY, JSON.stringify(data));
   } catch {}
@@ -318,6 +349,8 @@ function fillForm(data) {
   refreshDurations();
   setDuration(data.duration); // a length the platforms do not offer comes back as a custom one
   if (data.narrationMode) setNarrationMode(data.narrationMode); // a script from the history does not say: leave the choice alone
+  if ('agent' in data) $('agent').checked = data.agent !== false;
+  refreshAgent();
   refreshBlurb();
 }
 
@@ -353,12 +386,16 @@ function buildForm() {
     next.focus();
   });
   setNarrationMode('auto');
+  $('agent').addEventListener('change', () => (refreshAgent(), saveForm()));
+  $('frameworkFitUse').addEventListener('click', () => (setDuration(frameworkOf($('framework').value)?.length?.default), refreshFit(), saveForm()));
   $('aspects').append(...state.meta.aspects.map((a) => h('label', { class: 'chip' }, h('input', { type: 'radio', name: 'aspect', value: a.id }), h('span', {}, `${a.id} ${a.name[lang]}`))));
   setAspect();
   refreshDurations();
-  $('duration').addEventListener('change', onDurationPick);
+  $('duration').addEventListener('change', () => (onDurationPick(), refreshFit()));
+  $('durationCustom').max = MAX_DURATION;
+  $('durationCustom').placeholder = `${MIN_DURATION}–${MAX_DURATION}`;
   // Seconds outside the range are brought into it as soon as the field is left.
-  $('durationCustom').addEventListener('change', (e) => Number(e.target.value) > 0 && (e.target.value = clampSeconds(e.target.value)));
+  $('durationCustom').addEventListener('change', (e) => (Number(e.target.value) > 0 && (e.target.value = clampSeconds(e.target.value)), refreshFit()));
   buildStyles();
   $('imageMode').append(...state.meta.imageModes.map((m) => h('option', { value: m.id }, m.name[lang])));
   $('imageCount').addEventListener('change', refreshImageMode);
@@ -401,8 +438,11 @@ async function* sse(res) {
 async function runPlatform(platformId, brief) {
   const abort = new AbortController();
   // A script built around a narration keeps the editor's copy, so it can be opened and changed again.
-  const narration = brief.narration && state.runs[platformId]?.narration;
-  const run = (state.runs[platformId] = { status: 'running', raw: '', brief, abort, styleIds: brief.styleIds, ...(narration && { narration }) });
+  const before = state.runs[platformId];
+  const narration = brief.narration && before?.narration;
+  // The last step of the agent's chain: the steps before it stay on show while the script is written.
+  const chained = brief.narrationBy === 'agent' && before?.steps ? { steps: before.steps, skills: before.skills, chain: true, retry: 'auto' } : null;
+  const run = (state.runs[platformId] = { status: 'running', raw: '', brief, abort, styleIds: brief.styleIds, ...(narration && { narration }), ...chained });
   runChanged(platformId);
   try {
     const res = await fetch('/api/generate', {
@@ -457,7 +497,7 @@ function runChanged(platformId) {
 /** The brief as the form has it now. */
 function collectBrief() {
   const brief = Object.fromEntries(FIELDS.map((f) => [f, $(f).value.trim()]));
-  return Object.assign(brief, { frameworkId: $('framework').value, duration: durationValue() || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: [...state.styleIds] });
+  return Object.assign(brief, { frameworkId: $('framework').value, duration: durationValue() || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: [...state.styleIds], agent: $('agent').checked });
 }
 
 const isWriting = (run) => run.status === 'running' || run.status === 'drafting';
@@ -482,11 +522,15 @@ async function generate(platformIds, brief = collectBrief()) {
   setBusy(anyWriting());
 }
 
-/** Write again what a tab holds: the narration draft, or the script (around the same narration when it was built on one). */
+/**
+ * Write again what a tab holds: the narration draft, the agent's whole chain (a new narration and the script
+ * around it), or the script alone (around the same narration when it was built on the creator's own).
+ */
 function rerun(platformId) {
   const run = state.runs[platformId];
   if (run?.retry === 'draft') return draftNarrations([platformId]);
-  return generate([platformId], run?.brief?.narration ? { ...collectBrief(), narration: run.brief.narration } : undefined);
+  if (run?.retry === 'auto' || run?.brief?.narrationBy === 'agent' || run?.plan?.narration?.agent) return $('agent').checked ? draftNarrations([platformId], { chain: true }) : generate([platformId]);
+  return generate([platformId], run?.brief?.narration ? { ...collectBrief(), narration: run.brief.narration, card: run.narration?.card || run.script?.card || undefined } : undefined);
 }
 
 function setBusy(busy) {
@@ -501,7 +545,8 @@ function start() {
   if (!mayReplaceRuns()) return;
   if (state.narrationMode === 'draft') return draftNarrations();
   if (state.narrationMode === 'own') return openEditors();
-  return generate();
+  // With the script: the agent writes the narration, then the script is built around it, as two requests.
+  return $('agent').checked ? draftNarrations(undefined, { chain: true }) : generate();
 }
 
 // ---------- History ----------
@@ -586,6 +631,8 @@ function toMarkdown(platformId, run) {
   const s = run.script;
   const p = platformOf(platformId);
   const L = [`# ${s.title}`, '', `> ${s.logline}`, '', `**${t('Platform')}:** ${p.name} · **${t('Length')}:** ${s.scenes.at(-1).end}s · **${t('Aspect ratio')}:** ${runAspect(run).id}`, ''];
+  if (s.card) L.push(`## ${t('Viewpoint card')}`, '', ...cardMarkdown(s.card), '');
+  if (s.whiteboard) L.push(`## ${t('Whiteboard blueprint')}`, '', '```', s.whiteboard, '```', '');
   L.push(`## ${t('Hook options')}`, '', ...s.hookOptions.map((o) => `- ${o.type ? `**${o.type}:** ` : ''}${plainVo(o.line)}`), '');
   L.push(`## ${t('Script')}`, '');
   for (const sc of s.scenes) {
@@ -599,7 +646,10 @@ function toMarkdown(platformId, run) {
   L.push(`## ${t('Voiceover only')}`, '', s.scenes.map((sc) => plainVo(sc.voiceover)).join('\n\n'), '');
   L.push(`## ${t('Publishing package')}`, '', `**${t('Titles')}**`, '', ...s.publish.titles.map((title, i) => `${i + 1}. ${title}`), '');
   if (s.publish.coverText) L.push(`**${t('Cover text')}:** ${s.publish.coverText}`, '');
-  L.push(`**${t('Description')}**`, '', s.publish.description, '', `**${t('Hashtags')}:** ${s.publish.hashtags.join(' ')}`, '', `**${t('Pinned comment')}:** ${s.publish.pinnedComment}`, '');
+  L.push(`**${t('Description')}**`, '', s.publish.description, '');
+  if (s.publish.shareLine) L.push(`**${t('Line for sharing')}:** ${s.publish.shareLine}`, '');
+  L.push(`**${t('Hashtags')}:** ${s.publish.hashtags.join(' ')}`, '', `**${t('Pinned comment')}:** ${s.publish.pinnedComment}`, '');
+  if (s.publish.chapters?.length) L.push(`**${t('Chapters')}**`, '', ...s.publish.chapters.map((c) => `- ${c.time} ${c.title}`.trimEnd()), '');
   if (s.productionNotes.length) L.push(`## ${t('Production notes')}`, '', ...s.productionNotes.map((n) => `- ${n}`), '');
   return L.join('\n');
 }
@@ -799,8 +849,10 @@ async function downloadPackage(platformId, run, btn) {
 }
 
 // ---------- Narration first: draft it or bring your own, edit and refine it, then build the script around it ----------
-// A run's narration is { beats: [{ id, stage, text, prev, busy }], title, target, undo, dirty, busy }.
+// A run's narration is { beats: [{ id, stage, text, prev, busy }], title, target, undo, dirty, busy, card, report }.
 // `target` is the plan for the brief as the form has it (story line, length, budget): what there is room for.
+// `card` is the viewpoint card the agent wrote the narration to; `report` is what the measured checks found
+// ({ findings, errors, warns, stats, notes, beatIds }), refreshed as the narration changes.
 
 let beatSeq = 0;
 const newBeat = (b = {}) => ({ id: ++beatSeq, stage: b.stage || '', text: b.text || '' });
@@ -819,7 +871,7 @@ function mayReplaceRuns() {
 /** What there is room for, when the server could not say (no topic yet): the platform's usual length. */
 function fallbackTarget(platformId) {
   const p = platformOf(platformId);
-  const pace = state.meta.pace[p.lang];
+  const pace = paceFor(frameworkOf($('framework').value), p.lang);
   return { timeline: [], duration: p.defaultDuration, lang: p.lang, pace, budget: Math.round(p.defaultDuration * pace), unit: p.lang === 'zh' ? '汉字' : 'words' };
 }
 
@@ -840,9 +892,41 @@ function refreshTargets() {
   refreshTargets.timer = setTimeout(async () => {
     const open = Object.entries(state.runs).filter(([, run]) => showsEditor(run));
     await Promise.all(open.map(([id]) => loadTarget(id)));
-    for (const [, run] of open) run.narration.dom?.repaint();
+    for (const [id, run] of open) {
+      run.narration.dom?.repaint();
+      recheck(id);
+    }
   }, 400);
 }
+
+/** A report with the ids of the beats its findings point at (the server knows beats by their position). */
+const withBeatIds = (report, beats) => report && { ...report, beatIds: beats.map((b) => b.id) };
+
+/**
+ * Measure the narration again after it changed: length, breath-length sentences, wrap-up phrases, throttled
+ * words, missing names, rhythm. No model is called. The editor's notes from the last review are kept.
+ */
+async function recheck(platformId) {
+  const run = state.runs[platformId];
+  const n = run?.narration;
+  if (!n) return;
+  const beats = filledBeats(run);
+  if (!beats.length || !$('topic').value.trim()) {
+    n.report = null;
+    return n.dom?.paintChecks();
+  }
+  const seq = (n.checkSeq = (n.checkSeq || 0) + 1);
+  try {
+    const report = await api('/api/narration/check', { method: 'POST', body: { ...collectBrief(), platformId, narration: forServer(beats), card: n.card || undefined } });
+    if (state.runs[platformId]?.narration !== n || n.checkSeq !== seq) return; // the narration moved on while this was measured
+    n.report = { ...withBeatIds(report, beats), notes: n.report?.notes || [], rounds: n.report?.rounds || 0, reviewed: Boolean(n.report?.reviewed) };
+    n.dom?.paintChecks();
+  } catch {
+    // The check is a help, not a gate: the editor works without it.
+  }
+}
+const recheckSoon = (platformId) => (clearTimeout(recheckSoon.timer), (recheckSoon.timer = setTimeout(() => recheck(platformId), 700)));
+
 
 // Narration that is not a script yet is kept in this browser, per user, so a reload does not lose it.
 const draftsKey = () => `video-scripter.narration.${state.user.id}`;
@@ -850,7 +934,7 @@ const draftsKey = () => `video-scripter.narration.${state.user.id}`;
 function saveDrafts() {
   const out = {};
   for (const [id, run] of Object.entries(state.runs)) {
-    if (showsEditor(run) && !run.script && narrationText(run)) out[id] = { beats: forServer(run.narration.beats), title: run.narration.title || '', brief: run.brief || null };
+    if (showsEditor(run) && !run.script && narrationText(run)) out[id] = { beats: forServer(run.narration.beats), title: run.narration.title || '', brief: run.brief || null, card: run.narration.card || null };
   }
   try {
     if (Object.keys(out).length) localStorage.setItem(draftsKey(), JSON.stringify(out));
@@ -866,40 +950,80 @@ async function restoreDrafts() {
   } catch {}
   const ids = Object.keys(saved || {}).filter((id) => platformOf(id) && Array.isArray(saved[id]?.beats));
   if (!ids.length || Object.keys(state.runs).length) return;
-  for (const id of ids) state.runs[id] = { status: 'narration', raw: '', brief: saved[id].brief, styleIds: saved[id].brief?.styleIds || [], narration: { beats: saved[id].beats.map(newBeat), title: saved[id].title } };
+  for (const id of ids) state.runs[id] = { status: 'narration', raw: '', brief: saved[id].brief, styleIds: saved[id].brief?.styleIds || [], narration: { beats: saved[id].beats.map(newBeat), title: saved[id].title, card: saved[id].card || null } };
   state.active = ids[0];
   await Promise.all(ids.map(loadTarget));
   render();
+  ids.forEach(recheck);
 }
 
-async function draftNarration(platformId, brief) {
+/** Keep what the agent says about a step: the skills it picked, where it is, and what a step found. */
+function noteStep(run, data) {
+  run.steps ??= [];
+  const step = run.steps.find((x) => x.id === data.id);
+  if (step) Object.assign(step, data);
+  else run.steps.push({ ...data });
+  if (data.skills) run.skills = data.skills;
+}
+
+/** One streamed request of a run: plan and step events are kept on the run, text goes to the raw view. Returns the `done` data. */
+async function streamRun(platformId, run, url, body) {
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: run.abort.signal });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || t('Request failed ({status})', { status: res.status }));
+  let done = null;
+  for await (const { event, data } of sse(res)) {
+    if (event === 'plan') run.plan = { ...run.plan, ...data };
+    else if (event === 'step') {
+      noteStep(run, data);
+      if (state.active === platformId && state.runs[platformId] === run) render();
+    } else if (event === 'delta') {
+      run.raw += data.text;
+      if (state.active === platformId && state.runs[platformId] === run) updateStream(run);
+    } else if (event === 'error') throw new Error(data.error);
+    else if (event === 'done') done = data;
+  }
+  return done;
+}
+
+/**
+ * Have the narration of one platform written. With the agent on, that is two requests: plan and write, then
+ * review (so a slow model never has one request carry two long calls). With `chain`, the script is then
+ * built around it straight away: the form's "With script" choice when the agent is on.
+ */
+async function draftNarration(platformId, brief, { chain = false } = {}) {
   const abort = new AbortController();
   const before = state.runs[platformId]; // a redraft from the editor: put this back if the new draft fails
-  const run = (state.runs[platformId] = { status: 'drafting', raw: '', brief, abort, styleIds: brief.styleIds, retry: 'draft' });
+  const run = (state.runs[platformId] = { status: 'drafting', raw: '', brief, abort, styleIds: brief.styleIds, retry: chain ? 'auto' : 'draft', chain, steps: [] });
   runChanged(platformId);
   try {
-    const res = await fetch('/api/narration/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...brief, platformId }), signal: abort.signal });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || t('Request failed ({status})', { status: res.status }));
-    for await (const { event, data } of sse(res)) {
-      if (event === 'plan') run.plan = data;
-      else if (event === 'delta') {
-        run.raw += data.text;
-        if (state.active === platformId) updateStream(run);
-      } else if (event === 'error') throw new Error(data.error);
-      else if (event === 'done') {
-        if (!data.narration) {
-          run.raw = data.raw || run.raw;
-          throw new Error(t("The model's reply could not be read as a narration ({reason}). The raw reply is shown below.", { reason: data.parseError }));
+    const data = await streamRun(platformId, run, '/api/narration/draft', { ...brief, platformId });
+    if (!data) throw new Error(t('The connection closed before the narration was finished.'));
+    if (!data.narration) {
+      run.raw = data.raw || run.raw;
+      throw new Error(t("The model's reply could not be read as a narration ({reason}). The raw reply is shown below.", { reason: data.parseError }));
+    }
+    const old = before?.narration?.beats;
+    let beats = data.narration.beats.map(newBeat);
+    const narration = { beats, title: data.narration.title, target: run.plan, undo: old?.some((b) => b.text.trim()) ? old : null, card: data.card || null, report: withBeatIds(data.report, beats) };
+    // The agent's second half: review the draft. If the review fails, the draft is still a narration.
+    if (run.plan?.agent) {
+      try {
+        const revised = await streamRun(platformId, run, '/api/narration/review', { ...brief, platformId, narration: forServer(beats), card: narration.card || undefined });
+        if (revised?.beats) {
+          beats = revised.beats.map(newBeat);
+          Object.assign(narration, { beats, report: withBeatIds(revised.report, beats) });
         }
-        const old = before?.narration?.beats;
-        run.narration = { beats: data.narration.beats.map(newBeat), title: data.narration.title, target: run.plan, undo: old?.some((b) => b.text.trim()) ? old : null };
-        run.status = 'narration';
+      } catch (err) {
+        if (err.name === 'AbortError') throw err;
+        noteStep(run, { id: 'review', status: 'done', note: err.message });
+        toast(t('The review did not finish ({reason}). The draft is kept as it is.', { reason: err.message }));
       }
     }
-    if (run.status === 'drafting') throw new Error(t('The connection closed before the narration was finished.'));
+    run.narration = narration;
+    run.status = 'narration';
   } catch (err) {
     const stopped = err.name === 'AbortError';
-    if (before?.narration && narrationText(before)) {
+    if (!chain && before?.narration && narrationText(before)) {
       state.runs[platformId] = before; // keep what was there
       if (!stopped) toast(err.message);
     } else {
@@ -907,17 +1031,19 @@ async function draftNarration(platformId, brief) {
       run.error = stopped ? t('Stopped.') : err.message;
     }
   }
+  if (state.runs[platformId] !== run && state.runs[platformId] !== before) return; // the tab was started over meanwhile
+  if (chain && run.status === 'narration') return runPlatform(platformId, { ...brief, narration: forServer(run.narration.beats), card: run.narration.card || undefined, narrationBy: 'agent' });
   runChanged(platformId);
 }
 
-/** Have the narration written: for the platforms in the form, or again for the tabs given. */
-async function draftNarrations(platformIds) {
+/** Have the narration written: for the platforms in the form, or again for the tabs given. `chain` goes on to the script. */
+async function draftNarrations(platformIds, { chain = false } = {}) {
   const brief = collectBrief();
   saveForm();
   platformIds ??= resetRuns();
   setView('script');
   setBusy(true);
-  await Promise.all(platformIds.map((id) => draftNarration(id, brief)));
+  await Promise.all(platformIds.map((id) => draftNarration(id, brief, { chain })));
   setBusy(anyWriting());
 }
 
@@ -930,6 +1056,46 @@ async function openEditors() {
   await Promise.all(ids.map(loadTarget));
   setView('script');
   render();
+}
+
+// ---------- The viewpoint card and the checks, as the editor and the script show them ----------
+
+const LAYER = { hook: 'Hook', insider: 'Insider explanation', experience: 'First-hand experience', insight: 'Core insight', cta: 'Call to action' };
+const layerOf = (card, stage) => card?.outline?.find((o) => o.stage === stage)?.layer || '';
+const layerChip = (card, stage) => (LAYER[layerOf(card, stage)] && !['hook', 'cta'].includes(layerOf(card, stage)) ? h('span', { class: `layer layer-${layerOf(card, stage)}` }, t(LAYER[layerOf(card, stage)])) : null);
+
+/** The card as a block of rows: who speaks, to whom, the idea, and the three layers that carry it. */
+function cardNode(card) {
+  const row = (label, body) => body && h('div', { class: 'vc-row' }, h('div', { class: 'vc-label' }, label), h('div', { class: 'vc-body' }, body));
+  const list = (items) => items.length > 0 && h('ul', {}, items.map((x) => h('li', {}, x)));
+  return h(
+    'div',
+    { class: 'vc' },
+    row(t('Speaking as'), card.persona),
+    row(t('For'), card.viewer),
+    row(t('Core insight'), card.insight.claim && [h('p', { class: 'vc-claim' }, card.insight.claim), card.insight.against && h('p', { class: 'hint' }, t('Overturns: {belief}', { belief: card.insight.against }))]),
+    row(t('Insider explanation'), list(card.insider)),
+    row(t('First-hand experience'), list(card.experience.map((e) => [e.point, e.source === 'draft' && h('span', { class: 'vc-tag' }, t('Drafted: confirm or replace'))]))),
+    row(t('Analogy'), card.analogy),
+    row(t('Must be spoken'), card.mustSay.length > 0 && h('div', { class: 'vc-names' }, card.mustSay.map((x) => h('span', {}, x)))),
+    row(t('Before you record'), card.toVerify.length > 0 && h('ul', { class: 'vc-verify' }, card.toVerify.map((x) => h('li', {}, x)))),
+  );
+}
+
+/** The card as Markdown lines, for the exported script. */
+function cardMarkdown(card) {
+  const L = [];
+  const line = (label, value) => value && L.push(`- **${label}:** ${value}`);
+  line(t('Speaking as'), card.persona);
+  line(t('For'), card.viewer);
+  line(t('Core insight'), card.insight.claim);
+  line(t('Overturns: {belief}', { belief: '' }).replace(/[:：]\s*$/, ''), card.insight.against);
+  for (const x of card.insider) line(t('Insider explanation'), x);
+  for (const e of card.experience) line(t('First-hand experience'), `${e.point}${e.source === 'draft' ? ` (${t('Drafted: confirm or replace')})` : ''}`);
+  line(t('Analogy'), card.analogy);
+  line(t('Must be spoken'), card.mustSay.join(' · '));
+  for (const x of card.toVerify) line(t('Before you record'), x);
+  return L;
 }
 
 /** The narration of a finished script as beats: the one it was built on, or its scenes' voiceover gathered by stage. */
@@ -950,10 +1116,11 @@ function beatsOfScript(platformId, run) {
 /** Open the editor on a finished script. The script stays as it is until a new one is built from the editor. */
 async function editNarration(platformId) {
   const run = state.runs[platformId];
-  run.narration ??= { beats: beatsOfScript(platformId, run), title: run.script.title };
+  run.narration ??= { beats: beatsOfScript(platformId, run), title: run.script.title, card: run.script.card || null };
   run.editing = true;
   await loadTarget(platformId);
   render();
+  recheck(platformId);
 }
 
 /** Build the script around the narration as the editor has it, word for word. */
@@ -966,7 +1133,7 @@ function buildFromNarration(platformId) {
     $('topic').focus();
     return toast(t('Add a topic to the brief first.'));
   }
-  generate([platformId], { ...collectBrief(), narration: forServer(beats) });
+  generate([platformId], { ...collectBrief(), narration: forServer(beats), card: run.narration.card || undefined });
 }
 
 /** The room a beat has: its stage's share of the length, when it has that stage to itself. 0 when unknown. */
@@ -995,21 +1162,23 @@ async function refine(platformId, beat, { preset, instruction }) {
   };
   mark(true);
   try {
-    const r = await api('/api/narration/refine', { method: 'POST', body });
+    const r = await api('/api/narration/refine', { method: 'POST', body: { ...body, card: n.card || undefined } });
     if (beat && n.beats.includes(beat)) {
       beat.prev = beat.text;
       beat.text = r.text;
     } else if (!beat) {
       n.undo = n.beats;
       n.beats = r.beats.map(newBeat);
+      if (r.report) n.report = withBeatIds(r.report, n.beats); // the agent's review comes with what it measured
     }
     n.dirty = true;
-    if (current()) toast(beat ? t('Beat rewritten. Undo is on the beat.') : t('Narration rewritten. Undo is in the toolbar.'));
+    if (current()) toast(beat ? t('Beat rewritten. Undo is on the beat.') : preset === 'review' ? t('Reviewed and corrected. Undo is in the toolbar.') : t('Narration rewritten. Undo is in the toolbar.'));
   } catch (err) {
     toast(err.message);
   }
   mark(false);
   saveDrafts();
+  if (beat || preset !== 'review') recheck(platformId);
 }
 
 /** A sparkles button that opens the refinements for one beat (`scope` 'beat') or the whole narration ('all'). */
@@ -1042,6 +1211,7 @@ function pasteNarration(platformId) {
     if (!beats.length) return area.focus();
     setBeats(run, beats);
     dlg.close();
+    recheck(platformId);
   };
   const dlg = h(
     'dialog',
@@ -1105,6 +1275,40 @@ function renderNarration(platformId, run) {
   const foot = h('p', { class: 'hint' });
   const aim = h('span'); // the length asked for, in the chips under the title
 
+  // What the measured checks found: a summary with the whole-narration findings, and each beat's own under it.
+  const issueNode = (f) => h('li', { class: `issue ${f.level}` }, h('span', {}, f.message), f.excerpt && h('q', {}, f.excerpt));
+  const checks = { summary: h('span', { class: 'checks-summary' }), ratio: h('p', { class: 'hint' }), list: h('ul', { class: 'beat-issues' }), notes: h('details', { class: 'checks-notes' }) };
+  checks.review = h('button', { class: 'btn small', type: 'button', title: t('The agent measures the narration, has an editor review it against the skills, and corrects it.'), onclick: () => refine(platformId, null, { preset: 'review' }) }, icon('sparkles', 16), h('span', {}, t('Agent review')));
+  checks.box = h('div', { class: 'checks', hidden: true }, h('div', { class: 'checks-top' }, h('span', { class: 'checks-title' }, t('Checks')), checks.summary, h('span', { class: 'spacer' }), checks.review), checks.ratio, checks.list, checks.notes);
+
+  function paintChecks() {
+    const r = n.report;
+    const whole = [];
+    const byBeat = new Map();
+    for (const f of r?.findings || []) {
+      const id = f.beat == null ? null : r.beatIds?.[f.beat];
+      if (id == null) whole.push(f);
+      else byBeat.set(id, [...(byBeat.get(id) || []), f]);
+    }
+    for (const [id, card] of cards) card.issues.replaceChildren(...(byBeat.get(id) || []).map(issueNode));
+    checks.box.hidden = !r;
+    if (!r) return;
+    checks.box.dataset.state = r.errors ? 'error' : r.warns ? 'warn' : 'ok';
+    checks.summary.textContent = r.errors || r.warns ? t('{e} to fix · {w} to consider', { e: r.errors, w: r.warns }) : t('Nothing found by measurement.');
+    const ratio = r.stats?.ratio;
+    checks.ratio.textContent = ratio ? t('Insider {a}% · Experience {b}% · Insight {c}% (aim for about 30 · 30 · 40)', { a: ratio.insider, b: ratio.experience, c: ratio.insight }) : '';
+    checks.ratio.hidden = !ratio;
+    checks.list.replaceChildren(...whole.map(issueNode));
+    checks.notes.hidden = !r.notes?.length;
+    if (r.notes?.length) {
+      checks.notes.replaceChildren(
+        h('summary', {}, t('What the editor changed ({n})', { n: r.notes.length })),
+        h('ul', {}, r.notes.map((x) => h('li', {}, x.beat != null && h('b', {}, `#${x.beat + 1} `), x.problem, x.fix && h('span', { class: 'hint' }, ` → ${x.fix}`)))),
+      );
+    }
+    checks.review.disabled = waiting();
+  }
+
   function repaint() {
     const { duration, pace, budget } = T();
     let total = 0;
@@ -1134,6 +1338,7 @@ function renderNarration(platformId, run) {
     meter.fit.hidden = !total || fits || frozen();
     build.disabled = waiting();
     draft.disabled = waiting();
+    checks.review.disabled = waiting();
     foot.textContent = total ? t('The video will run about {n} s. Everything else comes from the brief as it is now.', { n: runs }) : t('Write or paste the narration first.');
   }
 
@@ -1150,6 +1355,7 @@ function renderNarration(platformId, run) {
       autosize(area);
       repaint();
       saveDraftsSoon();
+      recheckSoon(platformId);
     });
     const move = (by) => {
       const j = i + by;
@@ -1157,15 +1363,17 @@ function renderNarration(platformId, run) {
       n.beats.splice(j, 0, n.beats.splice(i, 1)[0]);
       n.dirty = true;
       render();
+      recheckSoon(platformId);
     };
     const tool = (name, label, onclick, off) => h('button', { class: 'icon-btn', type: 'button', title: label, 'aria-label': label, disabled: locked || off, onclick }, icon(name, 16));
-    const card = { count: h('span', { class: 'beat-count' }), time: h('span', { class: 'time' }), area };
+    const card = { count: h('span', { class: 'beat-count' }), time: h('span', { class: 'time' }), area, issues: h('ul', { class: 'beat-issues' }) };
     card.el = h(
       'li',
       { class: `beat${busy ? ' busy' : ''}` },
-      h('div', { class: 'beat-head' }, h('span', { class: 'beat-no' }, String(i + 1).padStart(2, '0')), name && h('span', { class: 'stage' }, name), card.time, h('span', { class: 'spacer' }), card.count),
+      h('div', { class: 'beat-head' }, h('span', { class: 'beat-no' }, String(i + 1).padStart(2, '0')), name && h('span', { class: 'stage' }, name), layerChip(n.card, beat.stage), card.time, h('span', { class: 'spacer' }), card.count),
       guide && h('p', { class: 'beat-guide' }, guide),
       area,
+      card.issues,
       h(
         'div',
         { class: 'beat-actions' },
@@ -1182,6 +1390,7 @@ function renderNarration(platformId, run) {
           n.beats.splice(i, 1);
           n.dirty = true;
           render();
+          recheckSoon(platformId);
         }),
       ),
     );
@@ -1196,6 +1405,7 @@ function renderNarration(platformId, run) {
     old.replaceWith(beatCard(beat));
     autosize(cards.get(beat.id).area);
     repaint();
+    paintChecks();
   }
 
   function addBeat(at) {
@@ -1208,9 +1418,14 @@ function renderNarration(platformId, run) {
   n.dom = {
     repaint,
     paintBeat,
+    paintChecks,
     focus: (beat) => cards.get(beat.id)?.area.focus(),
-    settle: () => (cards.forEach((c) => autosize(c.area)), repaint()),
+    settle: () => (cards.forEach((c) => autosize(c.area)), repaint(), paintChecks()),
   };
+
+  const skills = T().skills || [];
+  const cardPanel = n.card && h('details', { class: 'storyline card-panel' }, h('summary', {}, h('span', {}, t('Viewpoint card')), h('span', { class: 'hint' }, n.card.insight.claim)), cardNode(n.card));
+  const skillsLine = skills.length > 0 && h('p', { class: 'hint skills-line' }, h('b', {}, t('Skills in use')), ' ', skills.map((sk) => h('span', { title: sk.description }, sk.title[lang])));
 
   const framework = frameworkOf($('framework').value);
   const storyline =
@@ -1230,7 +1445,7 @@ function renderNarration(platformId, run) {
     );
 
   const redraft = () => (!has || confirm(t('Replace the narration with a new draft? Undo brings this one back.'))) && draftNarrations([platformId]);
-  const draft = iconBtn('sparkles', has ? t('Redraft') : t('Draft with AI'), { title: t('The narration is written from the brief, one beat per stage of the story line.'), onclick: redraft });
+  const draft = iconBtn('sparkles', has ? t('Redraft') : t('Draft with AI'), { title: $('agent').checked ? t('The agent plans the narration on a viewpoint card, writes it with the skills that fit the brief, then reviews and corrects it.') : t('The narration is written from the brief, one beat per stage of the story line.'), onclick: redraft });
   const build = iconBtn('arrowRight', run.script ? t('Rebuild the script') : t('Generate the script'), { class: 'btn cta', onclick: () => buildFromNarration(platformId) });
   const discard = () => {
     if (has && !confirm(t('Discard this narration?'))) return;
@@ -1268,7 +1483,10 @@ function renderNarration(platformId, run) {
     has || n.beats.length
       ? [
           h('div', { class: 'narr-meter' }, h('div', { class: 'narr-meter-top' }, h('span', { class: 'narr-total' }, meter.count, meter.rest), meter.verdict, meter.fit), meter.bar, meter.note),
+          checks.box,
+          cardPanel,
           storyline,
+          skillsLine,
           h('ol', { class: 'beats' }, n.beats.map(beatCard)),
           h('button', { class: 'btn add-beat', type: 'button', disabled: frozen(), onclick: () => addBeat(n.beats.length) }, icon('plus', 16), h('span', {}, t('Add a beat'))),
           h('div', { class: 'narr-foot' }, foot, build),
@@ -1281,7 +1499,7 @@ function renderNarration(platformId, run) {
             h(
               'div',
               { class: 'actions' },
-              iconBtn('check', t('Use this narration'), { class: 'btn primary', onclick: () => (splitNarration(blank.value).length ? setBeats(run, splitNarration(blank.value).map(newBeat)) : blank.focus()) }),
+              iconBtn('check', t('Use this narration'), { class: 'btn primary', onclick: () => (splitNarration(blank.value).length ? (setBeats(run, splitNarration(blank.value).map(newBeat)), recheck(platformId)) : blank.focus()) }),
               iconBtn('plus', t('Start with one empty beat'), { onclick: () => addBeat(0) }),
             ),
           ),
@@ -1295,8 +1513,34 @@ function renderNarration(platformId, run) {
 /** How far the model has got, read from the partial reply. */
 const scenesSoFar = (raw) => (raw.match(/"voiceover"\s*:/g) || []).length;
 
+const STEP = { skills: 'Pick the skills', write: 'Plan and write the narration', review: 'Measure, review and correct', script: 'Build the script around it' };
+
+/** Where the agent is: every step of its chain with what it has said so far. Null for a single-pass run. */
+function agentSteps(run) {
+  if (!run.plan?.agent && !run.chain) return null;
+  const ids = [...state.meta.agentSteps, ...(run.chain ? ['script'] : [])];
+  const seen = new Map((run.steps || []).map((x) => [x.id, x]));
+  const scripting = run.status === 'running';
+  const active = scripting ? 'script' : ids.find((id) => seen.get(id)?.status !== 'done');
+  return ids.map((id) => {
+    const st = seen.get(id) || {};
+    const done = id !== 'script' && (scripting || st.status === 'done');
+    const detail =
+      id === 'skills' && run.skills?.length
+        ? run.skills.map((sk) => sk.title[lang]).join(' · ')
+        : id === 'write' && done && st.beats
+          ? `${st.card ? `${t('Viewpoint card')} · ` : ''}${t('{n} beats', { n: st.beats })}`
+          : id === 'review' && done && st.errors != null
+            ? st.errors || st.warns ? t('{e} to fix · {w} to consider', { e: st.errors, w: st.warns }) : t('Nothing found by measurement.')
+            : st.note || '';
+    return { id, state: done ? 'done' : id === active ? 'active' : 'todo', label: t(STEP[id]), detail };
+  });
+}
+
 function progressNote(run) {
   if (!run.plan) return t('Contacting the model…');
+  const step = agentSteps(run)?.find((x) => x.state === 'active');
+  if (step) return `${step.label}…`;
   if (run.status === 'drafting') {
     const beats = (run.raw.match(/"text"\s*:/g) || []).length;
     return beats ? t('Writing beat {n}…', { n: beats }) : t('Planning the story line…');
@@ -1331,6 +1575,8 @@ function renderTabs() {
   );
 }
 
+const chapterText = (chapters) => chapters.map((c) => `${c.time} ${c.title}`.trim()).join('\n');
+
 function pubItem(label, value, copyText) {
   return h(
     'div',
@@ -1348,7 +1594,7 @@ function renderScript(platformId, run) {
   const spoken = countSpoken(voText, zh ? 'zh' : 'en');
   const count = zh ? `${spoken} 字` : t('{n} words', { n: spoken });
   const locked = run.plan?.narration; // built around a narration from the editor: { locked, repaired }
-  const meta = [platformOf(platformId).name, `${s.scenes.at(-1).end}s`, runAspect(run).id, t('{n} scenes', { n: s.scenes.length }), t('voiceover {count}', { count }), locked && t('Your narration, word for word'), run.plan?.model && `${run.plan.model}`, styleNames(run.styleIds)].filter(Boolean);
+  const meta = [platformOf(platformId).name, `${s.scenes.at(-1).end}s`, runAspect(run).id, t('{n} scenes', { n: s.scenes.length }), t('voiceover {count}', { count }), locked && (locked.agent ? t('Narration by the agent') : t('Your narration, word for word')), run.plan?.model && `${run.plan.model}`, styleNames(run.styleIds)].filter(Boolean);
 
   return h(
     'div',
@@ -1369,6 +1615,11 @@ function renderScript(platformId, run) {
       ),
     ),
     locked?.repaired && h('p', { class: 'note', role: 'status' }, icon('info', 16), h('span', {}, t('The model changed some of the wording, so your narration was put back word for word. Stress and pause marks were left out.'))),
+
+    s.card && h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h3', {}, t('Viewpoint card'))), cardNode(s.card)),
+
+    s.whiteboard &&
+      h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h3', {}, t('Whiteboard blueprint')), h('div', { class: 'actions' }, h('button', { class: 'btn small', type: 'button', onclick: () => copy(s.whiteboard) }, t('Copy')))), h('pre', { class: 'board' }, s.whiteboard)),
 
     s.hookOptions.length > 0 &&
       h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h3', {}, t('Hook options'))), h('div', { class: 'hooks' }, s.hookOptions.map((o) => h('div', { class: 'hook' }, o.type && h('div', { class: 'type' }, o.type), h('div', {}, voNodes(o.line)))))),
@@ -1396,7 +1647,7 @@ function renderScript(platformId, run) {
               h(
                 'div',
                 { class: 'scene' },
-                h('div', {}, h('div', { class: 'time' }, `${fmtTime(sc.start)}–${fmtTime(sc.end)}`), sc.stage && h('span', { class: 'stage' }, sc.stage)),
+                h('div', {}, h('div', { class: 'time' }, `${fmtTime(sc.start)}–${fmtTime(sc.end)}`), sc.stage && h('span', { class: 'stage' }, sc.stage), layerChip(s.card, sc.stage)),
                 h(
                   'div',
                   {},
@@ -1426,8 +1677,10 @@ function renderScript(platformId, run) {
         s.publish.titles.length > 0 && pubItem(t('Titles'), h('ol', {}, s.publish.titles.map((title) => h('li', {}, title))), s.publish.titles.join('\n')),
         s.publish.coverText && pubItem(t('Cover text'), s.publish.coverText, s.publish.coverText),
         s.publish.description && pubItem(t('Description'), s.publish.description, s.publish.description),
+        s.publish.shareLine && pubItem(t('Line for sharing'), s.publish.shareLine, s.publish.shareLine),
         s.publish.hashtags.length > 0 && pubItem(t('Hashtags'), s.publish.hashtags.join(' '), s.publish.hashtags.join(' ')),
         s.publish.pinnedComment && pubItem(t('Pinned comment'), s.publish.pinnedComment, s.publish.pinnedComment),
+        s.publish.chapters?.length > 0 && pubItem(t('Chapters'), h('ol', { class: 'chapters' }, s.publish.chapters.map((c) => h('li', {}, c.time && h('span', { class: 'time' }, c.time), c.title))), chapterText(s.publish.chapters)),
       ),
     ),
 
@@ -1456,10 +1709,13 @@ function render() {
       ? t('Contacting the model…')
       : run.status === 'drafting'
         ? t('Writing the narration for {platform} with {model} · target about {budget} {unit}', about)
-        : run.plan.narration || run.brief?.narration
-          ? t('Building the script for {platform} around your narration with {model}', about)
+        : run.brief?.narrationBy === 'agent'
+          ? t('Building the script for {platform} around the narration with {model}', about)
+          : run.plan.narration || run.brief?.narration
+            ? t('Building the script for {platform} around your narration with {model}', about)
           : t('Writing for {platform} with {model} · target about {budget} {unit} of voiceover', about);
     const pre = h('pre', { class: 'stream' }, run.raw);
+    const steps = agentSteps(run);
     box.replaceChildren(
       h(
         'div',
@@ -1467,7 +1723,9 @@ function render() {
         h('div', { class: 'progress-head' }, h('span', { class: 'spin' }), h('p', { class: 'progress-title' }, progressNote(run))),
         h('div', { class: 'progress-bar' }, h('i')),
         h('p', { class: 'stream-note' }, note),
-        h('div', { class: 'skeleton', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')),
+        steps
+          ? h('ol', { class: 'agent-steps' }, steps.map((x) => h('li', { class: x.state }, h('span', { class: 'agent-dot' }, x.state === 'done' ? icon('check', 14) : x.state === 'active' ? h('span', { class: 'spin' }) : null), h('div', {}, h('b', {}, x.label), x.detail && h('span', { class: 'hint' }, x.detail)))))
+          : h('div', { class: 'skeleton', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')),
         h('details', { class: 'raw' }, h('summary', {}, t('Show the raw reply')), pre),
       ),
     );

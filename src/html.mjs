@@ -9,10 +9,12 @@ const LABELS = {
   en: {
     platform: 'Platform', length: 'Length', scenes: 'scenes', hooks: 'Hook options', script: 'Script', voiceover: 'Voiceover only', onScreen: 'On screen', visual: 'Visual', camera: 'Camera', sound: 'Sound',
     publish: 'Publishing package', titles: 'Titles', cover: 'Cover text', description: 'Description', hashtags: 'Hashtags', pinned: 'Pinned comment', notes: 'Production notes', made: 'Made with Video Scripter', pause: 'pause',
+    card: 'Viewpoint card', board: 'Whiteboard blueprint', share: 'Line for sharing', chapters: 'Chapters', persona: 'Speaking as', viewer: 'For', insight: 'Core insight', against: 'Overturns', insider: 'Insider explanation', experience: 'First-hand experience', drafted: 'Drafted: confirm or replace', analogy: 'Analogy', mustSay: 'Must be spoken', verify: 'Before you record',
   },
   zh: {
     platform: '平台', length: '时长', scenes: '个场景', hooks: '开场钩子备选', script: '脚本', voiceover: '纯旁白', onScreen: '屏幕文字', visual: '画面', camera: '镜头', sound: '声音',
     publish: '发布素材', titles: '标题', cover: '封面文字', description: '描述文案', hashtags: '话题标签', pinned: '置顶评论', notes: '制作备注', made: '由 Video Scripter 生成', pause: '停顿',
+    card: '三维观点卡', board: '板书蓝图', share: '转发导语', chapters: '章节', persona: '人设', viewer: '受众', insight: '核心认知', against: '推翻的共识', insider: '内行解说', experience: '顾问经验', drafted: '草拟：请确认或替换', analogy: '类比', mustSay: '必须说出口', verify: '录制前核实',
   },
 };
 
@@ -60,6 +62,12 @@ dd.screen{font-weight:650}
 .media img,.media video{display:block;width:180px;aspect-ratio:9/16;object-fit:cover;border-radius:12px;border:1px solid var(--line);background:var(--soft)}
 .media figcaption{font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-top:4px}
 .teleprompter{white-space:pre-wrap;font-size:18px;line-height:1.9}
+.vc{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 16px;margin:0;padding:0;border:0;font-size:15px}
+.vc dt{padding-top:3px}
+.vc ul{padding-left:18px}
+.claim{font-weight:650;font-size:17px}
+.tag{display:inline-block;margin-left:8px;padding:0 7px;border-radius:999px;background:var(--mark);font-size:11px;font-weight:650}
+.board{margin:0;font:13px/1.5 ui-monospace,"SF Mono",Menlo,monospace;white-space:pre;overflow-x:auto}
 .value{white-space:pre-wrap;word-break:break-word}
 ol,ul{margin:0;padding-left:22px}
 footer{margin-top:48px;color:var(--muted);font-size:13px}
@@ -112,9 +120,33 @@ ${
     pub.titles?.length && card(L.titles, `<ol>${pub.titles.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>`),
     pub.coverText && card(L.cover, `<div class="value">${esc(pub.coverText)}</div>`),
     pub.description && card(L.description, `<div class="value">${esc(pub.description)}</div>`),
+    pub.shareLine && card(L.share, `<div class="value">${esc(pub.shareLine)}</div>`),
     pub.hashtags?.length && card(L.hashtags, `<div class="value">${esc(pub.hashtags.join(' '))}</div>`),
     pub.pinnedComment && card(L.pinned, `<div class="value">${esc(pub.pinnedComment)}</div>`),
+    pub.chapters?.length && card(L.chapters, `<ul>${pub.chapters.map((c) => `<li>${c.time ? `<span class="time">${esc(c.time)}</span> ` : ''}${esc(c.title)}</li>`).join('')}</ul>`),
   ].filter(Boolean);
+
+  // The viewpoint card the narration was written to: the first page of the package.
+  const vc = s.card;
+  const items = (list) => (list?.length ? `<ul>${list.map((x) => `<li>${x}</li>`).join('')}</ul>` : '');
+  const viewpoint = vc
+    ? card(
+        '',
+        `<dl class="vc">${[
+          [L.persona, esc(vc.persona)],
+          [L.viewer, esc(vc.viewer)],
+          [L.insight, vc.insight?.claim ? `<div class="claim">${esc(vc.insight.claim)}</div>${vc.insight.against ? `<div>${esc(L.against)}: ${esc(vc.insight.against)}</div>` : ''}` : ''],
+          [L.insider, items((vc.insider || []).map(esc))],
+          [L.experience, items((vc.experience || []).map((e) => `${esc(e.point)}${e.source === 'draft' ? `<span class="tag">${esc(L.drafted)}</span>` : ''}`))],
+          [L.analogy, esc(vc.analogy)],
+          [L.mustSay, esc((vc.mustSay || []).join(' · '))],
+          [L.verify, items((vc.toVerify || []).map(esc))],
+        ]
+          .filter(([, v]) => v)
+          .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`)
+          .join('')}</dl>`,
+      )
+    : '';
 
   return `<!doctype html>
 <html lang="${lang === 'zh' ? 'zh-CN' : 'en'}">
@@ -129,6 +161,8 @@ ${
 <h1>${esc(s.title)}</h1>
 ${s.logline ? `<p class="logline">${esc(s.logline)}</p>` : ''}
 <div class="meta">${meta.map((m) => `<span>${esc(m)}</span>`).join('')}</div>
+${section(L.card, viewpoint)}
+${section(L.board, s.whiteboard ? `<pre class="card board">${esc(s.whiteboard)}</pre>` : '')}
 ${section(L.hooks, s.hookOptions?.length ? `<div class="grid">${s.hookOptions.map((o) => card(o.type, `<div>${voice(o.line, L)}</div>`)).join('')}</div>` : '')}
 ${section(L.script, scenes)}
 ${section(L.voiceover, `<div class="card teleprompter">${esc(s.scenes.map((sc) => spoken(sc.voiceover)).join('\n\n'))}</div>`)}

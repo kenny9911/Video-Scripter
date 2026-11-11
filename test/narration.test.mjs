@@ -20,13 +20,16 @@ test('every framework belongs to a group, and a narration style is complete in b
     assert.ok(Math.abs(f.stages.reduce((n, s) => n + s.share, 0) - 1) < 1e-9, `${f.id}: stage shares must add up to 1`);
     assert.equal(new Set(f.stages.map((s) => s.key)).size, f.stages.length, `${f.id}: stage keys must be unique`);
   }
-  assert.deepEqual(styles.map((f) => f.id), ['tech_explainer', 'tech_news', 'earnings']);
+  assert.deepEqual(styles.map((f) => f.id), ['loss_stop', 'mouthpiece', 'toolkit', 'quiet_story', 'tech_explainer', 'consultant_lecture', 'tech_news', 'earnings']);
   for (const f of styles) {
     for (const lang of ['zh', 'en']) {
       assert.ok(f.voice[lang].length >= 6, `${f.id}: ${lang} voice rules`);
       assert.ok(f.topics[lang].length >= 1, `${f.id}: ${lang} example topics`);
     }
     assert.equal(f.voice.zh.length, f.voice.en.length, `${f.id}: the two languages carry the same rules`);
+    // A style is made for a pace and a length: both languages, and a default inside the range.
+    assert.ok(f.pace.zh > 3 && f.pace.zh < 5 && f.pace.en > 2 && f.pace.en < 3, `${f.id}: pace`);
+    assert.ok(f.length.min <= f.length.default && f.length.default <= f.length.max && f.length.max <= server.MAX_DURATION, `${f.id}: length`);
   }
 });
 
@@ -153,7 +156,7 @@ test('the narration prompt asks for one beat per stage with room for each, in th
   for (const s of plan.timeline) assert.ok(system.includes(`[${s.key}]`), s.key);
   assert.match(system, /\[hook\].*\(about \d+ 汉字\)/);
   assert.ok(system.includes(`about ${plan.budget} 汉字`));
-  assert.ok(system.includes('# Narration style: 硬核技术破壁与落地风'));
+  assert.ok(system.includes('# Narration style: 硬核技术破壁风（短平快版）'));
   assert.ok(system.includes('"beats"') && !system.includes('"scenes"'));
   assert.ok(user.includes('<<<REFERENCE') && user.includes('Write the narration'));
   for (const f of FRAMEWORKS) assert.ok(buildNarrationPrompts(buildPlan({ platformId: 'tiktok', frameworkId: f.id, topic: 'x' })).system.includes('# Story line'));
@@ -251,26 +254,55 @@ test('HTTP: plan, draft, refine, and a script built around a locked narration', 
       .filter(Boolean)
       .map((block) => ({ event: /^event: (.*)$/m.exec(block)?.[1], data: JSON.parse(/^data: (.*)$/m.exec(block)?.[1] || 'null') }));
 
-  for (const url of ['/api/plan', '/api/narration/draft', '/api/narration/refine']) assert.equal((await json(url, zhBrief)).status, 401, `${url} needs a signed-in user`);
+  for (const url of ['/api/plan', '/api/narration/draft', '/api/narration/review', '/api/narration/refine', '/api/narration/check']) assert.equal((await json(url, zhBrief)).status, 401, `${url} needs a signed-in user`);
   assert.equal((await json('/api/auth/login', admin)).status, 200);
 
   const meta = await (await fetch(`http://127.0.0.1:${port}/api/meta`, { headers: { cookie } })).json();
-  assert.deepEqual(meta.frameworkGroups.map((g) => g.id), ['general', 'tech']);
-  assert.deepEqual(meta.frameworks.filter((f) => f.group === 'tech').map((f) => [f.id, f.needsReference]), [['tech_explainer', false], ['tech_news', true], ['earnings', true]]);
+  assert.deepEqual(meta.frameworkGroups.map((g) => g.id), ['general', 'voice', 'tech']);
+  assert.deepEqual(meta.frameworks.filter((f) => f.group === 'tech').map((f) => [f.id, f.needsReference]), [['tech_explainer', false], ['consultant_lecture', false], ['tech_news', true], ['earnings', true]]);
+  assert.deepEqual(meta.frameworks.find((f) => f.id === 'consultant_lecture').length, { min: 180, max: 360, default: 240 });
+  assert.ok(meta.skills.length >= 6 && meta.skills.every((sk) => sk.title.zh && sk.title.en && sk.description && !('body' in sk)), 'skills are listed by name; the playbooks stay on the server');
+  assert.deepEqual(meta.agentSteps, ['skills', 'write', 'review']);
   assert.ok(meta.frameworks.every((f) => !('voice' in f) && !('stages' in f)), 'the prompt rules stay on the server');
   assert.deepEqual(meta.pace, PACE);
   assert.deepEqual(meta.refinePresets.map((p) => p.id), REFINE_PRESETS.map((p) => p.id));
 
   // What there is room for.
   const plan = (await json('/api/plan', zhBrief)).body;
-  assert.deepEqual([plan.duration, plan.lang, plan.unit, plan.budget, plan.timeline.length], [90, 'zh', '汉字', Math.round(90 * PACE.zh), 8]);
+  assert.deepEqual([plan.duration, plan.lang, plan.unit, plan.budget, plan.timeline.length], [90, 'zh', '汉字', Math.round(90 * PACE.zh), 5]);
+  assert.ok(plan.skills.some((sk) => sk.id === 'enterprise-ai-ontology'), 'a topic that names Ontology brings the knowledge base in');
   assert.equal((await json('/api/plan', { platformId: 'douyin' })).status, 400); // no topic
 
-  // A drafted narration: one beat per stage. Nothing is saved yet.
+  // A drafted narration: the agent picks its skills, plans on a viewpoint card and writes to it. One beat per
+  // stage. Nothing is saved yet.
+  const stepsOf = (list) => list.filter((e) => e.event === 'step').map((e) => `${e.data.id}:${e.data.status}`);
   const drafted = await events('/api/narration/draft', zhBrief);
   assert.deepEqual([drafted[0].event, drafted.at(-1).event], ['plan', 'done']);
+  assert.equal(drafted[0].data.agent, true);
+  assert.deepEqual(stepsOf(drafted), ['skills:done', 'write:start', 'write:done']);
   const beats = drafted.at(-1).data.narration.beats;
   assert.deepEqual(beats.map((b) => b.stage), plan.timeline.map((s) => s.key));
+  const { card, report } = drafted.at(-1).data;
+  assert.ok(card.insight.claim && card.outline.length === plan.timeline.length, 'the viewpoint card comes with the narration');
+  assert.ok(Array.isArray(report.findings) && report.stats.total > 0 && report.reviewed === false && report.skills.length > 0, 'measured, not yet reviewed');
+  // The agent's other half, as a request of its own: the review.
+  const streamed = await events('/api/narration/review', { ...zhBrief, narration: beats, card });
+  assert.deepEqual([streamed[0].event, streamed.at(-1).event], ['plan', 'done']);
+  assert.deepEqual(stepsOf(streamed).filter((x) => !x.endsWith(':note')), ['review:start', 'review:done']);
+  assert.deepEqual([streamed.at(-1).data.beats.length, streamed.at(-1).data.report.reviewed], [beats.length, true]);
+  assert.equal((await json('/api/narration/review', { ...zhBrief, narration: [] })).status, 400);
+  // A quick draft skips the agent: one pass, still measured.
+  const quick = await events('/api/narration/draft', { ...zhBrief, agent: false });
+  assert.ok(!quick.some((e) => e.event === 'step') && !quick.at(-1).data.card && quick.at(-1).data.report.reviewed === false);
+
+  // The measured checks alone: no model call, nothing changed.
+  const checked = await json('/api/narration/check', { ...zhBrief, narration: [{ stage: 'hook', text: '大家好，我是老王。总结一下，加微信领资料。' }] });
+  assert.equal(checked.status, 200);
+  assert.deepEqual(['opening.greeting', 'closing.wrapup', 'compliance.banned'].filter((rule) => !checked.body.findings.some((f) => f.rule === rule && f.level === 'error')), []);
+  // The agent's review step on a narration that already exists.
+  const reviewed = await json('/api/narration/refine', { ...zhBrief, narration: beats, card, preset: 'review' });
+  assert.deepEqual([reviewed.status, reviewed.body.beats.length, reviewed.body.report.reviewed], [200, beats.length, true]);
+  assert.equal((await json('/api/narration/refine', { ...zhBrief, narration: [], preset: 'review' })).status, 400);
   assert.deepEqual((await (await fetch(`http://127.0.0.1:${port}/api/history`, { headers: { cookie } })).json()).length, 0);
 
   // Refine one beat, then the whole narration.
@@ -294,14 +326,21 @@ test('HTTP: plan, draft, refine, and a script built around a locked narration', 
   assert.ok(done.data.entry.plan.duration < 90, 'a short narration makes a short video');
   // A script written in one go carries no narration of its own.
   const plain = (await events('/api/generate', zhBrief)).at(-1).data.entry;
-  assert.deepEqual([plain.plan.narration, plain.brief.narration, plain.plan.duration], [undefined, undefined, 90]);
+  assert.deepEqual([plain.plan.narration, plain.brief.narration, plain.plan.duration, plain.script.card], [undefined, undefined, 90, undefined]);
+  // The agent's narration chained into a script: marked as the agent's, and its card stays with the script.
+  const chained = (await events('/api/generate', { ...zhBrief, narration: beats, card, narrationBy: 'agent' })).at(-1).data.entry;
+  assert.deepEqual(chained.plan.narration, { locked: true, repaired: false, agent: true });
+  assert.equal(chained.script.card.insight.claim, card.insight.claim);
+  assert.ok(!('card' in chained.brief) && !('narrationBy' in chained.brief) && !('agent' in chained.brief), 'only the brief itself is kept as the brief');
   assert.equal((await json('/api/generate', { ...zhBrief, narration: [{ text: '字'.repeat(MAX_NARRATION + 1) }] })).status, 400);
 
-  // Every model call is on the record: one draft and two refinements as "narration", two scripts.
+  // Every model call is on the record. As "narration": the agent's draft, the quick draft, two reviews (each one
+  // pass, or two when measured errors are left) and two refinements. Three scripts.
   const usage = await (await fetch(`http://127.0.0.1:${port}/api/usage?days=0`, { headers: { cookie } })).json();
   const kinds = Object.fromEntries(usage.byKind.map((k) => [k.key, k.calls]));
-  assert.deepEqual([kinds.narration, kinds.script], [3, 2]);
+  assert.ok(kinds.narration >= 6 && kinds.narration <= 8, `narration calls: ${kinds.narration}`);
+  assert.equal(kinds.script, 3);
   const activity = await (await fetch(`http://127.0.0.1:${port}/api/activity`, { headers: { cookie } })).json();
   const types = activity.items.map((a) => a.type);
-  assert.ok(types.includes('narration.draft') && types.filter((x) => x === 'narration.refine').length === 2);
+  assert.ok(types.includes('narration.draft') && types.filter((x) => x === 'narration.refine').length === 4);
 });

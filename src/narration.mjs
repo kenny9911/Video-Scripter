@@ -6,11 +6,11 @@
 // countSpoken, splitNarration and fitDuration also run in the browser (public/narration.js) so the
 // editor can count while you type. The two copies are kept identical by test/narration.test.mjs.
 
-export const PACE = { zh: 4.3, en: 2.6 }; // spoken Chinese characters / English words per second
+export const PACE = { zh: 4.3, en: 2.6 }; // spoken Chinese characters / English words per second, unless a narration style sets its own
 export const MIN_DURATION = 10;
-export const MAX_DURATION = 300;
+export const MAX_DURATION = 360;
 export const MAX_BEATS = 60;
-export const MAX_NARRATION = 8000; // characters over all beats; five minutes of speech is well under this
+export const MAX_NARRATION = 8000; // characters over all beats; six minutes of speech is well under this
 
 /** Spoken text without the delivery marks a script carries: [[stress]] and ⏸ pauses. */
 export const spokenText = (s) => String(s ?? '').replace(/\[\[|\]\]/g, '').replace(/\s*⏸\s*/g, ' ').trim();
