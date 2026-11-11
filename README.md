@@ -57,7 +57,7 @@ Only the topic is required. The rest sharpens the result.
 | --- | --- |
 | Topic | What the video is about |
 | Platforms | One script is written per platform you tick |
-| Structure and Length | The story framework, or a narration style that also sets the voice, and the running time |
+| Structure and Length | The story framework, or a narration style that also sets the voice, and the running time: Auto, one of the platform's lengths, or **Custom** for any length from 10 to 300 seconds |
 | Visual style | One look, or two blended, for the scene notes and all generated media |
 | Key message, Audience, Tone | The one thing to remember, who it is for, and how it should sound |
 | Brand or creator, Call to action | Who is speaking and what the viewer should do next |

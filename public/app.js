@@ -4,7 +4,7 @@ import { t, lang, applyI18n } from './i18n.js';
 import { icon, hydrateIcons } from './icons.js';
 import { showAuth, wireAccount } from './account.js';
 import { wireTheme, wireLang, enhancePasswords } from './shell.js';
-import { countSpoken, fitDuration, splitNarration, spokenText } from './narration.js';
+import { countSpoken, fitDuration, splitNarration, spokenText, MIN_DURATION, MAX_DURATION } from './narration.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -206,6 +206,37 @@ function refreshSummaries() {
   $('topicIdeas').hidden = Boolean($('topic').value.trim());
 }
 
+// ---------- Length: Auto (the platform's usual length), one of the platform's lengths, or a custom number of seconds ----------
+
+const clampSeconds = (v) => Math.min(MAX_DURATION, Math.max(MIN_DURATION, Math.round(Number(v))));
+
+/** The length asked for, in seconds as a string. '' is Auto. */
+function durationValue() {
+  if ($('duration').value !== 'custom') return $('duration').value;
+  return Number($('durationCustom').value) > 0 ? String(clampSeconds($('durationCustom').value)) : '';
+}
+
+let lastPreset = ''; // the length that was chosen before "Custom"
+
+/** The seconds field is shown, and has to be filled in, only while "Custom" is chosen. */
+function syncCustomDuration() {
+  const custom = $('duration').value === 'custom';
+  $('durationCustomBox').hidden = !custom;
+  $('durationCustom').disabled = !custom;
+  if (!custom) lastPreset = $('duration').value;
+}
+
+/** Choose a length: one the platforms offer when there is such an option, otherwise as a custom number of seconds. */
+function setDuration(value) {
+  const seconds = String(value || '');
+  if ([...$('duration').options].some((o) => o.value === seconds && seconds !== 'custom')) $('duration').value = seconds;
+  else if (Number(seconds) > 0) {
+    $('duration').value = 'custom';
+    $('durationCustom').value = clampSeconds(seconds);
+  } else $('duration').value = '';
+  syncCustomDuration();
+}
+
 function refreshDurations() {
   const sel = $('duration');
   const keep = sel.value;
@@ -215,8 +246,20 @@ function refreshDurations() {
   sel.replaceChildren(
     h('option', { value: '' }, t('Auto')),
     ...[...options].sort((a, b) => a - b).map((d) => h('option', { value: d }, d >= 120 ? `${d / 60} min` : `${d} s`)),
+    h('option', { value: 'custom' }, t('Custom…')),
   );
-  sel.value = [...sel.options].some((o) => o.value === keep) ? keep : '';
+  sel.value = [...sel.options].some((o) => o.value === keep) ? keep : ''; // a length the platforms no longer offer -> Auto
+  syncCustomDuration();
+}
+
+/** The picker changed. Choosing "Custom" starts from the length that was showing, so the field is never empty. */
+function onDurationPick() {
+  syncCustomDuration();
+  if ($('duration').value !== 'custom') return;
+  const field = $('durationCustom');
+  if (!field.value) field.value = clampSeconds(lastPreset || platformOf(selectedPlatforms()[0])?.defaultDuration || 60);
+  field.focus();
+  field.select();
 }
 
 const frameworkOf = (id) => state.meta.frameworks.find((f) => f.id === id);
@@ -251,7 +294,7 @@ function setNarrationMode(mode) {
 
 function saveForm() {
   const data = Object.fromEntries(FIELDS.map((f) => [f, $(f).value]));
-  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: $('duration').value, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: state.styleIds, narrationMode: state.narrationMode });
+  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: durationValue(), aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: state.styleIds, narrationMode: state.narrationMode });
   try {
     localStorage.setItem(FORM_KEY, JSON.stringify(data));
   } catch {}
@@ -273,8 +316,7 @@ function fillForm(data) {
   if (state.meta.imageModes.some((m) => m.id === data.imageMode)) $('imageMode').value = data.imageMode;
   refreshImageMode();
   refreshDurations();
-  const duration = String(data.duration || '');
-  $('duration').value = [...$('duration').options].some((o) => o.value === duration) ? duration : ''; // a length the platform no longer offers -> Auto
+  setDuration(data.duration); // a length the platforms do not offer comes back as a custom one
   if (data.narrationMode) setNarrationMode(data.narrationMode); // a script from the history does not say: leave the choice alone
   refreshBlurb();
 }
@@ -314,6 +356,9 @@ function buildForm() {
   $('aspects').append(...state.meta.aspects.map((a) => h('label', { class: 'chip' }, h('input', { type: 'radio', name: 'aspect', value: a.id }), h('span', {}, `${a.id} ${a.name[lang]}`))));
   setAspect();
   refreshDurations();
+  $('duration').addEventListener('change', onDurationPick);
+  // Seconds outside the range are brought into it as soon as the field is left.
+  $('durationCustom').addEventListener('change', (e) => Number(e.target.value) > 0 && (e.target.value = clampSeconds(e.target.value)));
   buildStyles();
   $('imageMode').append(...state.meta.imageModes.map((m) => h('option', { value: m.id }, m.name[lang])));
   $('imageCount').addEventListener('change', refreshImageMode);
@@ -412,7 +457,7 @@ function runChanged(platformId) {
 /** The brief as the form has it now. */
 function collectBrief() {
   const brief = Object.fromEntries(FIELDS.map((f) => [f, $(f).value.trim()]));
-  return Object.assign(brief, { frameworkId: $('framework').value, duration: $('duration').value || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: [...state.styleIds] });
+  return Object.assign(brief, { frameworkId: $('framework').value, duration: durationValue() || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: [...state.styleIds] });
 }
 
 const isWriting = (run) => run.status === 'running' || run.status === 'drafting';

@@ -108,10 +108,16 @@
               <span>Structure</span>
               <select id="framework"></select>
             </label>
-            <label class="field narrow">
-              <span>Length</span>
-              <select id="duration"></select>
-            </label>
+            <div class="field narrow">
+              <label class="field">
+                <span>Length</span>
+                <select id="duration"></select>
+              </label>
+              <div id="durationCustomBox" class="unit-input" hidden>
+                <input id="durationCustom" type="number" min="10" max="300" step="1" inputmode="numeric" placeholder="10–300" aria-label="Length in seconds" required disabled>
+                <span aria-hidden="true">s</span>
+              </div>
+            </div>
           </div>
           <p id="frameworkBlurb" class="hint"></p>
           <p id="frameworkNeeds" class="hint note" data-icon="info" data-icon-size="16" hidden><span>This style reports facts. Paste the news or the figures under Details → Reference material. Where a fact is missing, the script leaves a marked gap instead of inventing one.</span></p>

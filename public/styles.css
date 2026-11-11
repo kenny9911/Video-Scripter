@@ -177,8 +177,12 @@ details.fold[open] > summary::after { transform: rotate(225deg); margin-top: 4px
 .field em { font-style: normal; font-weight: 450; color: var(--muted); margin-left: 4px; }
 .field.narrow { flex: 0 0 116px; }
 .row { display: flex; gap: 12px; }
+/* A number with its unit after it, e.g. a custom length in seconds. */
+.unit-input { display: flex; align-items: center; gap: 8px; }
+.unit-input input { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
+.unit-input span { flex: none; color: var(--muted); font-size: 13px; }
 
-input[type='text'], input[type='url'], input[type='password'], input[type='search'], textarea, select {
+input[type='text'], input[type='url'], input[type='password'], input[type='search'], input[type='number'], textarea, select {
   width: 100%; min-height: var(--tap); padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--panel); color: var(--ink);
 }
 select { appearance: none; padding-right: 34px; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%; background-size: 5px 5px; background-repeat: no-repeat; text-overflow: ellipsis; }
@@ -507,7 +511,7 @@ details.media-settings > summary { cursor: pointer; font-size: 14px; font-weight
   .output-head { position: sticky; top: calc(var(--topbar-h) + env(safe-area-inset-top)); z-index: 10; background: var(--bg); padding: 8px 12px; }
   .result { padding: 16px; }
 
-  input[type='text'], input[type='url'], input[type='password'], input[type='search'], input[type='email'], textarea, select { font-size: 16px; }
+  input[type='text'], input[type='url'], input[type='password'], input[type='search'], input[type='email'], input[type='number'], textarea, select { font-size: 16px; }
   .row { flex-direction: column; gap: 14px; }
   .field.narrow { flex: 1; }
   .platform-group, .style-group { flex-direction: column; align-items: stretch; gap: 6px; }

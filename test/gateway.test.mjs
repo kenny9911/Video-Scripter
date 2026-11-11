@@ -169,6 +169,16 @@ test('every platform x framework yields a continuous timeline and a prompt', () 
   }
 });
 
+test('a custom length is taken as given, within 10 to 300 seconds', () => {
+  const at = (duration) => buildPlan({ platformId: 'douyin', topic: 'x', duration });
+  assert.equal(at(75).brief.duration, 75);
+  assert.equal(at('42').brief.duration, 42);
+  assert.equal(at(75).timeline.at(-1).end, 75);
+  assert.equal(at(75).budget, Math.round(75 * 4.3));
+  assert.deepEqual([at(3).brief.duration, at(999).brief.duration], [10, 300]);
+  assert.equal(at(undefined).brief.duration, 45); // Auto: the platform's usual length
+});
+
 test('parseScript tolerates fences and normalises fields', () => {
   const raw = '```json\n{"title":"T","scenes":[{"start":0,"end":3,"voiceover":"hi"}],"publish":{"hashtags":["a","#b"],"titles":"one"}}\n```';
   const s = parseScript(raw);

@@ -262,6 +262,8 @@ const ZH = {
   'Aspect ratio': '画面比例',
   'The script is written for this frame, and scene images and clips are made in it.': '脚本按这个画幅来写，场景图片和视频片段也按它生成。',
   Auto: '自动',
+  'Custom…': '自定义…',
+  'Length in seconds': '时长（秒）',
   'Visual style': '画面风格',
   'pick one, or two to blend': '选一种，或选两种混合',
   'No style chosen: the script and image model decide the look.': '未选择风格：由脚本和图像模型自行决定画面。',
