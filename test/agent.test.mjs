@@ -262,7 +262,14 @@ test('an edit that measures worse is not taken, and a second pass runs only whil
 
 test('the agent fails only when there is no draft: an unreadable review keeps the draft', async () => {
   const plan = buildPlan(palantir);
-  await assert.rejects(runNarrationAgent({ config: {}, plan, chat: scripted([{ card: draftCard }]).chat }), (err) => err.unreadable === true && typeof err.raw === 'string' && /no narration/.test(err.message));
+  // A reply with no narration is asked for once more; two in a row fail the draft.
+  const never = scripted([{ card: draftCard }, { card: draftCard }]);
+  await assert.rejects(runNarrationAgent({ config: {}, plan, chat: never.chat }), (err) => err.unreadable === true && typeof err.raw === 'string' && /no narration/.test(err.message));
+  assert.equal(never.calls.length, 2);
+  const again = scripted(['Sorry, could you say more about the topic?', { card: draftCard, title: 'T', beats: clean }]);
+  const asked = [];
+  const second = await writeNarration({ config: {}, plan, chat: again.chat, emit: (e, d) => d.status === 'note' && asked.push(d.note) });
+  assert.deepEqual([second.beats, again.calls.length, asked.length], [clean, 2, 1]);
   const notes = [];
   const out = await runNarrationAgent({ config: {}, plan, chat: scripted([{ beats: clean }, { oops: true }]).chat, emit: (e, d) => d.status === 'note' && notes.push(d.note) });
   assert.deepEqual([out.beats, out.report.rounds, out.report.reviewed, notes.length], [clean, 0, false, 1]);

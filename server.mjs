@@ -529,7 +529,7 @@ const routes = {
         send('done', { narration: { title: written.title, beats: written.beats }, card: written.card, report: written.report });
       } catch (err) {
         if (err.name !== 'AbortError') {
-          await logActivity(req, user, 'narration.failed', { ...about, agent: true, error: err.message.slice(0, 200) });
+          await logActivity(req, user, 'narration.failed', { ...about, agent: true, error: err.message.slice(0, 200), ...(err.unreadable && { reply: String(err.raw || '').slice(0, 300) }) });
           if (err.unreadable) send('done', { narration: null, raw: err.raw, parseError: err.message });
           else send('error', { error: err.message });
         }

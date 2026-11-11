@@ -31,6 +31,7 @@ import { reviewNarration } from './review.mjs';
 
 export const AGENT_STEPS = ['skills', 'write', 'review'];
 const MAX_REVIEW_ROUNDS = 2;
+const WRITE_ATTEMPTS = 2;
 
 const isAbort = (err) => err?.name === 'AbortError' || err?.name === 'TimeoutError';
 
@@ -100,18 +101,23 @@ async function review({ call, plan, beats, card, emit, until = Infinity }) {
 /**
  * Pick the skills, then plan and write: the viewpoint card and the narration written to it, in one reply.
  * The report is what the draft measures as; it has not been reviewed yet.
- * Throws when the reply has no narration (`unreadable`, with the `raw` reply).
+ * A reply with no narration is asked for once more; a second one throws (`unreadable`, with the `raw` reply).
  */
 export async function writeNarration({ config, plan, signal, emit = () => {}, onCall, chat = streamChat }) {
   const call = caller({ config, signal, emit, onCall, chat });
   emit('step', { id: 'skills', status: 'done', skills: plan.skills.map(publicSkill) });
   emit('step', { id: 'write', status: 'start' });
-  const raw = await call('write', buildNarrationPrompts(plan, { planFirst: true }), { plan, kind: 'narration', planFirst: true });
+  // A model now and then answers with a stray sentence instead of the narration: ask once more before giving up.
+  let raw;
   let draft;
-  try {
-    draft = parseNarration(raw);
-  } catch (err) {
-    throw Object.assign(err, { raw, unreadable: true });
+  for (let attempt = 1; !draft; attempt++) {
+    raw = await call('write', buildNarrationPrompts(plan, { planFirst: true }), { plan, kind: 'narration', planFirst: true });
+    try {
+      draft = parseNarration(raw);
+    } catch (err) {
+      if (attempt === WRITE_ATTEMPTS) throw Object.assign(err, { raw, unreadable: true });
+      emit('step', { id: 'write', status: 'note', note: `The reply could not be read (${err.message}); asking again.` });
+    }
   }
   // A reply whose card cannot be read still gives a narration: it is then reviewed without one.
   const card = normalizeCard(replyJson(raw).card, plan.timeline.map((s) => s.key));
