@@ -1,7 +1,7 @@
 // Signed-out screen, and the Account dialog: usage, activity log and your own profile.
 // The helpers exported here are shared with the admin page (admin.js).
 
-import { t, lang } from './i18n.js';
+import { t, lang, explain } from './i18n.js';
 import { wireLang, enhancePasswords, concealPassword } from './shell.js';
 
 const $ = (id) => document.getElementById(id);
@@ -22,7 +22,7 @@ export const when = (ts) => (ts ? new Date(ts).toLocaleString(lang === 'zh' ? 'z
 export async function call(path, options = {}) {
   const res = await fetch(path, { ...options, headers: options.body ? { 'content-type': 'application/json' } : undefined, body: options.body ? JSON.stringify(options.body) : undefined });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(t(data.error) || t('Request failed ({status})', { status: res.status }));
+  if (!res.ok) throw new Error(explain(t(data.error) || t('Request failed ({status})', { status: res.status }), data.cause));
   return data;
 }
 

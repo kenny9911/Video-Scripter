@@ -25,6 +25,7 @@ import { PACE, MIN_DURATION, MAX_DURATION, normalizeNarration, lockNarration } f
 import { writeNarration, reviseNarration, checkNarration, AGENT_STEPS } from './src/agent/narrator.mjs';
 import { normalizeCard } from './src/agent/card.mjs';
 import { SKILLS, publicSkill } from './src/agent/skills.mjs';
+import { errorBody, causeLine } from './src/errors.mjs';
 import { db, storage } from './src/db.mjs';
 import { AuthError, authenticate, checkLogin, createUser, startSession, endSession, endAllSessions, ensureAdmin, publicUser, signupOpen, verifyPassword, setPassword, updateProfile, countSessions, activeAdmins, deleteUser } from './src/auth.mjs';
 import { recordUsage, logActivity, summarizeUsage, listActivity, estimateTokens } from './src/audit.mjs';
@@ -76,6 +77,17 @@ function sameOrigin(req) {
 
 const isAdmin = (user) => user?.role === 'admin';
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
+
+/**
+ * What a route answers a failure with: the message and whose end it is on (src/errors.mjs). A failure with
+ * a cause is also written to the server log; one without is the user's own (no topic, a wrong password).
+ */
+function failure(req, err, message = err.message) {
+  const body = errorBody(err, message);
+  if (body.cause && !process.env.NODE_TEST_CONTEXT) console.warn(`[error] ${req.method} ${req.url.split('?')[0]} ${causeLine(body.cause)}: ${message}`);
+  if (body.cause?.code === 'bug') console.error(err);
+  return body;
+}
 
 const storeView = (store, user) => publicStore(store, { admin: isAdmin(user) });
 
@@ -379,7 +391,7 @@ const routes = {
     } catch (err) {
       const error = err.name === 'TimeoutError' ? 'Timed out after 30s' : err.message;
       await recordUsage({ user, kind: 'test', config, ok: false, error, ms: Date.now() - started });
-      json(res, 200, { ok: false, ms: Date.now() - started, error });
+      json(res, 200, { ok: false, ms: Date.now() - started, ...failure(req, err, error) });
     }
   }),
 
@@ -398,7 +410,7 @@ const routes = {
     try {
       json(res, 200, { ok: true, models: await listModels(config, { signal: AbortSignal.timeout(20_000) }) });
     } catch (err) {
-      json(res, 200, { ok: false, error: err.name === 'TimeoutError' ? 'Timed out after 20s' : err.message });
+      json(res, 200, { ok: false, ...failure(req, err, err.name === 'TimeoutError' ? 'Timed out after 20s' : err.message) });
     }
   }),
 
@@ -531,7 +543,7 @@ const routes = {
         if (err.name !== 'AbortError') {
           await logActivity(req, user, 'narration.failed', { ...about, agent: true, error: err.message.slice(0, 200), ...(err.unreadable && { reply: String(err.raw || '').slice(0, 300) }) });
           if (err.unreadable) send('done', { narration: null, raw: err.raw, parseError: err.message });
-          else send('error', { error: err.message });
+          else send('error', failure(req, err));
         }
       }
       return res.end();
@@ -562,7 +574,7 @@ const routes = {
       await record({ ok: false, error: stopped ? 'Stopped by the user' : err.message });
       if (!stopped) {
         await logActivity(req, user, 'narration.failed', { ...about, error: err.message.slice(0, 200) });
-        send('error', { error: err.message });
+        send('error', failure(req, err));
       }
     }
     res.end();
@@ -596,7 +608,7 @@ const routes = {
       await logActivity(req, user, 'narration.refine', { ...about, beat: 'all', change: 'review', errors: revised.report.errors, warns: revised.report.warns });
       send('done', revised);
     } catch (err) {
-      if (err.name !== 'AbortError') send('error', { error: err.message });
+      if (err.name !== 'AbortError') send('error', failure(req, err));
     }
     res.end();
   }),
@@ -640,7 +652,7 @@ const routes = {
     } catch (err) {
       const error = err.name === 'TimeoutError' ? 'Timed out after 120s' : err.message;
       await record({ ok: false, error });
-      json(res, 502, { error });
+      json(res, 502, failure(req, err, error));
     }
   }),
 
@@ -674,10 +686,12 @@ const routes = {
       }
       let script = null;
       let parseError = '';
+      let parseNear = ''; // the reply around the place it stopped being JSON, for the log
       try {
         script = parseScript(raw);
       } catch (err) {
         parseError = err.message;
+        parseNear = err.near || '';
       }
       await record(script ? {} : { ok: false, error: `Unreadable reply: ${parseError}` });
       if (script) {
@@ -698,14 +712,14 @@ const routes = {
         await markFirstScript(user);
         send('done', { script, historyId: entry.id, entry });
       } else {
-        await logActivity(req, user, 'script.failed', { ...about, error: parseError });
+        await logActivity(req, user, 'script.failed', { ...about, error: parseError, ...(parseNear && { near: parseNear }) });
         send('done', { script: null, raw, parseError });
       }
     } catch (err) {
       const stopped = err.name === 'AbortError';
       await record({ ok: false, error: stopped ? 'Stopped by the user' : err.message });
       await logActivity(req, user, stopped ? 'script.stopped' : 'script.failed', { ...about, ...(!stopped && { error: err.message.slice(0, 200) }) });
-      if (!stopped) send('error', { error: err.message });
+      if (!stopped) send('error', failure(req, err));
     }
     res.end();
   }),
@@ -770,7 +784,7 @@ export async function handler(req, res) {
     await serveStatic(req, res, pathname);
   } catch (err) {
     if (res.headersSent) return res.end();
-    json(res, err.status || 400, { error: err.message });
+    json(res, err.status || 400, failure(req, err));
   }
 }
 

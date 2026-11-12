@@ -187,3 +187,53 @@ test('parseScript tolerates fences and normalises fields', () => {
   assert.deepEqual(s.publish.titles, ['one']);
   assert.throws(() => parseScript('sorry, no'), /JSON/);
 });
+
+// ---------- Whose end a failure is on ----------
+
+test('causeOf places a failure: the provider, LLM settings, the network or this app', async () => {
+  const { causeOf, errorBody, causeLine } = await import('../src/errors.mjs');
+  const { GatewayError } = await import('../src/gateway/client.mjs');
+  const upstream = (status, message = 'x') => Object.assign(new GatewayError(message, status), { host: 'gw.test', upstream: true });
+  const of = (err) => { const c = causeOf(err); return c && `${c.side}/${c.code}`; };
+  assert.deepEqual(
+    [503, 500, 408, 429, 401, 403, 402, 404, 400].map((s) => of(upstream(s))),
+    ['provider/outage', 'provider/outage', 'provider/outage', 'provider/busy', 'settings/key', 'settings/key', 'settings/credit', 'settings/model', 'settings/request'],
+  );
+  assert.equal(of(upstream(429, 'You exceeded your current quota')), 'settings/credit');
+  assert.equal(of(Object.assign(new GatewayError('stream broke'), { host: 'gw.test', upstream: true })), 'provider/stream');
+  assert.equal(of(Object.assign(new GatewayError('Could not reach gw.test', 502), { host: 'gw.test', unreachable: true })), 'network/unreachable');
+  assert.equal(of(new GatewayError('No image model is set', 400)), 'settings/setup');
+  assert.equal(of(new GatewayError('gw.test did not return an image', 502)), 'provider/reply');
+  assert.equal(of(Object.assign(new Error('late'), { name: 'TimeoutError' })), 'provider/timeout');
+  assert.equal(of(Object.assign(new Error('no narration'), { unreadable: true })), 'provider/reply');
+  assert.equal(of(new TypeError('x is not a function')), 'app/bug');
+  assert.equal(of(Object.assign(new Error('Add a topic'), { status: 400 })), null, "the user's own mistake needs no cause");
+  assert.deepEqual(errorBody(upstream(503, 'gw.test responded 503: no accounts')), { error: 'gw.test responded 503: no accounts', cause: { side: 'provider', code: 'outage', host: 'gw.test', status: 503 } });
+  assert.deepEqual(errorBody(new Error('Add a topic')), { error: 'Add a topic' });
+  assert.equal(causeLine(causeOf(upstream(503))), 'provider/outage gw.test 503');
+});
+
+test('request() says where a failure came from', async () => {
+  const { request } = await import('../src/gateway/client.mjs');
+  const { causeOf } = await import('../src/errors.mjs');
+  const real = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: { message: 'No available accounts' } }), { status: 503 });
+    const down = await request('https://gw.test/v1/chat/completions', {}).catch((e) => e);
+    assert.equal(down.message, 'gw.test responded 503: No available accounts');
+    assert.deepEqual(causeOf(down), { side: 'provider', code: 'outage', host: 'gw.test', status: 503 });
+    globalThis.fetch = async () => { throw new TypeError('fetch failed', { cause: new Error('getaddrinfo ENOTFOUND gw.test') }); };
+    assert.deepEqual(causeOf(await request('https://gw.test/v1', {}).catch((e) => e)), { side: 'network', code: 'unreachable', host: 'gw.test' });
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test('replyJson mends the slips a model makes in otherwise sound JSON', async () => {
+  const { replyJson } = await import('../src/prompt.mjs');
+  assert.deepEqual(replyJson('{"a":["他说"本体"是关键","x"],"b":"所谓"本体""}'), { a: ['他说"本体"是关键', 'x'], b: '所谓"本体"' });
+  assert.deepEqual(replyJson('{"scenes":[{"id":1} {"id":2}],"t":["x" \n "y",],}'), { scenes: [{ id: 1 }, { id: 2 }], t: ['x', 'y'] });
+  assert.deepEqual(replyJson('{"a":"line one\nline two","b":"He said "hi", then left","c":true}'), { a: 'line one\nline two', b: 'He said "hi", then left', c: true });
+  assert.deepEqual(replyJson('```json\n{"a":"x\\"y","b":[1,2]}\n```'), { a: 'x"y', b: [1, 2] }, 'sound JSON is left alone');
+  assert.throws(() => replyJson('{"a": [1 2 x], "b":1}'), (err) => /after array element/.test(err.message) && err.near.includes('[1 2 x]'));
+});

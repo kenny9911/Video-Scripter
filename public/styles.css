@@ -198,6 +198,8 @@ input:disabled, select:disabled, textarea:disabled { opacity: 0.55; cursor: not-
 .note { display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px; border-radius: var(--r-sm); background: var(--warn-soft); color: var(--warn); font-size: 13px; }
 .note .icon { margin-top: 2px; }
 .script-head + .note { margin-top: 16px; }
+/* An error says what failed, then on a second line whose end it is on. */
+.error, .toast, .status, .hint { white-space: pre-line; }
 .error { color: var(--bad); background: var(--bad-soft); padding: 10px 12px; border-radius: var(--r-sm); font-size: 14px; }
 
 .check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; cursor: pointer; }

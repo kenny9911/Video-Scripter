@@ -431,6 +431,27 @@ const ZH = {
   'The connection closed before the script was finished.': '脚本还没写完，连接就断开了。',
   "The model's reply could not be read as a script ({reason}). The raw reply is shown below.": '无法把模型的回复解析成脚本（{reason}）。原始回复见下方。',
   'Request failed ({status})': '请求失败（{status}）',
+
+  // Whose end a failure is on (explain)
+  "Cause: the provider's end ({host}).": '原因：在模型服务商那一端（{host}）。',
+  "Cause: the provider's end.": '原因：在模型服务商那一端。',
+  'Cause: our end, in LLM settings.': '原因：在我们这一端，LLM 设置有问题。',
+  'Cause: the connection between this server and {host}.': '原因：本服务器与 {host} 之间的网络。',
+  'Cause: the connection between this server and the provider.': '原因：本服务器与模型服务商之间的网络。',
+  'Cause: our end, in Video Scripter itself.': '原因：在我们这一端，是 Video Scripter 自身的问题。',
+  'It is down or has no capacity for this model right now. Nothing here needs fixing: try again later, or switch to another model or gateway.': '服务商暂时不可用，或这个模型当前没有可用额度。这里不需要改任何设置：稍后重试，或换一个模型或网关。',
+  'It is rate-limiting this key. Wait a minute and try again.': '服务商正在对这个密钥限流。等一分钟再试。',
+  'It did not answer in time. Try again, or pick a faster model.': '服务商没有在限定时间内答复。请重试，或换一个更快的模型。',
+  'It broke off in the middle of its reply. Try again.': '服务商在答复中途断开了。请重试。',
+  'The model answered, but not in the format it was asked for. Try again, or pick another model.': '模型有答复，但没有按要求的格式返回。请重试，或换一个模型。',
+  'The provider rejected the API key. Check the key of this gateway.': '服务商拒绝了 API 密钥。请检查这个网关的密钥。',
+  'The provider account is out of credit or quota. Top it up, or use another key.': '服务商账户的余额或配额已用完。请充值，或换一个密钥。',
+  'The provider does not offer this model at this address. Check the model name and BASE_URL_API, or pick another model.': '服务商在这个地址下不提供这个模型。请检查模型名称和 BASE_URL_API，或换一个模型。',
+  'The provider refused the request as it was sent. Check the model name and the other settings of this gateway.': '服务商拒绝了发出的请求。请检查这个网关的模型名称和其他设置。',
+  'A setting this needs is missing or wrong.': '这一步需要的某项设置缺失或有误。',
+  'The provider could not be reached. Check BASE_URL_API and the internet connection of this server.': '连接不上服务商。请检查 BASE_URL_API 和本服务器的网络连接。',
+  'This is a bug, not something you did. The details are in the server log.': '这是程序缺陷，不是你的操作导致的。详情见服务器日志。',
+  'The app server stopped or restarted, or your connection dropped, before the reply was finished. Try again.': '答复还没结束，应用服务器就停止或重启了，或者你的网络断开了。请重试。',
   'Could not start: {error}. Is the server running?': '无法启动：{error}。服务是否在运行？',
   'Could not save to history: {error}': '无法保存到历史记录：{error}',
   'Could not load history: {error}': '无法加载历史记录：{error}',
@@ -680,6 +701,38 @@ export function t(text, vars) {
   let out = (lang === 'zh' && ZH[text]) || text;
   if (vars) for (const [k, v] of Object.entries(vars)) out = out.replaceAll(`{${k}}`, v);
   return out;
+}
+
+// Whose end a failure is on. The server sends a cause with every error it can place (src/errors.mjs):
+// `side` picks the first sentence, `code` the second.
+const CAUSE_SIDE = {
+  provider: ["Cause: the provider's end ({host}).", "Cause: the provider's end."],
+  settings: ['Cause: our end, in LLM settings.', 'Cause: our end, in LLM settings.'],
+  network: ['Cause: the connection between this server and {host}.', 'Cause: the connection between this server and the provider.'],
+  app: ['Cause: our end, in Video Scripter itself.', 'Cause: our end, in Video Scripter itself.'],
+};
+const CAUSE_CODE = {
+  outage: 'It is down or has no capacity for this model right now. Nothing here needs fixing: try again later, or switch to another model or gateway.',
+  busy: 'It is rate-limiting this key. Wait a minute and try again.',
+  timeout: 'It did not answer in time. Try again, or pick a faster model.',
+  stream: 'It broke off in the middle of its reply. Try again.',
+  reply: 'The model answered, but not in the format it was asked for. Try again, or pick another model.',
+  key: 'The provider rejected the API key. Check the key of this gateway.',
+  credit: 'The provider account is out of credit or quota. Top it up, or use another key.',
+  model: 'The provider does not offer this model at this address. Check the model name and BASE_URL_API, or pick another model.',
+  request: 'The provider refused the request as it was sent. Check the model name and the other settings of this gateway.',
+  setup: 'A setting this needs is missing or wrong.',
+  unreachable: 'The provider could not be reached. Check BASE_URL_API and the internet connection of this server.',
+  bug: 'This is a bug, not something you did. The details are in the server log.',
+  dropped: 'The app server stopped or restarted, or your connection dropped, before the reply was finished. Try again.',
+};
+
+/** An error message with its cause on a second line: whose end it is on and what to do. */
+export function explain(message, cause) {
+  const side = CAUSE_SIDE[cause?.side];
+  if (!side) return message;
+  const where = cause.host ? t(side[0], { host: cause.host }) : t(side[1]);
+  return [message, [where, CAUSE_CODE[cause.code] && t(CAUSE_CODE[cause.code])].filter(Boolean).join(lang === 'zh' ? '' : ' ')].filter(Boolean).join('\n');
 }
 
 /** Translate the static HTML in place: text nodes, placeholders, titles and aria-labels. */

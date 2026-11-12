@@ -1,6 +1,6 @@
 // Video Scripter front end. Plain ES modules, no build step.
 
-import { t, lang, applyI18n } from './i18n.js';
+import { t, lang, applyI18n, explain } from './i18n.js';
 import { icon, hydrateIcons } from './icons.js';
 import { showAuth, wireAccount } from './account.js';
 import { wireTheme, wireLang, enhancePasswords } from './shell.js';
@@ -54,9 +54,16 @@ async function api(path, options = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && state.user) location.reload(); // the session ended: back to the log-in screen
-  if (!res.ok) throw new Error(data.error || t('Request failed ({status})', { status: res.status }));
+  if (!res.ok) throw fault(data, res.status);
   return data;
 }
+
+/** A failure the server answered with, as an Error whose message says whose end it is on (i18n.js explain). */
+const fault = (data, status) => new Error(explain(data.error || t('Request failed ({status})', { status }), data.cause));
+const DROPPED = { side: 'app', code: 'dropped' };
+const UNREADABLE = { side: 'provider', code: 'reply' };
+/** What to show for a caught error: a request the browser could not finish is our end, and says so. */
+const shown = (err) => (err instanceof TypeError && /fetch|network|load failed/i.test(err.message) ? explain(err.message, DROPPED) : err.message);
 
 function toast(msg) {
   const el = $('toast');
@@ -507,13 +514,13 @@ async function runPlatform(platformId, brief) {
       body: JSON.stringify({ ...brief, platformId }),
       signal: abort.signal,
     });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || t('Request failed ({status})', { status: res.status }));
+    if (!res.ok) throw fault(await res.json().catch(() => ({})), res.status);
     for await (const { event, data } of sse(res)) {
       if (event === 'plan') run.plan = data;
       else if (event === 'delta') {
         run.raw += data.text;
         if (state.active === platformId) updateStream(run);
-      } else if (event === 'error') throw new Error(data.error);
+      } else if (event === 'error') throw fault(data);
       else if (event === 'done') {
         if (data.script) {
           run.script = data.script;
@@ -527,14 +534,14 @@ async function runPlatform(platformId, brief) {
           renderHistory();
         } else {
           run.raw = data.raw || run.raw;
-          throw new Error(t("The model's reply could not be read as a script ({reason}). The raw reply is shown below.", { reason: data.parseError }));
+          throw new Error(explain(t("The model's reply could not be read as a script ({reason}). The raw reply is shown below.", { reason: data.parseError }), UNREADABLE));
         }
       }
     }
-    if (run.status === 'running') throw new Error(t('The connection closed before the script was finished.'));
+    if (run.status === 'running') throw new Error(explain(t('The connection closed before the script was finished.'), DROPPED));
   } catch (err) {
     run.status = err.name === 'AbortError' ? 'stopped' : 'error';
-    run.error = err.name === 'AbortError' ? t('Stopped.') : err.message;
+    run.error = err.name === 'AbortError' ? t('Stopped.') : shown(err);
   }
   runChanged(platformId);
   if (run.status === 'done' && $('autoImages').checked) autoImages(run);
@@ -892,7 +899,7 @@ async function downloadPackage(platformId, run, btn) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id: run.historyId, markdown: toMarkdown(platformId, run), lang }),
     });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || t('Request failed ({status})', { status: res.status }));
+    if (!res.ok) throw fault(await res.json().catch(() => ({})), res.status);
     const name = decodeURIComponent(/filename\*=UTF-8''([^;]+)/.exec(res.headers.get('content-disposition') || '')?.[1] || 'package.zip');
     const url = URL.createObjectURL(await res.blob());
     h('a', { href: url, download: name }).click();
@@ -1025,7 +1032,7 @@ function noteStep(run, data) {
 /** One streamed request of a run: plan and step events are kept on the run, text goes to the raw view. Returns the `done` data. */
 async function streamRun(platformId, run, url, body) {
   const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: run.abort.signal });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || t('Request failed ({status})', { status: res.status }));
+  if (!res.ok) throw fault(await res.json().catch(() => ({})), res.status);
   let done = null;
   for await (const { event, data } of sse(res)) {
     if (event === 'plan') run.plan = { ...run.plan, ...data };
@@ -1035,7 +1042,7 @@ async function streamRun(platformId, run, url, body) {
     } else if (event === 'delta') {
       run.raw += data.text;
       if (state.active === platformId && state.runs[platformId] === run) updateStream(run);
-    } else if (event === 'error') throw new Error(data.error);
+    } else if (event === 'error') throw fault(data);
     else if (event === 'done') done = data;
   }
   return done;
@@ -1053,10 +1060,10 @@ async function draftNarration(platformId, brief, { chain = false } = {}) {
   runChanged(platformId);
   try {
     const data = await streamRun(platformId, run, '/api/narration/draft', { ...brief, platformId });
-    if (!data) throw new Error(t('The connection closed before the narration was finished.'));
+    if (!data) throw new Error(explain(t('The connection closed before the narration was finished.'), DROPPED));
     if (!data.narration) {
       run.raw = data.raw || run.raw;
-      throw new Error(t("The model's reply could not be read as a narration ({reason}). The raw reply is shown below.", { reason: data.parseError }));
+      throw new Error(explain(t("The model's reply could not be read as a narration ({reason}). The raw reply is shown below.", { reason: data.parseError }), UNREADABLE));
     }
     const old = before?.narration?.beats;
     let beats = data.narration.beats.map(newBeat);
@@ -1081,10 +1088,10 @@ async function draftNarration(platformId, brief, { chain = false } = {}) {
     const stopped = err.name === 'AbortError';
     if (!chain && before?.narration && narrationText(before)) {
       state.runs[platformId] = before; // keep what was there
-      if (!stopped) toast(err.message);
+      if (!stopped) toast(shown(err));
     } else {
       run.status = stopped ? 'stopped' : 'error';
-      run.error = stopped ? t('Stopped.') : err.message;
+      run.error = stopped ? t('Stopped.') : shown(err);
     }
   }
   if (state.runs[platformId] !== run && state.runs[platformId] !== before) return; // the tab was started over meanwhile
@@ -2022,7 +2029,7 @@ async function listMediaModels(kind) {
   note.textContent = t('Asking the provider…');
   try {
     const r = await api('/api/gateway/models', { method: 'POST', body: { ...settingsPayload(), kind } });
-    if (!r.ok) note.textContent = r.error;
+    if (!r.ok) note.textContent = explain(r.error, r.cause);
     else if (!r.models.length) note.textContent = t('The provider returned an empty list. Type the model name instead.');
     else {
       renderMediaModels(kind, r.models);
@@ -2094,7 +2101,7 @@ function wireSettings() {
     try {
       const r = await api('/api/gateway/test', { method: 'POST', body: settingsPayload() });
       if (r.ok) setSettingsStatus(t('Connected in {ms} ms. {model} replied: “{reply}”', { ms: r.ms, model: r.model, reply: r.reply }), 'ok');
-      else setSettingsStatus(r.error, 'bad');
+      else setSettingsStatus(explain(r.error, r.cause), 'bad');
     } catch (err) {
       setSettingsStatus(err.message, 'bad');
     }
@@ -2106,7 +2113,7 @@ function wireSettings() {
     setSettingsStatus(t('Asking the provider for its models…'));
     try {
       const r = await api('/api/gateway/models', { method: 'POST', body: settingsPayload() });
-      if (!r.ok) setSettingsStatus(r.error, 'bad');
+      if (!r.ok) setSettingsStatus(explain(r.error, r.cause), 'bad');
       else if (!r.models.length) setSettingsStatus(t('The provider returned an empty model list. Type the model name instead.'), 'bad');
       else {
         ui.available = [...new Set([...r.models, ...ui.enabled])];

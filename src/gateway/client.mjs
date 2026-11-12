@@ -88,7 +88,10 @@ async function* sseData(body) {
   if (rest.startsWith('data:')) yield rest.slice(5).trim();
 }
 
-/** fetch() that turns network failures and non-2xx replies into readable GatewayErrors. */
+/**
+ * fetch() that turns network failures and non-2xx replies into readable GatewayErrors. Each says where it
+ * came from (`host`, and `unreachable` or `upstream`), which is what src/errors.mjs reads the cause from.
+ */
 export async function request(url, init) {
   const host = new URL(url).host;
   let res;
@@ -96,7 +99,7 @@ export async function request(url, init) {
     res = await fetch(url, init);
   } catch (err) {
     if (err.name === 'AbortError' || err.name === 'TimeoutError') throw err;
-    throw new GatewayError(`Could not reach ${host}: ${err.cause?.message || err.message}`, 502);
+    throw Object.assign(new GatewayError(`Could not reach ${host}: ${err.cause?.message || err.message}`, 502), { host, unreachable: true });
   }
   if (!res.ok) {
     const text = (await res.text().catch(() => '')).slice(0, 600);
@@ -105,7 +108,7 @@ export async function request(url, init) {
       const j = JSON.parse(text);
       detail = j.error?.message || j.message || text;
     } catch {}
-    throw new GatewayError(`${host} responded ${res.status}: ${detail || res.statusText}`, res.status);
+    throw Object.assign(new GatewayError(`${host} responded ${res.status}: ${detail || res.statusText}`, res.status), { host, upstream: true });
   }
   return res;
 }
@@ -179,7 +182,12 @@ export async function* streamChat(config, { system, user, signal, maxTokens, met
     }
     const u = usageOf(protocol, evt);
     if (u) for (const [k, v] of Object.entries(u)) if (Number.isFinite(v)) usage[k] = v;
-    const text = deltaText(protocol, evt);
+    let text;
+    try {
+      text = deltaText(protocol, evt);
+    } catch (err) {
+      throw Object.assign(err, { host: new URL(url).host, upstream: true }); // the provider broke off mid-reply
+    }
     if (text) yield text;
   }
   if (onUsage && (usage.inputTokens != null || usage.outputTokens != null)) onUsage(usage);
