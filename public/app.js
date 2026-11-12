@@ -678,6 +678,20 @@ async function* sse(res) {
   }
 }
 
+/**
+ * The provider failed and the server is trying again by itself: say so while the creator waits. A reply that
+ * broke off half-way is picked up where it stopped, so what has been written stays on screen.
+ */
+function noteRetry(platformId, run, info) {
+  const about = { host: info.host || t('The provider'), status: info.status, n: info.attempt, of: info.of };
+  run.notice = info.resumed
+    ? t('{host} broke off in the middle of its reply. Picking it up where it stopped: attempt {n} of {of}.', about)
+    : info.status
+      ? t('{host} is not answering ({status}). Trying again: attempt {n} of {of}.', about)
+      : t('{host} broke off before it started writing. Trying again: attempt {n} of {of}.', about);
+  if (state.active === platformId && state.runs[platformId] === run) updateStream(run);
+}
+
 async function runPlatform(platformId, brief) {
   const abort = new AbortController();
   // A script built around a narration keeps the editor's copy, so it can be opened and changed again.
@@ -696,9 +710,13 @@ async function runPlatform(platformId, brief) {
     });
     if (!res.ok) throw fault(await res.json().catch(() => ({})), res.status);
     for await (const { event, data } of sse(res)) {
-      if (event === 'plan') run.plan = data;
+      if (event === 'plan') {
+        run.plan = data;
+        if (state.active === platformId) render(); // the line under the progress bar now says which model is writing
+      } else if (event === 'retry') noteRetry(platformId, run, data);
       else if (event === 'delta') {
         run.raw += data.text;
+        run.notice = '';
         if (state.active === platformId) updateStream(run);
       } else if (event === 'error') throw fault(data);
       else if (event === 'done') {
@@ -1311,8 +1329,10 @@ async function streamRun(platformId, run, url, body) {
     else if (event === 'step') {
       noteStep(run, data);
       if (state.active === platformId && state.runs[platformId] === run) render();
-    } else if (event === 'delta') {
+    } else if (event === 'retry') noteRetry(platformId, run, data);
+    else if (event === 'delta') {
       run.raw += data.text;
+      run.notice = '';
       if (state.active === platformId && state.runs[platformId] === run) updateStream(run);
     } else if (event === 'error') throw fault(data);
     else if (event === 'done') done = data;
@@ -1891,6 +1911,11 @@ function updateStream(run) {
   pre.scrollTop = pre.scrollHeight;
   const title = document.querySelector('.progress-title');
   if (title) title.textContent = progressNote(run);
+  const notice = document.querySelector('.retry-note');
+  if (notice) {
+    notice.hidden = !run.notice;
+    notice.lastElementChild.textContent = run.notice || '';
+  }
 }
 
 function renderTabs() {
@@ -2060,6 +2085,7 @@ function render() {
         h('div', { class: 'progress-head' }, h('span', { class: 'spin' }), h('p', { class: 'progress-title' }, progressNote(run))),
         h('div', { class: 'progress-bar' }, h('i')),
         h('p', { class: 'stream-note' }, note),
+        h('p', { class: 'note retry-note', role: 'status', hidden: !run.notice }, icon('info', 16), h('span', {}, run.notice || '')),
         steps
           ? h('ol', { class: 'agent-steps' }, steps.map((x) => h('li', { class: x.state }, h('span', { class: 'agent-dot' }, x.state === 'done' ? icon('check', 14) : x.state === 'active' ? h('span', { class: 'spin' }) : null), h('div', {}, h('b', {}, x.label), x.detail && h('span', { class: 'hint' }, x.detail)))))
           : h('div', { class: 'skeleton', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')),

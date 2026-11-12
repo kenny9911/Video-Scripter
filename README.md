@@ -292,6 +292,20 @@ Each gateway has an **Images and videos** section with a separate BASE_URL_API, 
 - Size is sent only if you fill it in.
 - **List available image models** and **video models** ask that address for its models. Providers return every model they have, so names that look like image or video models are listed first.
 
+### When the provider is unsteady
+
+Providers, and the gateways in front of them, fail in passing: no capacity for a moment, a timeout, a reply that stops half-way. The app rides these out by itself.
+
+| What happens | What the app does |
+| --- | --- |
+| `502`, `503`, `504`, `529`, a rate limit (`429`) or a dropped connection before the reply starts | Asks again, up to three more times, with a pause that grows each time (about 1, 2 and 6 seconds, or what the provider asks for, never more than 10) |
+| The stream breaks in the middle of a reply, or ends before the reply is finished (some gateways stop every reply after about a minute) | Picks the reply up where it stopped: the model is shown what it had written and asked for the rest, and the pieces are joined into one reply. This goes on while each attempt adds to the reply, eight times at most |
+| The reply runs out of room (`length`, `max_tokens`) | The same: it is continued |
+| An image request times out at the gateway (`504`) | One more try. A video job is never asked for twice after a timeout, since it may have started |
+| A wrong key, a model the provider does not offer, no credit, a wrong address | Nothing is tried again: the message says what to fix |
+
+While this goes on the page says so ("gw.example is not answering (503). Trying again: attempt 2 of 3."), and what has been written stays on screen. If it still fails, the error says how often it was tried and whose end the failure is on. The tokens of every attempt are counted in the usage of that one call.
+
 ## Accounts, usage and activity
 
 ### Accounts
@@ -440,6 +454,7 @@ Everything below is optional. Settings saved in the app take precedence over the
 | `LLM_MODEL` | Model for the starting gateway | The preset's |
 | `IMAGE_BASE_URL_API`, `IMAGE_MODEL`, `IMAGE_API_KEY` | Image generation defaults | Off |
 | `VIDEO_BASE_URL_API`, `VIDEO_MODEL`, `VIDEO_API_KEY` | Video generation defaults | Off |
+| `GATEWAY_RETRY_BASE_MS` | The first pause, in milliseconds, before a failed provider request is tried again; later pauses grow from it | `900` |
 
 ## For developers
 
@@ -459,7 +474,7 @@ npm test
 
 ```
 server.mjs              HTTP server, API routes, static files
-src/gateway/            providers, config store, streaming client, demo provider
+src/gateway/            providers, config store, streaming client (with retry and resume), demo provider
 src/platforms.mjs       per-platform writing, publishing and compliance guidance
 src/frameworks.mjs      script structures and narration styles: stage timing and, for a style, its voice
 src/narration.mjs       narration as beats: counting, timing, and keeping a locked narration word for word
@@ -468,6 +483,7 @@ src/suggest.mjs         the visual style picked for a brief: by rule, or by the 
 src/cast.mjs            the people of a video: speakers, the on-screen host, and how every image describes them
 src/shots.mjs           how several images of one scene relate (multi-image modes)
 src/prompt.mjs          brief -> timeline + prompts; model reply -> script, narration or refinement
+src/json.mjs            reads the JSON in a model reply and mends its small slips
 src/agent/              the narration agent: narrator.mjs (the steps), review.mjs (the measured checks),
                         card.mjs (the viewpoint card), prompts.mjs (the editor step), skills.mjs (loads skills/)
 skills/                 the agent's playbooks, one folder with a SKILL.md each
@@ -511,6 +527,7 @@ Two protocols are implemented in `src/gateway/client.mjs`, both streaming: OpenA
 | --- | --- |
 | List models | `GET {base}/models`, or `/v1/models` for Anthropic |
 | Generate an image | `POST {base}/images/generations` |
+| Generate an image from a host portrait | `POST {base}/images/edits` (multipart), where the provider has it |
 | Start a video | `POST {base}/videos` |
 | Check a video | `GET {base}/videos/{id}` |
 | Fetch a video | `GET {base}/videos/{id}/content` |

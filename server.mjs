@@ -641,7 +641,7 @@ const routes = {
     let usage = null;
     const record = (extra) => recordUsage({ user, kind: 'narration', config, ...tokens(usage, prompts, raw), ms: Date.now() - started, ...extra });
     try {
-      for await (const text of streamChat(config, { ...prompts, signal, meta: { plan, kind: 'narration' }, onUsage: (u) => (usage = u) })) {
+      for await (const text of streamChat(config, { ...prompts, signal, meta: { plan, kind: 'narration' }, onUsage: (u) => (usage = u), onRetry: (info) => send('retry', info) })) {
         raw += text;
         send('delta', { text });
       }
@@ -766,7 +766,7 @@ const routes = {
     let usage = null;
     const record = (extra) => recordUsage({ user, taskId, kind: 'script', config, ...tokens(usage, prompts, raw), ms: Date.now() - started, ...extra });
     try {
-      for await (const text of streamChat(config, { ...prompts, signal, meta: { plan }, onUsage: (u) => (usage = u) })) {
+      for await (const text of streamChat(config, { ...prompts, signal, meta: { plan }, onUsage: (u) => (usage = u), onRetry: (info) => send('retry', info) })) {
         raw += text;
         send('delta', { text });
       }

@@ -496,6 +496,11 @@ const ZH = {
   'It is rate-limiting this key. Wait a minute and try again.': '服务商正在对这个密钥限流。等一分钟再试。',
   'It did not answer in time. Try again, or pick a faster model.': '服务商没有在限定时间内答复。请重试，或换一个更快的模型。',
   'It broke off in the middle of its reply. Try again.': '服务商在答复中途断开了。请重试。',
+  'It was tried {n} times before giving up.': '已自动重试，共尝试 {n} 次。',
+  'The provider': '服务商',
+  '{host} is not answering ({status}). Trying again: attempt {n} of {of}.': '{host} 暂时没有响应（{status}），正在自动重试：第 {n} 次，最多 {of} 次。',
+  '{host} broke off before it started writing. Trying again: attempt {n} of {of}.': '{host} 还没开始写就断开了，正在自动重试：第 {n} 次，最多 {of} 次。',
+  '{host} broke off in the middle of its reply. Picking it up where it stopped: attempt {n} of {of}.': '{host} 写到一半断开了，正在从断点接着写：第 {n} 次，最多 {of} 次。',
   'The model answered, but not in the format it was asked for. Try again, or pick another model.': '模型有答复，但没有按要求的格式返回。请重试，或换一个模型。',
   'The provider rejected the API key. Check the key of this gateway.': '服务商拒绝了 API 密钥。请检查这个网关的密钥。',
   'The provider account is out of credit or quota. Top it up, or use another key.': '服务商账户的余额或配额已用完。请充值，或换一个密钥。',
@@ -764,6 +769,7 @@ const CAUSE_SIDE = {
   network: ['Cause: the connection between this server and {host}.', 'Cause: the connection between this server and the provider.'],
   app: ['Cause: our end, in Video Scripter itself.', 'Cause: our end, in Video Scripter itself.'],
 };
+const TRIED = 'It was tried {n} times before giving up.';
 const CAUSE_CODE = {
   outage: 'It is down or has no capacity for this model right now. Nothing here needs fixing: try again later, or switch to another model or gateway.',
   busy: 'It is rate-limiting this key. Wait a minute and try again.',
@@ -785,7 +791,7 @@ export function explain(message, cause) {
   const side = CAUSE_SIDE[cause?.side];
   if (!side) return message;
   const where = cause.host ? t(side[0], { host: cause.host }) : t(side[1]);
-  return [message, [where, CAUSE_CODE[cause.code] && t(CAUSE_CODE[cause.code])].filter(Boolean).join(lang === 'zh' ? '' : ' ')].filter(Boolean).join('\n');
+  return [message, [where, cause.attempts > 1 && t(TRIED, { n: cause.attempts }), CAUSE_CODE[cause.code] && t(CAUSE_CODE[cause.code])].filter(Boolean).join(lang === 'zh' ? '' : ' ')].filter(Boolean).join('\n');
 }
 
 /** Translate the static HTML in place: text nodes, placeholders, titles and aria-labels. */

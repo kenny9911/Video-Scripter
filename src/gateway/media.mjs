@@ -85,7 +85,7 @@ export async function generateImage(config, { prompt, aspectRatio, signal, refer
     if (size) form.set('size', size);
     for (const [i, r] of references.entries()) form.append(references.length > 1 ? 'image[]' : 'image', new Blob([r.bytes], { type: r.type || 'image/png' }), `reference-${i + 1}.${(r.type || 'image/png').split('/')[1].replace('jpeg', 'jpg')}`);
     try {
-      const made = await imageOf(await request(`${root}/images/edits`, { method: 'POST', headers: t.headers, body: form, signal }));
+      const made = await imageOf(await request(`${root}/images/edits`, { method: 'POST', headers: t.headers, body: form, signal }, { timeouts: 1 }));
       refused.delete(key);
       return { ...made, referenced: true };
     } catch (err) {
@@ -96,12 +96,7 @@ export async function generateImage(config, { prompt, aspectRatio, signal, refer
   }
 
   const body = { model: t.model, prompt, n: 1, ...(size && { size }) };
-  const res = await request(`${root}/images/generations`, {
-    method: 'POST',
-    headers: { ...t.headers, 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-    signal,
-  });
+  const res = await request(`${root}/images/generations`, { method: 'POST', headers: { ...t.headers, 'content-type': 'application/json' }, body: JSON.stringify(body), signal }, { timeouts: 1 });
   return imageOf(res);
 }
 
@@ -129,12 +124,8 @@ export async function createVideo(config, { prompt, seconds, aspectRatio, signal
   const t = target(config, 'video');
   const size = sizeFor(t.size, aspectRatio);
   const body = { model: t.model, prompt, seconds: String(clipSeconds(Number(seconds) || 4)), ...(size && { size }) };
-  const res = await request(`${t.base.replace(/\/videos$/, '')}/videos`, {
-    method: 'POST',
-    headers: { ...t.headers, 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-    signal,
-  });
+  // A video job that timed out at the gateway may have been started all the same: it is not asked for twice.
+  const res = await request(`${t.base.replace(/\/videos$/, '')}/videos`, { method: 'POST', headers: { ...t.headers, 'content-type': 'application/json' }, body: JSON.stringify(body), signal }, { timeouts: 0 });
   return videoJob(await json(res, 'a video job'));
 }
 

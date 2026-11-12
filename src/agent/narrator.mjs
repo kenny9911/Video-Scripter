@@ -15,7 +15,8 @@
 // writeNarration({ config, plan, signal, emit, onCall }) -> { title, beats, card, report }      skills + write
 // reviseNarration({ config, plan, beats, card, signal, emit, onCall, until }) -> { beats, report }   review
 // runNarrationAgent(...) -> { title, beats, card, report }                                          all of it
-//   emit(event, data)   progress for the page: 'step' { id, status, ... } and 'delta' { text }
+//   emit(event, data)   progress for the page: 'step' { id, status, ... }, 'delta' { text } and 'retry' { attempt, of, ... }
+//                       (the provider failed and the call is being tried again, or picked up where it stopped)
 //   onCall(call)        one record per model call: { step, prompts, raw, usage, ms, ok, error }
 //   until               a time (ms) after which no second review pass is started
 //
@@ -43,7 +44,7 @@ function caller({ config, signal, emit, onCall, chat }) {
     let usage = null;
     emit('delta', { text: `\n\n── ${step} ──\n` });
     try {
-      for await (const text of chat(config, { ...prompts, signal, meta, onUsage: (u) => (usage = u) })) {
+      for await (const text of chat(config, { ...prompts, signal, meta, onUsage: (u) => (usage = u), onRetry: (info) => emit('retry', info) })) {
         raw += text;
         emit('delta', { text });
       }

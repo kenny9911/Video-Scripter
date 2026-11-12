@@ -17,6 +17,9 @@
 const OUT_OF_CREDIT = /quota|balance|insufficient|credit|billing|payment|exceeded your current|欠费|余额/i;
 const BUGS = [TypeError, ReferenceError, RangeError];
 
+/** True when a provider's message says the account has run out, which no amount of waiting fixes. */
+export const outOfCredit = (message) => OUT_OF_CREDIT.test(String(message || ''));
+
 /** The cause of an HTTP reply from a provider, from its status and what it said. */
 function upstreamCode(status, message) {
   if (status === 401 || status === 403) return ['settings', 'key'];
@@ -29,7 +32,7 @@ function upstreamCode(status, message) {
 
 export function causeOf(err) {
   if (!err) return null;
-  const at = (side, code) => ({ side, code, ...(err.host && { host: err.host }), ...(err.upstream && Number.isFinite(err.status) && { status: err.status }) });
+  const at = (side, code) => ({ side, code, ...(err.host && { host: err.host }), ...(err.upstream && Number.isFinite(err.status) && { status: err.status }), ...(err.attempts > 1 && { attempts: err.attempts }) });
   if (err.name === 'TimeoutError') return at('provider', 'timeout');
   if (err.unreadable) return at('provider', 'reply');
   if (err.name === 'GatewayError') {
