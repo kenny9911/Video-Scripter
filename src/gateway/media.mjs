@@ -1,5 +1,6 @@
 // Image and video generation for a gateway, over the OpenAI-compatible media endpoints:
 //   image: POST {base}/images/generations                      -> { data: [{ b64_json | url }] }
+//          POST {base}/images/edits (multipart, with reference images), where the provider has it
 //   video: POST {base}/videos, GET {base}/videos/{id}, GET {base}/videos/{id}/content
 // Each has its own base URL and model in the gateway settings (see mediaTarget in config.mjs).
 
@@ -39,27 +40,69 @@ async function json(res, what) {
   return body;
 }
 
-/**
- * Returns { url }: a data: URI when the provider sends base64, otherwise the provider's URL.
- * `aspectRatio` turns the gateway's Size setting to the shape of the video (see sizeFor).
- */
-export async function generateImage(config, { prompt, aspectRatio, signal }) {
-  const t = target(config, 'image');
-  if (t.demo) return { url: demoImage(aspectRatio), usage: null };
-  const size = sizeFor(t.size, aspectRatio);
-  const body = { model: t.model, prompt, n: 1, ...(size && { size }) };
-  const res = await request(`${t.base.replace(/\/images\/generations$/, '')}/images/generations`, {
-    method: 'POST',
-    headers: { ...t.headers, 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-    signal,
-  });
+/** The image in a provider's reply, as { url, usage }. */
+async function imageOf(res) {
   const reply = await json(res, 'an image');
   const item = reply.data?.[0];
   const usage = reply.usage ? { inputTokens: reply.usage.input_tokens ?? reply.usage.prompt_tokens, outputTokens: reply.usage.output_tokens ?? reply.usage.completion_tokens } : null;
   if (item?.b64_json) return { url: `data:image/png;base64,${item.b64_json}`, usage };
   if (typeof item?.url === 'string' && /^https?:\/\//.test(item.url)) return { url: item.url, usage };
   throw new GatewayError(`${new URL(res.url).host} did not return an image`, 502);
+}
+
+// A provider and model that turned a reference image down, and how often. Not every image endpoint takes
+// one: after two refusals in a row it is no longer asked, until the server restarts.
+const refused = new Map();
+const NO_ENDPOINT = new Set([404, 405, 501]);
+const NOT_TAKEN = new Set([400, 415, 422]);
+
+/** Whether this gateway's image model is still worth offering a reference image to. */
+export function takesReference(config) {
+  const t = mediaTarget(config, 'image');
+  return !t.demo && (refused.get(`${t.baseUrl} ${t.model}`) || 0) < 2;
+}
+
+/**
+ * Returns { url, usage }: a data: URI when the provider sends base64, otherwise the provider's URL.
+ * `aspectRatio` turns the gateway's Size setting to the shape of the video (see sizeFor).
+ * `references` ([{ bytes, type }]) are pictures the result has to match, such as a host's portrait: they go
+ * to the provider's edits endpoint with `referencePrompt` (the prompt that mentions them). A provider that
+ * has no such endpoint, or refuses the pictures, gets the plain `prompt` instead. The result says `referenced: true`
+ * only when the pictures were used.
+ */
+export async function generateImage(config, { prompt, aspectRatio, signal, references = [], referencePrompt = prompt }) {
+  const t = target(config, 'image');
+  if (t.demo) return { url: demoImage(aspectRatio), usage: null };
+  const size = sizeFor(t.size, aspectRatio);
+  const root = t.base.replace(/\/images\/(?:generations|edits)$/, '');
+  const key = `${t.baseUrl} ${t.model}`;
+
+  if (references.length && takesReference(config)) {
+    const form = new FormData();
+    form.set('model', t.model);
+    form.set('prompt', referencePrompt);
+    form.set('n', '1');
+    if (size) form.set('size', size);
+    for (const [i, r] of references.entries()) form.append(references.length > 1 ? 'image[]' : 'image', new Blob([r.bytes], { type: r.type || 'image/png' }), `reference-${i + 1}.${(r.type || 'image/png').split('/')[1].replace('jpeg', 'jpg')}`);
+    try {
+      const made = await imageOf(await request(`${root}/images/edits`, { method: 'POST', headers: t.headers, body: form, signal }));
+      refused.delete(key);
+      return { ...made, referenced: true };
+    } catch (err) {
+      // No such endpoint: never ask again. The pictures were not taken: try without them, and stop asking after the second time.
+      if (!err.upstream || !(NO_ENDPOINT.has(err.status) || NOT_TAKEN.has(err.status))) throw err;
+      refused.set(key, NO_ENDPOINT.has(err.status) ? 2 : (refused.get(key) || 0) + 1);
+    }
+  }
+
+  const body = { model: t.model, prompt, n: 1, ...(size && { size }) };
+  const res = await request(`${root}/images/generations`, {
+    method: 'POST',
+    headers: { ...t.headers, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+  return imageOf(res);
 }
 
 const DONE = new Set(['completed', 'succeeded', 'success', 'done']);

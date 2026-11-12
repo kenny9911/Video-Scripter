@@ -18,6 +18,7 @@ import { getAspect } from './aspects.mjs';
 import { PACE, MIN_DURATION, MAX_DURATION, countSpoken, fitDuration, normalizeNarration, narrationBlock, spokenText } from './narration.mjs';
 import { selectSkills, skillSection, publicSkill } from './agent/skills.mjs';
 import { normalizeCard, cardBlock, CARD_SCHEMA, PLAN_RULES } from './agent/card.mjs';
+import { normalizeHosts, normalizeCast, settleCast, settleSceneHost, castLine, hostBrief } from './cast.mjs';
 
 const clean = (v, max) => String(v ?? '').trim().slice(0, max);
 
@@ -54,6 +55,7 @@ export function normalizeBrief(input = {}) {
     ttsReady: Boolean(input.ttsReady),
     aspect: getAspect(input.aspectRatio),
     styles: pickStyles(input.styleIds),
+    hosts: normalizeHosts(input.host, framework.speakers, lang), // the digital host(s) on screen, [] when there is none
   };
 }
 
@@ -84,12 +86,20 @@ export function buildPlan(input) {
 /** What the page is told about a plan: the story line with its times, the length, the voiceover budget and the skills in play. */
 export const planSummary = (plan) => ({ timeline: plan.timeline, duration: plan.brief.duration, lang: plan.brief.lang, pace: plan.pace, budget: plan.budget, unit: plan.unit, skills: plan.skills.map(publicSkill) });
 
-const SCHEMA = `{
+/** The shape of a script reply. A video with a host on screen, or with two voices, also names its cast and who is in each frame. */
+const scriptSchema = (brief) => `{
   "title": "working title of the video",
   "logline": "the single idea of the video in one sentence",
   "hookOptions": [
     { "type": "name of the hook technique", "line": "alternative opening line" }
-  ],
+  ],${
+    hasCast(brief)
+      ? `
+  "cast": [
+    { "id": "A", "name": "a short invented name", "role": "who they are in this video", "look": "${brief.hosts.length ? 'what they look like, in one sentence an image model can draw the same way every time' : 'empty string: nobody is on screen'}", "voice": "casting note for the voice: gender, age range, timbre, pace, attitude" }
+  ],`
+      : ''
+  }
   "scenes": [
     {
       "id": 1,
@@ -99,7 +109,12 @@ const SCHEMA = `{
       "voiceover": "exactly what is spoken in this scene",
       "onScreenText": "text overlay shown in this scene, or empty string",
       "visual": "what the viewer sees: shot, subject, action, graphics",
-      "camera": "framing and movement, or cut/transition",
+      "camera": "framing and movement, or cut/transition",${
+        brief.hosts.length
+          ? `
+      "host": "who is in frame: ${brief.hosts.length > 1 ? 'A, B or AB' : 'A'}, or an empty string for a shot without ${brief.hosts.length > 1 ? 'them' : 'the host'}",`
+          : ''
+      }
       "sfx": "sound effect or music cue, or empty string"
     }
   ],
@@ -117,6 +132,51 @@ const SCHEMA = `{
   },
   "productionNotes": ["practical notes for shooting, editing or compliance"]
 }`;
+
+/** True when a script names its people: a host is on screen, or two voices speak. */
+export const hasCast = (brief) => brief.hosts.length > 0 || brief.framework.speakers === 2;
+
+/** A two-voice narration keeps its speaker labels wherever it is written, edited or built into a script. */
+export function speakerRules(brief, locked = false) {
+  if (brief.framework.speakers !== 2) return [];
+  const zh = brief.lang === 'zh';
+  if (locked) return [zh ? '旁白是两个人的对话：每句台词开头的“A：”“B：”标签是原文的一部分，原样留在 voiceover 里。尽量在换人说话的地方切场景。' : 'The narration is a conversation between two people: the "A:" / "B:" label at the start of each line is part of the text and stays in the voiceover as it is. Cut scenes at a change of speaker where you can.'];
+  return [zh ? '这是两个人的对话：每句台词开头的“A：”“B：”标签必须保留，它是“只写说出口的话”唯一的例外。' : 'This is a conversation between two people: keep the "A:" / "B:" label at the start of every line. The labels are the one exception to "spoken words only".'];
+}
+
+/**
+ * The people of the video as the scriptwriter is told about them: who speaks, and, when a host is on screen,
+ * that it is one and the same person in every scene (src/cast.mjs). Nothing for a video with one unseen voice.
+ */
+export function castSection(brief) {
+  if (!hasCast(brief)) return [];
+  const { hosts, lang } = brief;
+  const duo = brief.framework.speakers === 2;
+  const call = lang === 'zh' ? (duo ? '“主播A”“主播B”' : '“主播”') : duo ? '"Host A" and "Host B"' : '"the host"';
+  const rules = [
+    duo
+      ? 'Two people speak in this video, A and B. Give both in "cast": a short invented `name` that suits the language of the script, their `role` in this video, and `voice`, a casting note for a text-to-speech voice or a human reader (gender, age range, timbre, pace, attitude). The two voices must be easy to tell apart.'
+      : 'One person presents this video: the host, A. Give them in "cast": a short invented `name` that suits the language of the script, their `role` in this video, and `voice`, a casting note for a text-to-speech voice or a human reader (gender, age range, timbre, pace, attitude).',
+  ];
+  if (!hosts.length) {
+    rules.push('Nobody is on screen: the two are heard, not seen. Leave every `look` an empty string and write the visuals without them.');
+  } else {
+    const fixed = hosts.filter((h) => h.look);
+    const open = hosts.filter((h) => !h.look);
+    rules.push(`${duo ? 'Both are' : 'The host is'} on screen: ${duo ? 'digital presenters who are the same two people' : 'a digital presenter who is the same person'} from the first scene to the last.`);
+    if (fixed.length) rules.push(`The creator has fixed ${fixed.length > 1 || !duo ? 'the look' : `the look of ${fixed[0].id}`}. Copy it into \`look\` exactly as written:\n${fixed.map((h) => `  ${h.id}: ${h.look}`).join('\n')}`);
+    if (open.length)
+      rules.push(
+        `Design ${open.length === hosts.length ? (duo ? 'both hosts' : 'the host') : `host ${open[0].id}`} to fit the topic, the audience and the persona of the narration. \`look\` is one sentence an image model can draw the same way every time: apparent age, gender, ethnicity, hair, anything on the face (glasses, a beard), clothes with their colours, and bearing. Never a real or famous person, and no brand names.${duo ? ' Make the two easy to tell apart at a glance: age, hair, clothes.' : ''}`,
+      );
+    rules.push(
+      `In every scene, \`host\` says who is in frame (${duo ? '"A", "B" or "AB"' : '"A"'}), or is an empty string for a shot without ${duo ? 'them' : 'the host'}. \`visual\` says where they are and what they are doing (talking to the lens, pointing at a screen, listening, reacting) and calls them ${call}. It never describes a face, hair or clothes again: the look is added to every image prompt from "cast".`,
+      `Keep ${duo ? 'the hosts' : 'the host'} in frame for the opening scene, the closing scene and at least half of the running time. Cut away to a graphic, a screen or b-roll when the narration explains something that is better shown than said. The place they present from stays the same throughout and is described the same way each time.`,
+    );
+    if (duo) rules.push('Vary the framing of the conversation: the two-shot ("AB"), a single on whoever is speaking, a single on the other one listening or reacting.');
+  }
+  return [`# ${hosts.length ? 'Speakers and on-screen host' : 'Speakers'}\n${bullets(rules)}`, ''];
+}
 
 export const LANG_NAME = { zh: 'Simplified Chinese (简体中文)', en: 'English' };
 export const writesFor = (platform) => `${platform.name}${platform.nameEn !== platform.name ? ` (${platform.nameEn})` : ''}`;
@@ -293,7 +353,7 @@ export function buildPrompts(plan) {
         VISUAL_RULE[lang],
         zh ? 'hookOptions 给出3个不同手法的备选开场白，第一个场景使用其中最强的一个。' : 'Give 3 hookOptions using different techniques; the first scene uses the strongest one.',
       ];
-  rules.push(...extrasRules(brief));
+  rules.push(...speakerRules(brief, locked), ...extrasRules(brief));
   // A script written in one go needs the writing playbooks as well as the ones for what surrounds the voiceover.
   const skills = locked ? skillSection(plan.skills, 'script') : skillSection(plan.skills.map((sk) => (sk.steps.includes('write') ? { ...sk, steps: [...sk.steps, 'script'] } : sk)), 'script');
 
@@ -312,6 +372,7 @@ export function buildPrompts(plan) {
     ...skills,
     `# Writing rules\n${bullets(rules)}`,
     '',
+    ...castSection(brief),
     ...(brief.styles.length
       ? [
           `# Visual style\nEvery image and clip for this video will be made in ${brief.styles.length === 2 ? 'a blend of two styles, the first one leading' : 'one style'}:\n${brief.styles
@@ -324,7 +385,7 @@ export function buildPrompts(plan) {
     '',
     `# Compliance\n${bullets(platform.compliance)}`,
     '',
-    `# Response format\nReply with one JSON object and nothing else: no markdown fences, no commentary. Shape:\n${SCHEMA}`,
+    `# Response format\nReply with one JSON object and nothing else: no markdown fences, no commentary. Shape:\n${scriptSchema(brief)}`,
   ].join('\n');
 
   const lines = briefLines(brief);
@@ -415,6 +476,7 @@ export function parseScript(raw) {
     title: str(obj.title),
     logline: str(obj.logline),
     hookOptions: list(obj.hookOptions).map((h) => (typeof h === 'string' ? { type: '', line: h } : { type: str(h.type), line: str(h.line) })),
+    cast: normalizeCast(obj.cast),
     scenes: obj.scenes.map((s, i) => ({
       id: i + 1,
       start: Number(s.start) || 0,
@@ -424,6 +486,7 @@ export function parseScript(raw) {
       onScreenText: str(s.onScreenText),
       visual: str(s.visual),
       camera: str(s.camera),
+      host: s.host == null ? null : str(s.host), // who is in frame, as the model wrote it; settled by settleScript
       sfx: str(s.sfx),
     })),
     whiteboard: str(obj.whiteboard).replace(/\s+$/, ''),
@@ -440,6 +503,19 @@ export function parseScript(raw) {
     },
     productionNotes: list(obj.productionNotes).map(str),
   };
+}
+
+/**
+ * Hold a parsed script to what its brief allows of people (src/cast.mjs). A video with a host keeps a cast
+ * whose looks are the creator's where they fixed them, and every scene says who is in frame; a two-voice
+ * video without a host keeps its two voices; any other script carries no cast at all, as before.
+ */
+export function settleScript(script, brief) {
+  const cast = settleCast(script.cast, brief);
+  const seen = cast.some((c) => c.look);
+  const scenes = script.scenes.map(({ host, ...scene }) => (seen ? { ...scene, host: settleSceneHost({ ...scene, host }, cast) } : scene));
+  const { cast: _, ...rest } = script;
+  return { ...rest, ...(cast.length && { cast }), scenes };
 }
 
 // ---------- Narration on its own: draft it, then refine it ----------
@@ -542,6 +618,7 @@ export function buildNarrationPrompts(plan, { card = null, planFirst = false } =
         ? '选题里如果已经带着创作者自己的讲法（一条故事线、一个判断、一句开场），沿用它的顺序和最有力的原话，不要换成一篇泛泛的科普。'
         : 'When the topic already carries the creator\'s own telling (a storyline, a claim, an opening line), keep its order and its strongest phrases; do not swap it for a generic explainer.',
       ...EAR_RULES[lang],
+      ...speakerRules(brief),
     ])}`,
     '',
     `# Compliance\n${bullets(platform.compliance)}`,
@@ -635,6 +712,7 @@ export function buildRefinePrompts(plan, beats, { index = null, preset = '', ins
       'Keep every fact, figure, name and quote exactly as it is. Add no fact that is not already in the narration, the brief, the creator\'s experience notes, the reference material or a knowledge-base skill.',
       languageRules(brief)[0],
       ...EAR_RULES[lang],
+      ...speakerRules(brief),
       one
         ? 'Rewrite only the beat you are asked about. It must still follow from the beat before it and lead into the beat after it.'
         : reshape
@@ -675,12 +753,16 @@ export function parseRefined(raw, { index = null } = {}) {
   return { text: beat.text };
 }
 
+const CUTAWAYS = new Set(['detail', 'context']); // shots that leave the subject out: no host in them
+
 /**
  * Turn a scene's visual and camera notes into a prompt for an image or video model.
  * `shot` (from planShots) places the image within a multi-image set: a moment, a framing, a cutaway or a style.
- * The frame is the scene's `aspectRatio` (vertical when it has none).
+ * The frame is the scene's `aspectRatio` (vertical when it has none). A scene with a host in frame (`host`,
+ * from the script's `cast`) also carries that host's fixed look; `referenced` lists the hosts whose portrait
+ * is attached to the request.
  */
-export function buildVisualPrompt(scene = {}, kind = 'image', styleIds = scene.styleIds, shot = null) {
+export function buildVisualPrompt(scene = {}, kind = 'image', styleIds = scene.styleIds, shot = null, { referenced = [] } = {}) {
   const visual = clean(scene.visual, 1500);
   if (!visual) throw new Error('This scene has no visual description to generate from');
   const camera = clean(scene.camera, 400);
@@ -689,6 +771,7 @@ export function buildVisualPrompt(scene = {}, kind = 'image', styleIds = scene.s
     `${frame.shape} ${frame.id} ${kind === 'video' ? 'shot for' : 'still frame from'} a short social video.`,
     visual,
     !shot?.replaceCamera && camera && `Camera: ${camera}`,
+    !CUTAWAYS.has(shot?.id) && castLine(scene.cast, scene.host, { referenced }),
     shot?.directive,
     styleLook(pickStyles(shot?.styleIds || styleIds)),
     shot?.set,
@@ -696,4 +779,15 @@ export function buildVisualPrompt(scene = {}, kind = 'image', styleIds = scene.s
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+/** True when a shot of this scene shows a host: the portraits of the hosts in frame can be attached to it. */
+export const showsHost = (shot) => !CUTAWAYS.has(shot?.id);
+
+/** The prompt for a host's reference portrait, in the frame and the visual style of the video. `host` is one entry of a script's cast. */
+export function buildHostPrompt(host, { aspectRatio, styleIds } = {}) {
+  const [me] = normalizeCast([host]);
+  if (!me?.look) throw new Error('This host has no look to draw a portrait from');
+  const frame = getAspect(aspectRatio);
+  return [`${frame.shape} ${frame.id} reference portrait of the recurring host of a short social video.`, hostBrief(me), styleLook(pickStyles(styleIds)), 'No captions, subtitles, watermarks or logos.'].filter(Boolean).join('\n');
 }

@@ -20,7 +20,7 @@ test('every framework belongs to a group, and a narration style is complete in b
     assert.ok(Math.abs(f.stages.reduce((n, s) => n + s.share, 0) - 1) < 1e-9, `${f.id}: stage shares must add up to 1`);
     assert.equal(new Set(f.stages.map((s) => s.key)).size, f.stages.length, `${f.id}: stage keys must be unique`);
   }
-  assert.deepEqual(styles.map((f) => f.id), ['loss_stop', 'mouthpiece', 'toolkit', 'quiet_story', 'tech_explainer', 'consultant_lecture', 'tech_news', 'earnings']);
+  assert.deepEqual(styles.map((f) => f.id), ['loss_stop', 'mouthpiece', 'toolkit', 'quiet_story', 'tech_explainer', 'consultant_lecture', 'tech_news', 'earnings', 'tech_deepdive', 'tech_rundown', 'podcast_solo', 'podcast_duo']);
   for (const f of styles) {
     for (const lang of ['zh', 'en']) {
       assert.ok(f.voice[lang].length >= 6, `${f.id}: ${lang} voice rules`);
@@ -258,8 +258,9 @@ test('HTTP: plan, draft, refine, and a script built around a locked narration', 
   assert.equal((await json('/api/auth/login', admin)).status, 200);
 
   const meta = await (await fetch(`http://127.0.0.1:${port}/api/meta`, { headers: { cookie } })).json();
-  assert.deepEqual(meta.frameworkGroups.map((g) => g.id), ['general', 'voice', 'tech']);
-  assert.deepEqual(meta.frameworks.filter((f) => f.group === 'tech').map((f) => [f.id, f.needsReference]), [['tech_explainer', false], ['consultant_lecture', false], ['tech_news', true], ['earnings', true]]);
+  assert.deepEqual(meta.frameworkGroups.map((g) => g.id), ['general', 'voice', 'tech', 'podcast']);
+  assert.deepEqual(meta.frameworks.filter((f) => f.group === 'tech').map((f) => [f.id, f.needsReference]), [['tech_explainer', false], ['consultant_lecture', false], ['tech_news', true], ['earnings', true], ['tech_deepdive', false], ['tech_rundown', true]]);
+  assert.deepEqual(meta.frameworks.filter((f) => f.group === 'podcast').map((f) => [f.id, f.speakers, f.hosted]), [['podcast_solo', 1, true], ['podcast_duo', 2, true]]);
   assert.deepEqual(meta.frameworks.find((f) => f.id === 'consultant_lecture').length, { min: 180, max: 360, default: 240 });
   assert.ok(meta.skills.length >= 6 && meta.skills.every((sk) => sk.title.zh && sk.title.en && sk.description && !('body' in sk)), 'skills are listed by name; the playbooks stay on the server');
   assert.deepEqual(meta.agentSteps, ['skills', 'write', 'review']);

@@ -15,7 +15,9 @@ It works with the model provider you already use, runs on your own machine or on
 - **Ready to publish.** Titles, cover text, description, hashtags and a pinned comment come with every script.
 - **A narration agent, not a one-shot prompt.** The spoken words are planned on a viewpoint card, written with the skills that fit the brief, then measured, reviewed and corrected before a script is built around them.
 - **Your words, if you want.** Have the narration drafted first, paste your own, or rewrite any beat in the narration editor. The script is then built around it word for word.
-- **Storyboards included.** Turn any scene into an image or clip in the video's aspect ratio (9:16, 16:9, 1:1, 3:4 or 4:3), in one of 65 visual styles.
+- **Storyboards included.** Turn any scene into an image or clip in the video's aspect ratio (9:16, 16:9, 1:1, 3:4 or 4:3), in one of 74 visual styles.
+- **The look picked for you.** Type a topic and the visual style is chosen from it, with the reason and a few alternatives. One click has the model choose instead.
+- **A host who stays the same.** Put a digital presenter on screen, or two for a podcast conversation. Their look is written into the script once, a portrait is made from it, and every scene they are in is drawn from that portrait.
 - **Any model.** Ten provider presets, from OpenAI and Anthropic to 通义千问, 豆包 and local Ollama, plus any OpenAI-compatible or Anthropic-compatible endpoint. Switch model per script.
 - **Yours to keep.** Every script, image and clip is saved to your account and exports as one tidy `.zip`.
 - **Built for a team.** Accounts with sign-up and log-in, an administrator who manages models and users, token and image usage per script and per user, and an activity log.
@@ -59,7 +61,8 @@ Only the topic is required. The rest sharpens the result.
 | Topic | What the video is about |
 | Platforms | One script is written per platform you tick |
 | Structure and Length | The story framework, or a narration style that also sets the voice and the pace, and the running time: Auto (the length the style is made for, otherwise the platform's usual one), one of the platform's lengths, or **Custom** for any length from 10 to 360 seconds |
-| Visual style | One look, or two blended, for the scene notes and all generated media |
+| Visual style | One look, or two blended, for the scene notes and all generated media. Picked from the topic until you pick your own (see [Visual styles](#visual-styles)) |
+| On-screen host | A digital presenter who is the same person in every scene, or two for a conversation (see [On-screen host](#on-screen-host)) |
 | Key message, Audience, Tone | The one thing to remember, who it is for, and how it should sound |
 | Brand or creator, Call to action | Who is speaking and what the viewer should do next |
 | Your experience | What you have seen first-hand: a client situation, a mistake, a result. The narration tells it in your voice. Without it, the agent describes a common pattern with no numbers or client names and asks you to confirm or replace it |
@@ -145,7 +148,7 @@ The playbook, in Markdown.
 
 ## Script structures
 
-Fourteen frameworks set the story arc and how the running time is divided between its stages. Six are general structures. Eight are narration styles, which also set how the narration sounds, how fast it is spoken and the length it is made for.
+Eighteen frameworks set the story arc and how the running time is divided between its stages. Six are general structures. Twelve are narration styles, which also set how the narration sounds, how fast it is spoken and the length it is made for.
 
 | Structure | Arc | Best for |
 | --- | --- | --- |
@@ -169,20 +172,32 @@ Fourteen frameworks set the story arc and how the running time is divided betwee
 | Consultant whiteboard lecture | A business myth broken, how we got here, the whole architecture, one part taken apart, the idea that ties it together, three steps and the handout | 3–6 min, 4.2 | A full teardown on one board: Palantir, Ontology, enterprise AI architecture |
 | Tech news, the insider read | Cold water on the consensus, what happened, the detail outsiders miss, what it means in production, what to do next | 60–120 s, 4.2 | Model and agent launches, big-tech moves |
 | Earnings teardown and business model | One odd set of numbers, what they are made of, what customers are paying for, what we see in real deals, what to copy | 90–180 s, 4.0 | How a company makes its money, read from its earnings |
+| Tech explained from first principles (YouTube style) | A cold-open question, the promise, start from what you know, why the obvious way breaks, the key idea, one example run end to end, what it costs, zoom out | 2–6 min, 4.4 | Teaching how a technology works: transformers, chips, vector databases |
+| Tech news rundown (YouTube weekly style) | The headline cold, the line-up, the lead story, story two, story three, quick hits, the thread that ties them | 90 s–4 min, 4.5 | Several stories in one briefing |
 
-Paces are Chinese characters per second; English is paced in proportion. A narration style adds its own writing rules to the prompt. The hard-tech style states the value before the mechanism, names each term once after saying it plainly, and carries one analogy through the whole video. The whiteboard lecture builds one diagram chapter by chapter and comes with a whiteboard blueprint and chapters. The news and earnings styles keep fact apart from judgment, give every figure its scope and source on screen, and make no share-price or investment calls. Both report facts, so paste the news or the figures under **Reference material**: where a fact is missing, the script leaves a marked gap (`[TO VERIFY: …]`, `[TO ADD: …]`) and lists it in the production notes instead of inventing it.
+| Podcast and host format | Arc | Length and pace | Best for |
+| --- | --- | --- | --- |
+| Solo podcast | Cold open, what this episode is about, the story told straight, my take, what it means for you, a question to leave with | 90 s–6 min, 4.0 | Opinion, news analysis and shop talk in one voice |
+| Two-host podcast | The best exchange as a cold open, the set-up, get it clear, push back, make it practical, one line to keep | 90 s–6 min, 4.3 | A host and a guest in conversation; every line is marked `A:` or `B:` |
+
+Paces are Chinese characters per second; English is paced in proportion. A narration style adds its own writing rules to the prompt. The hard-tech style states the value before the mechanism, names each term once after saying it plainly, and carries one analogy through the whole video. The whiteboard lecture builds one diagram chapter by chapter and comes with a whiteboard blueprint and chapters. The news and earnings styles keep fact apart from judgment, give every figure its scope and source on screen, and make no share-price or investment calls. Both report facts, so paste the news or the figures under **Reference material**: where a fact is missing, the script leaves a marked gap (`[TO VERIFY: …]`, `[TO ADD: …]`) and lists it in the production notes instead of inventing it. The news rundown works the same way.
+
+The first-principles style teaches the way the best YouTube explainers do: it starts from what the viewer already knows, pushes the obvious approach until it breaks, reaches the real idea one step at a time, carries one example through the whole video, and says what the technology costs. It comes with a whiteboard blueprint.
+
+The two podcast formats are written for the ear: they work with your eyes closed. The solo format is one host talking to one listener. The two-host format is a conversation in which A asks, interrupts and restates for the listener and B answers with examples; each line starts with `A:` or `B:`, the labels stay in the narration editor, the script and `voiceover.txt`, and the narration checks flag a line nobody is named on. Choosing either format switches the [on-screen host](#on-screen-host) on.
 
 ## Visual styles
 
-The **Visual style** picker offers 65 looks in seven groups.
+The **Visual style** picker offers 74 looks in eight groups.
 
 | Group | Styles |
 | --- | --- |
 | Live action | Cinematic, documentary, phone-shot vlog, studio product, bright lifestyle, modern workplace, macro detail |
 | Illustration | Flat vector, isometric, hand-drawn sketch, watercolour, Chinese ink, anime, comic pop, paper collage |
 | 3D and stop motion | Stylised 3D, claymation, glossy 3D objects |
-| Graphics and data | Motion infographic, minimal geometric, tech interface, screen recording |
+| Graphics and data | Motion infographic, minimal geometric, tech interface, screen recording, animated diagram, math animation, code on screen, explainer journalism |
 | Presenting and launching | Consulting deck, boardroom briefing, whiteboard session, lightboard, professor's chalkboard, product walkthrough, launch keynote, launch film |
+| Hosts and podcasts | Tech creator desk, podcast studio, two-host podcast, news desk, virtual studio |
 | Bright and light | Bright and clean, bright tech, cream tones, Nordic light, pastel, dopamine brights, soft and airy, fresh green, summer sky, seaside holiday, golden hour, morning mist, soft glow |
 | Era and mood | Ancient China, black-and-white classic, Art Deco, old Shanghai poster, mid-century modern, retro-futurism, retro film, 80s–90s nostalgia, Hong Kong 90s, VHS tape, pixel art, Y2K, vaporwave, neon night, cyberpunk, steampunk, wasteland, dark and moody, dark academia, cozy and warm, wabi-sabi, surreal dream |
 
@@ -194,6 +209,29 @@ Pick one, or two to blend. The first one picked leads, and a third pick replaces
 2. Every image and video prompt for that script carries the style description.
 
 A script written without a style uses whatever is selected when you generate its media.
+
+### Picked from the topic
+
+**Pick the look for me from the topic** is on until you choose a style yourself. While it is on, the styles follow the brief: what the topic is about, the structure, the platform, the tone and whether a host is on screen each vote, and the winner is ticked for you, with a second style when the brief asks for a mood. The line under the switch says why, and offers three other styles that would also fit; clicking one puts it in the lead. This is done by rule: it is instant, calls no model, and gives the same answer for the same brief.
+
+**Ask the model** puts the same question to the model in use, with the whole catalogue: it picks, and says in one sentence what in your topic made it choose. Its pick stays until you change it. Ticking any style by hand also switches the automatic pick off, and your choice is kept.
+
+## On-screen host
+
+Tick **Put a host on screen** and the video gets a digital presenter who is the same person from the first scene to the last. A conversation (the two-host podcast) has two: A the host, B the guest.
+
+Each host has a look. Leave it on **Designed to fit the topic** and the scriptwriter designs the host with the script; or pick one of nine ready-made hosts; or describe your own (up to 240 characters: age, hair, clothes, bearing). The script then carries:
+
+- **The cast**: each person's name, role, look and a casting note for the voice, at the top of the script.
+- **Who is in frame**, scene by scene. The host opens and closes the video and is on screen for at least half of it; the rest cuts away to graphics and b-roll.
+
+To keep the same face in every picture:
+
+1. **Generate portrait** makes the host's reference portrait, in the frame and the visual style of the video. With **Also generate an image for every scene** on, the portraits are made first.
+2. Every scene image and clip with that host carries the same written look. Where the image model takes a reference picture (an OpenAI-compatible `images/edits` endpoint), the portrait is sent along too, and the image is marked **Drawn from the host portrait**. A provider that has no such endpoint is asked once, then the images are made from the description alone.
+3. **Keep this host** fixes that look in the brief, so the next script has the same person.
+
+The portrait is also the picture to give a talking-avatar tool, together with `voiceover.txt`. The app writes and draws the host; it does not animate lip-sync.
 
 ## Images and video
 
@@ -328,6 +366,7 @@ script.md                              the full script, in the interface languag
 script.html                            the same as a styled page that shows the images and clips; opens offline
 script.json                            brief, plan, script, and a list of the media files
 voiceover.txt                          spoken text only, one scene per paragraph
+images/host-A.png                      the reference portrait of each on-screen host
 images/scene-01_00m00s-00m04s.png      latest image per scene
 videos/scene-01_00m00s-00m04s.mp4      latest clip per scene
 ```
@@ -425,6 +464,8 @@ src/platforms.mjs       per-platform writing, publishing and compliance guidance
 src/frameworks.mjs      script structures and narration styles: stage timing and, for a style, its voice
 src/narration.mjs       narration as beats: counting, timing, and keeping a locked narration word for word
 src/styles.mjs          visual styles for images and clips
+src/suggest.mjs         the visual style picked for a brief: by rule, or by the model
+src/cast.mjs            the people of a video: speakers, the on-screen host, and how every image describes them
 src/shots.mjs           how several images of one scene relate (multi-image modes)
 src/prompt.mjs          brief -> timeline + prompts; model reply -> script, narration or refinement
 src/agent/              the narration agent: narrator.mjs (the steps), review.mjs (the measured checks),
@@ -454,6 +495,8 @@ test/                   node --test
 | What the narration checks measure, and the words a platform throttles | `src/agent/review.mjs`, and `banned` in `src/platforms.mjs` |
 | The refinements the narration editor offers | `REFINE_PRESETS` in `src/prompt.mjs` |
 | Visual styles | `src/styles.mjs` |
+| Which styles are suggested for which topics, structures and platforms | The tables in `src/suggest.mjs` |
+| The ready-made hosts | `HOST_PRESETS` in `src/cast.mjs` |
 | Multi-image modes | `src/shots.mjs` |
 | Provider presets | `src/gateway/providers.mjs` |
 | Interface translations | `public/i18n.js` |
@@ -503,7 +546,9 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `GET` | `/api/history` | The signed-in user's scripts, newest first |
 | `POST` | `/api/history` | Import a script |
 | `POST` | `/api/history/package` | `{ id, markdown }` Returns the script's `.zip` |
-| `POST` | `/api/media/image` | `{ visual, camera, historyId, sceneId }` Makes and stores an image, returns `{ url }` |
+| `POST` | `/api/media/image` | `{ visual, camera, historyId, sceneId }` Makes and stores an image, returns `{ url }`. `referenced: true` when a host portrait was used as the reference |
+| `POST` | `/api/media/host` | `{ historyId, hostId, aspectRatio, styleIds }` Makes and stores the reference portrait of host `A` or `B` of a script, returns `{ url }` |
+| `POST` | `/api/styles/suggest` | `{ ...brief, lang }` The visual style for a brief: `{ styleIds, alternatives, reason, by }`. By rule, with no model call; `by: "model"` has the model in use choose |
 | `POST` | `/api/media/video` | `{ visual, camera, start, end }` Starts a video job |
 | `POST` | `/api/media/video/status` | `{ id, historyId, sceneId }` Polls a job and stores the file when ready |
 | `GET` | `/media/<file>` | A stored image or video |

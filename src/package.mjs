@@ -8,6 +8,7 @@
 //      ├─ script.json                   brief, plan, script and a manifest of the media files
 //      ├─ voiceover.txt                 spoken text only, one scene per paragraph
 //      ├─ images/scene-01_00m00s-00m04s.png      (…_1.png, …_2-end.png when a scene has several)
+//      ├─ images/host-A.png             the reference portrait of each on-screen host
 //      └─ videos/scene-01_00m00s-00m04s.mp4
 
 import { readMedia } from './store.mjs';
@@ -48,6 +49,16 @@ export async function buildPackage(entry, { markdown, lang } = {}) {
   const root = packageName(entry);
   const files = [];
   const manifest = [];
+
+  // The hosts' reference portraits come first: they are what every scene with a host was drawn from.
+  for (const host of entry.script.cast || []) {
+    const stored = /^\/media\/([\w-]+\.(\w+))$/.exec(entry.media?.[`host${host.id}`]?.image?.url || '');
+    const data = stored && (await readMedia(stored[1]).catch(() => null));
+    if (!data) continue;
+    const name = `images/host-${host.id}.${stored[2]}`;
+    files.push({ name: `${root}/${name}`, data, store: stored[2] !== 'svg' });
+    manifest.push({ host: host.id, kind: 'image', file: name });
+  }
 
   for (const [i, sc] of entry.script.scenes.entries()) {
     for (const [kind, dir] of [['image', 'images'], ['video', 'videos']]) {

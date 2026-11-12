@@ -103,6 +103,7 @@ export const ACTIVITY = {
   'narration.refine': 'Refined a narration',
   'narration.failed': 'Narration failed',
   'image.generate': 'Generated images',
+  'style.suggest': 'Had the model pick a visual style',
   'video.generate': 'Started a video',
   'gateway.create': 'Added a gateway',
   'gateway.update': 'Changed a gateway',
@@ -116,7 +117,7 @@ export const ACTIVITY = {
   'admin.user_logout': 'Logged a user out everywhere',
   'admin.user_delete': 'Deleted a user',
 };
-const KIND = { script: 'Scripts', narration: 'Narration', image: 'Images', video: 'Videos', test: 'Connection tests' };
+const KIND = { script: 'Scripts', narration: 'Narration', style: 'Style picks', image: 'Images', video: 'Videos', test: 'Connection tests' };
 
 export function activityDetail(a) {
   const d = a.detail || {};

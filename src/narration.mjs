@@ -73,7 +73,11 @@ export const narrationBlock = (beats) => beats.map((b, i) => `# ${i + 1}${b.stag
 function cutPoints(source) {
   const points = [];
   for (const m of source.matchAll(/(?:[。！？!?…；;]+|\.(?=["'”’)\]]*(?:\s|$)))["'”’」』）)\]]*|\n/g)) points.push({ at: m.index + m[0].length, strong: true });
-  for (const m of source.matchAll(/[，、：—]+|[,:](?=\s)/g)) points.push({ at: m.index + m[0].length, strong: false });
+  for (const m of source.matchAll(/[，、：—]+|[,:](?=\s)/g)) {
+    // "A：" and "B:" at the start of a line of dialogue are labels, not clause ends: a cut there would part a speaker from their words.
+    if (/(?:^|[^A-Za-z0-9])[AB]$/.test(source.slice(Math.max(0, m.index - 2), m.index)) && /^[：:]$/.test(m[0])) continue;
+    points.push({ at: m.index + m[0].length, strong: false });
+  }
   return points;
 }
 

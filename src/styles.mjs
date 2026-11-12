@@ -4,8 +4,8 @@
 //
 // Every group also takes a custom style, described by the creator in their own words. Its id carries those
 // words, "custom:<group>:<description>", so it travels wherever a style id does (the brief, a scene, the
-// history) with nothing else to pass along. `medium` is what a group's custom style is made in; the last two
-// groups are a format or a tone rather than a medium, so their custom style is the description alone.
+// history) with nothing else to pass along. `medium` is what a group's custom style is made in; a group
+// without one is a format or a tone rather than a medium, so its custom style is the description alone.
 
 export const STYLE_GROUPS = [
   { id: 'live', name: { en: 'Live action', zh: '实拍' }, medium: 'live-action photography' },
@@ -13,6 +13,7 @@ export const STYLE_GROUPS = [
   { id: '3d', name: { en: '3D and stop motion', zh: '三维与定格' }, medium: '3D render' },
   { id: 'graphic', name: { en: 'Graphics and data', zh: '图形与数据' }, medium: 'graphic design' },
   { id: 'present', name: { en: 'Presenting and launching', zh: '演示与发布' } },
+  { id: 'host', name: { en: 'Hosts and podcasts', zh: '主播与播客' } },
   { id: 'bright', name: { en: 'Bright and light', zh: '明亮与浅色' } },
   { id: 'mood', name: { en: 'Era and mood', zh: '年代与氛围' } },
 ];
@@ -110,6 +111,18 @@ export const STYLES = [
   S('screen', 'graphic', 'Screen recording', '屏幕演示', 'Product UI and step-by-step tutorials.',
     'clean screen-capture look, crisp app interface on a device or full frame, tidy cursor highlights, soft backdrop behind the window',
     'the actual screen: apps, dashboards, chats and the steps being taken'),
+  S('diagram', 'graphic', 'Animated diagram', '动态图解', 'Boxes, arrows and moving data: how a system works, one step at a time.',
+    'animated explainer diagram, colour-coded rounded boxes joined by arrows on a dark slate canvas, small dots of data travelling along the paths, one block lit up at a time, clean flat shapes with a soft glow, generous spacing, no clutter',
+    'a system drawn as blocks and arrows that light up one step at a time: requests travelling, queues filling, one part zoomed in'),
+  S('mathanim', 'graphic', 'Math animation', '数理动画', 'Exact curves, grids and shapes on black; first-principles explanations.',
+    'mathematical animation look, pure black background, thin precise vector lines, coordinate grids, curves, vectors and geometric shapes in clear blue, yellow and white, shapes morphing smoothly into one another, exact and uncluttered',
+    'an idea shown as geometry: a curve being traced, a grid transforming, points and vectors moving, one shape turning into another'),
+  S('codescreen', 'graphic', 'Code on screen', '代码终端', 'A dark editor, one highlighted line, a terminal; developer explainers.',
+    'code editor and terminal look, dark theme with soft syntax colours, large readable monospace type, a few short lines of code with one line highlighted, a terminal pane below, subtle window chrome on a blurred backdrop',
+    'short snippets of code and terminal output, one line or one result picked out at a time, beside a small diagram of what it does'),
+  S('motiondoc', 'graphic', 'Explainer journalism', '资料图解', 'Archive photos, maps and highlighted documents; the story behind the news.',
+    'editorial explainer look, cut-out archive photographs and paper documents on a warm textured background, yellow highlighter strokes over key lines, animated maps and timelines, hand-drawn arrows and circles, layered parallax depth',
+    'the evidence laid out: a document with one line highlighted, a map with a route drawn in, a timeline, cut-out photos joined by arrows'),
 
   // Presenting and launching: the consultant's slides and room, the expert at a board, then the product on show
   S('deck', 'present', 'Consulting deck', '咨询汇报', 'One message per slide: the clean frameworks and charts a partner would present.',
@@ -136,6 +149,23 @@ export const STYLES = [
   S('launchfilm', 'present', 'Launch film', '产品发布片', 'The product emerging from the dark in sweeping light; premium teaser energy.',
     'cinematic product launch film look, the product emerging from darkness under a sweeping rim light, glossy reflections on a black surface, macro passes over materials and edges, slow-motion dust and droplets, high contrast with one saturated accent',
     'the product revealed piece by piece: an edge catching light, a texture in macro, a slow turn, then the whole thing at last'),
+
+  // Hosts and podcasts: one person leads the video, from a creator's desk to a virtual studio
+  S('techdesk', 'host', 'Tech creator desk', '科技博主出镜', 'A presenter at a tidy desk talking to camera; the tech-channel look.',
+    'tech creator studio, a presenter seated at a clean desk talking to the camera, shallow depth of field, softly lit shelves and practical lamps behind, monitor glow and one subtle colour accent light, crisp cinematic close framing',
+    'a presenter at a desk talking to camera, holding or pointing at the thing they explain, with cutaways to the device, the screen and hands at work'),
+  S('podcast', 'host', 'Podcast studio', '播客录音间', 'One host at a microphone in warm light; close and unhurried.',
+    'solo podcast studio, one host seated at a boom-arm microphone with headphones, acoustic panels and warm practical lights behind, shallow depth of field, rich warm tones, calm locked-off framing',
+    'one host at a microphone: talking to the lens, leaning in on a point, glancing at notes, the microphone and headphones in close-up'),
+  S('podcastduo', 'host', 'Two-host podcast', '双人对谈', 'Two people at microphones across a table; a real conversation on camera.',
+    'two-person podcast set, two hosts facing each other across a small round table with microphones, armchairs, a rug and warm lamp light, multi-camera look with a wide two-shot and close singles, shallow depth of field',
+    'two hosts in conversation: the wide two-shot, a close single on whoever is speaking, the other one listening or reacting'),
+  S('newsdesk', 'host', 'News desk', '主播台播报', 'An anchor at a desk with a screen wall behind; briefings and rundowns.',
+    'broadcast news studio, an anchor seated at a sleek desk, a large video wall behind showing abstract graphics, even high-key studio lighting, cool blue and white palette with one red accent, clean symmetrical framing',
+    'an anchor at a news desk: speaking to camera, turning to the screen wall, with a full-frame graphic for each story'),
+  S('virtualstudio', 'host', 'Virtual studio', '虚拟演播室', 'A host among floating panels and charts; digital-human presentations.',
+    'virtual production studio, a host standing in a clean digital set, translucent floating panels and charts around them, soft blue-white light with gentle reflections on a glossy floor, wide and medium framing with depth',
+    'a host standing in a virtual set: gesturing at floating panels, walking between charts, one panel filling the frame for a cutaway'),
 
   // Bright and light: clean and pale first, then colour, then daylight outdoors
   S('highkey', 'bright', 'Bright and clean', '明亮通透', 'White on white in even light; fresh, honest and optimistic.',

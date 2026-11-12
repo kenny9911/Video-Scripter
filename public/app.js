@@ -32,6 +32,10 @@ const state = {
   history: [],
   styleIds: [], // the chips that are ticked: a style id, or "custom:<group>" for a group's own custom style
   customStyles: {}, // group id -> what the creator wrote for that group's custom style
+  styleAuto: true, // the styles follow the brief: they are picked from the topic until the creator picks their own
+  pick: null, // the last suggestion: { styleIds, alternatives, reason, by, model, key }
+  hostLooks: ['', ''], // per host (A, B): '' designed by the scriptwriter | a preset id | 'custom'
+  hostCustom: ['', ''], // per host: the creator's own description, used while its look is 'custom'
   // platformId -> { status, raw, script, error, plan, brief, abort, narration }
   // status: 'drafting' (the narration is being written) | 'narration' (it is open in the editor) |
   //         'running' (the script is being written) | 'done' | 'error' | 'stopped'
@@ -201,6 +205,7 @@ function setStyles(ids) {
   refreshStyleHint();
   if ($('imageMode').options.length) refreshImageMode();
   refreshSummaries();
+  refreshPick();
 }
 
 /** The mode only matters with two or three images; "Style comparison" also needs two styles picked. */
@@ -226,7 +231,7 @@ function buildStyles() {
     h(
       'label',
       { class: `chip${customOf(id) ? ' custom' : ''}`, title },
-      h('input', { type: 'checkbox', name: 'style', value: id, onchange: (e) => (setStyles(e.target.checked ? [...state.styleIds, id] : state.styleIds.filter((x) => x !== id)), then?.(e.target.checked)) }),
+      h('input', { type: 'checkbox', name: 'style', value: id, onchange: (e) => (stopAuto(), setStyles(e.target.checked ? [...state.styleIds, id] : state.styleIds.filter((x) => x !== id)), then?.(e.target.checked)) }),
       h('span', {}, label),
     );
   $('styleGroups').replaceChildren(
@@ -234,6 +239,7 @@ function buildStyles() {
       // The group's own style, in the creator's words: the box shows while its chip is ticked.
       const box = h('input', { type: 'text', class: 'style-custom', 'data-group': g.id, maxlength: MAX_CUSTOM_STYLE, hidden: true, placeholder: t('Describe the look: medium, colours, light, texture'), 'aria-label': t('Custom style: {group}', { group: g.name[lang] }) });
       box.addEventListener('input', () => {
+        stopAuto();
         state.customStyles[g.id] = box.value;
         refreshStyleHint();
         refreshImageMode();
@@ -255,6 +261,161 @@ function buildStyles() {
   setStyles([]);
 }
 
+// ---------- The look, picked from the topic ----------
+// While "Pick the look for me" is ticked, the styles follow the brief: the server suggests one style to lead
+// and perhaps a second for its tone (by rule, at once), and they are ticked for the creator. Ticking a style
+// by hand, or having the model choose, ends that: the choice then stays as it is.
+
+let pickSeq = 0;
+/** What a suggestion is made from. While none of this has changed there is nothing new to ask. */
+const pickBrief = () => ({ topic: $('topic').value.trim(), keyMessage: $('keyMessage').value.trim(), audience: $('audience').value.trim(), tone: $('tone').value.trim(), brand: $('brand').value.trim(), frameworkId: $('framework').value, platformId: selectedPlatforms()[0] || '', host: $('hostOn').checked ? { on: true } : undefined });
+const sameIds = (a, b) => a.length === b.length && a.every((id, i) => id === b[i]);
+const stopAuto = () => ((state.styleAuto = false), ($('styleAuto').checked = false));
+
+/** The line under the switch: why these styles, and what else would fit. Shown while the suggestion is what is ticked. */
+function refreshPick() {
+  const pick = state.pick;
+  const visible = Boolean(pick) && sameIds(pick.styleIds, activeStyleIds());
+  $('stylePick').hidden = !visible;
+  $('styleAsk').disabled = !$('topic').value.trim() || Boolean(state.asking);
+  if (!visible) return;
+  const by = pick.swapped ? t('Your choice from the suggestions.') : pick.by === 'model' ? t('Picked by {model}.', { model: pick.model || t('the model') }) : t('Picked for this topic.');
+  $('stylePickText').replaceChildren(h('b', {}, by), pick.swapped ? '' : ` ${pick.reason}`);
+  // An alternative takes the lead; the style it replaces is offered in its place.
+  const swap = (id) => {
+    stopAuto();
+    state.pick = { ...pick, swapped: true, styleIds: [id, ...pick.styleIds.slice(1).filter((x) => x !== id)], alternatives: [pick.styleIds[0], ...pick.alternatives.filter((x) => x !== id)] };
+    setStyles(state.pick.styleIds);
+    saveForm();
+  };
+  const others = pick.alternatives.map(styleOf).filter(Boolean);
+  $('stylePickAlts').replaceChildren(...(others.length ? [h('span', { class: 'hint' }, t('Also fits')), ...others.map((x) => h('button', { class: 'chip', type: 'button', title: t(x.blurb), onclick: () => swap(x.id) }, x.name[lang]))] : []));
+}
+
+/** Ask for the look of the brief as it stands, and tick it. `by` 'model' has the model in use choose; otherwise the rules do, at once. */
+async function pickStyles(by = 'rules') {
+  const brief = pickBrief();
+  const key = JSON.stringify(brief);
+  const seq = ++pickSeq;
+  if (!brief.topic) {
+    state.pick = null;
+    if (state.styleAuto) setStyles([]);
+    return refreshPick();
+  }
+  try {
+    const r = await api('/api/styles/suggest', { method: 'POST', body: { ...brief, by, lang } });
+    if (seq !== pickSeq) return; // the brief moved on while this was being answered
+    state.pick = { ...r, key };
+    setStyles(r.styleIds);
+  } catch (err) {
+    if (by === 'model') toast(shown(err));
+  }
+  refreshPick();
+}
+
+/** The brief changed: pick again shortly, when the styles are picked automatically and what they depend on moved. */
+function pickSoon() {
+  clearTimeout(pickSoon.timer);
+  if (!state.styleAuto) return refreshPick();
+  if (state.pick?.key === JSON.stringify(pickBrief())) return;
+  pickSoon.timer = setTimeout(() => pickStyles(), 450);
+}
+
+/** Before a brief is sent: the styles that go with it are the ones for the brief as it is now. */
+async function settlePick() {
+  clearTimeout(pickSoon.timer);
+  if (state.styleAuto && $('topic').value.trim() && state.pick?.key !== JSON.stringify(pickBrief())) await pickStyles();
+}
+
+function setStyleAuto(on) {
+  state.styleAuto = Boolean(on);
+  $('styleAuto').checked = state.styleAuto;
+  if (state.styleAuto) pickStyles();
+}
+
+/** Have the model in use choose the look. Its choice stays: typing more does not swap it for the rules' pick. */
+async function askModel() {
+  if (!$('topic').value.trim() || state.asking) return;
+  clearTimeout(pickSoon.timer);
+  state.asking = true;
+  $('styleAsk').classList.add('busy');
+  refreshPick();
+  await pickStyles('model');
+  state.asking = false;
+  $('styleAsk').classList.remove('busy');
+  if (state.pick?.by === 'model') stopAuto();
+  else if (state.pick) toast(t('No model answered, so the look was picked by rule.'));
+  refreshPick();
+  saveForm();
+}
+
+// ---------- On-screen host (a digital presenter who is the same person in every scene) ----------
+// One host, or two when the structure is a conversation (A the host, B the guest). Each has a look: left to
+// the scriptwriter ("Designed to fit the topic"), one of the ready-made ones, or the creator's own words.
+
+const HOSTS = ['A', 'B'];
+const speakersOf = () => frameworkOf($('framework').value)?.speakers || 1;
+
+/** The host setting as it is sent and saved: nothing when no host is on screen. */
+function hostValue() {
+  if (!$('hostOn').checked) return undefined;
+  return { on: true, looks: HOSTS.map((_, i) => (state.hostLooks[i] === 'custom' ? (state.hostCustom[i] || '').trim() : state.hostLooks[i] || '')) };
+}
+
+/** Put a host setting into the form: a look that is not one of the ready-made ones is the creator's own words. */
+function setHost(host) {
+  $('hostOn').checked = Boolean(host?.on);
+  HOSTS.forEach((_, i) => {
+    const look = String(host?.looks?.[i] || '');
+    const preset = state.meta.hostPresets.some((p) => p.id === look);
+    state.hostLooks[i] = !look ? '' : preset ? look : 'custom';
+    if (look && !preset) state.hostCustom[i] = look;
+  });
+  refreshHost();
+}
+
+function refreshHost() {
+  const on = $('hostOn').checked;
+  const duo = speakersOf() === 2;
+  $('hostFields').hidden = !on;
+  for (const row of $('hostFields').children) {
+    const i = HOSTS.indexOf(row.dataset.host);
+    row.hidden = i > 0 && !duo;
+    row.querySelector('.group-label').textContent = duo ? t(i ? 'B · guest' : 'A · host') : t('Look');
+    const box = row.querySelector('input');
+    row.querySelector('select').value = state.hostLooks[i];
+    box.hidden = state.hostLooks[i] !== 'custom';
+    if (document.activeElement !== box) box.value = state.hostCustom[i] || '';
+    const preset = state.meta.hostPresets.find((p) => p.id === state.hostLooks[i]);
+    const note = row.querySelector('.host-look');
+    note.textContent = preset ? preset.look[lang] : '';
+    note.hidden = !preset;
+  }
+  $('hostHint').hidden = !on;
+  $('hostHint').textContent = duo
+    ? t('This structure is a conversation: A is the host and B the guest. Both are written into the script and drawn the same way in every scene.')
+    : t('The host is written into the script and drawn the same way in every scene. Make their portrait first, and scene images are drawn from it.');
+  refreshSummaries();
+}
+
+function buildHost() {
+  $('hostFields').replaceChildren(
+    ...HOSTS.map((id, i) => {
+      const sel = h('select', { 'aria-label': t('Look of host {id}', { id }) }, h('option', { value: '' }, t('Designed to fit the topic')), state.meta.hostPresets.map((p) => h('option', { value: p.id }, p.name[lang])), h('option', { value: 'custom' }, t('Custom…')));
+      const box = h('input', { type: 'text', maxlength: state.meta.maxHostLook, hidden: true, placeholder: t('Describe the host: age, hair, clothes, bearing'), 'aria-label': t('Your description of host {id}', { id }) });
+      sel.addEventListener('change', () => {
+        state.hostLooks[i] = sel.value;
+        refreshHost();
+        if (sel.value === 'custom') box.focus();
+      });
+      box.addEventListener('input', () => (state.hostCustom[i] = box.value));
+      return h('div', { class: 'host-row', 'data-host': id }, h('span', { class: 'group-label' }), h('div', { class: 'host-pick' }, sel, box, h('p', { class: 'hint host-look', hidden: true })));
+    }),
+  );
+  $('hostOn').addEventListener('change', () => (refreshHost(), pickSoon()));
+  refreshHost();
+}
+
 const IDEAS = {
   en: ['Why most people quit learning to code in week three', '3 pricing mistakes that quietly kill small cafés', 'What a 5-minute morning routine actually changes'],
   zh: ['为什么企业买了大模型却用不起来', '小餐馆定价最容易踩的三个坑', '普通人学 AI 最该先学的一件事'],
@@ -262,7 +423,7 @@ const IDEAS = {
 
 /** One-line summaries on the folded brief sections, and topic ideas while the topic is empty. */
 function refreshSummaries() {
-  const look = [styleNames(activeStyleIds()) || t('No style'), $('autoImages').checked && t('{n} per scene', { n: $('imageCount').value })].filter(Boolean);
+  const look = [styleNames(activeStyleIds()) || t('No style'), state.styleAuto && t('auto'), $('hostOn').checked && t(speakersOf() === 2 ? 'two hosts' : 'host'), $('autoImages').checked && t('{n} per scene', { n: $('imageCount').value })].filter(Boolean);
   $('lookSummary').textContent = look.join(' · ');
   const filled = FIELDS.filter((f) => f !== 'topic' && $(f).value.trim()).length + ($('ttsReady').checked ? 1 : 0);
   $('detailsSummary').textContent = filled ? t('{n} filled', { n: filled }) : t('Optional');
@@ -388,7 +549,7 @@ function setNarrationMode(mode) {
 
 function saveForm() {
   const data = Object.fromEntries(FIELDS.map((f) => [f, $(f).value]));
-  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: durationValue(), aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: activeStyleIds(), narrationMode: state.narrationMode, agent: $('agent').checked });
+  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: durationValue(), aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: activeStyleIds(), styleAuto: state.styleAuto, host: hostValue() || null, narrationMode: state.narrationMode, agent: $('agent').checked });
   try {
     localStorage.setItem(FORM_KEY, JSON.stringify(data));
   } catch {}
@@ -406,6 +567,11 @@ function fillForm(data) {
   setAspect(data.aspectRatio);
   // autoImages is not restored from a saved brief: it is remembered on the user's account (see buildForm).
   if ('imageCount' in data) $('imageCount').value = ['2', '3'].includes(String(data.imageCount)) ? String(data.imageCount) : '1';
+  setHost(data.host);
+  // Styles someone picked by hand stay theirs; a brief without any gets them picked from its topic.
+  state.styleAuto = 'styleAuto' in data ? Boolean(data.styleAuto) : !data.styles?.length;
+  $('styleAuto').checked = state.styleAuto;
+  state.pick = null;
   setStyles(Array.isArray(data.styles) ? data.styles : []);
   if (state.meta.imageModes.some((m) => m.id === data.imageMode)) $('imageMode').value = data.imageMode;
   refreshImageMode();
@@ -415,6 +581,8 @@ function fillForm(data) {
   if ('agent' in data) $('agent').checked = data.agent !== false;
   refreshAgent();
   refreshBlurb();
+  refreshHost(); // one row or two: the structure says
+  pickSoon();
 }
 
 function restoreForm() {
@@ -435,6 +603,14 @@ function buildForm() {
     ...state.meta.frameworkGroups.map((g) => h('optgroup', { label: g.name[lang] }, state.meta.frameworks.filter((f) => f.group === g.id).map((f) => h('option', { value: f.id }, f.name[lang])))),
   );
   $('framework').addEventListener('change', refreshBlurb);
+  // A format led by a host (a podcast) comes with one: it is switched on when the format is chosen.
+  $('framework').addEventListener('change', () => {
+    if (frameworkOf($('framework').value)?.hosted && !$('hostOn').checked) {
+      $('hostOn').checked = true;
+      toast(t('This format is led by a host, so the on-screen host was switched on.'));
+    }
+    refreshHost();
+  });
   $('reference').addEventListener('input', refreshBlurb);
   for (const b of $('narrationMode').children) b.addEventListener('click', () => (setNarrationMode(b.dataset.mode), saveForm()));
   // Arrow keys move the choice, as in any radio group.
@@ -460,11 +636,14 @@ function buildForm() {
   // Seconds outside the range are brought into it as soon as the field is left.
   $('durationCustom').addEventListener('change', (e) => (Number(e.target.value) > 0 && (e.target.value = clampSeconds(e.target.value)), refreshFit()));
   buildStyles();
+  buildHost();
+  $('styleAuto').addEventListener('change', (e) => setStyleAuto(e.target.checked));
+  $('styleAsk').addEventListener('click', askModel);
   $('imageMode').append(...state.meta.imageModes.map((m) => h('option', { value: m.id }, m.name[lang])));
   $('imageCount').addEventListener('change', refreshImageMode);
   $('imageMode').addEventListener('change', refreshImageMode);
   refreshImageMode();
-  $('briefForm').addEventListener('input', refreshSummaries);
+  $('briefForm').addEventListener('input', () => (refreshSummaries(), pickSoon()));
   restoreForm();
   // "Also generate an image for every scene": off unless this user last left it on. Kept on their account,
   // so it is the same on every device and is not inherited from someone else who used this browser.
@@ -475,6 +654,7 @@ function buildForm() {
   });
   refreshSummaries();
   refreshBlurb();
+  pickSoon();
 }
 
 // ---------- Generation ----------
@@ -560,7 +740,7 @@ function runChanged(platformId) {
 /** The brief as the form has it now. */
 function collectBrief() {
   const brief = Object.fromEntries(FIELDS.map((f) => [f, $(f).value.trim()]));
-  return Object.assign(brief, { frameworkId: $('framework').value, duration: durationValue() || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: activeStyleIds(), agent: $('agent').checked });
+  return Object.assign(brief, { frameworkId: $('framework').value, duration: durationValue() || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: activeStyleIds(), host: hostValue(), agent: $('agent').checked });
 }
 
 const isWriting = (run) => run.status === 'running' || run.status === 'drafting';
@@ -639,7 +819,7 @@ function openHistory(entry) {
   }
   const brief = entry.brief?.topic ? entry.brief : null; // an imported script may have no brief
   if (brief) {
-    fillForm({ ...brief, platforms: [entry.platformId], framework: brief.frameworkId, styles: brief.styleIds });
+    fillForm({ ...brief, platforms: [entry.platformId], framework: brief.frameworkId, styles: brief.styleIds, styleAuto: false });
     $('formError').hidden = true;
     saveForm();
     toast(t('Brief restored from this script'));
@@ -695,6 +875,7 @@ function toMarkdown(platformId, run) {
   const p = platformOf(platformId);
   const L = [`# ${s.title}`, '', `> ${s.logline}`, '', `**${t('Platform')}:** ${p.name} · **${t('Length')}:** ${s.scenes.at(-1).end}s · **${t('Aspect ratio')}:** ${runAspect(run).id}`, ''];
   if (s.card) L.push(`## ${t('Viewpoint card')}`, '', ...cardMarkdown(s.card), '');
+  if (s.cast?.length) L.push(`## ${t(s.cast.some((c) => c.look) ? 'On-screen host' : 'Speakers')}`, '', ...s.cast.flatMap((c) => [`- **${c.id}${c.name ? ` · ${c.name}` : ''}**${c.role ? ` (${c.role})` : ''}`, c.look && `  - ${t('Look')}: ${c.look}`, c.voice && `  - ${t('Voice')}: ${c.voice}`].filter(Boolean)), '');
   if (s.whiteboard) L.push(`## ${t('Whiteboard blueprint')}`, '', '```', s.whiteboard, '```', '');
   L.push(`## ${t('Hook options')}`, '', ...s.hookOptions.map((o) => `- ${o.type ? `**${o.type}:** ` : ''}${plainVo(o.line)}`), '');
   L.push(`## ${t('Script')}`, '');
@@ -703,6 +884,7 @@ function toMarkdown(platformId, run) {
     if (sc.onScreenText) L.push(`- **${t('On screen')}:** ${sc.onScreenText}`);
     if (sc.visual) L.push(`- **${t('Visual')}:** ${sc.visual}`);
     if (sc.camera) L.push(`- **${t('Camera')}:** ${sc.camera}`);
+    if (sc.host) L.push(`- **${t('In frame')}:** ${[...sc.host].join(' + ')}`);
     if (sc.sfx) L.push(`- **${t('Sound')}:** ${sc.sfx}`);
     L.push('');
   }
@@ -752,10 +934,10 @@ async function startMedia(run, sc, kind) {
   const store = mediaOf(run, sc);
   const m = (store[kind] = { status: 'running', note: '', count: kind === 'image' ? Number($('imageCount').value) || 1 : 1 });
   const paint = () => (store.paint?.(), refreshMediaStatus());
-  const body = { ...sc, historyId: run.historyId, sceneId: sc.id, aspectRatio: runAspect(run).id, styleIds: run.styleIds?.length ? run.styleIds : activeStyleIds() };
+  const body = { ...sc, cast: run.script.cast, historyId: run.historyId, sceneId: sc.id, aspectRatio: runAspect(run).id, styleIds: run.styleIds?.length ? run.styleIds : activeStyleIds() };
   paint();
   try {
-    if (kind === 'image') ({ urls: m.urls, shots: m.shots } = await makeImage(body));
+    if (kind === 'image') ({ urls: m.urls, shots: m.shots, referenced: m.referenced } = await makeImage(body));
     else m.urls = [await makeVideo(body, (p) => ((m.note = p ? ` ${Math.round(p)}%` : ''), paint()))];
     m.status = 'done';
     const entry = state.history.find((e) => e.id === run.historyId);
@@ -773,6 +955,8 @@ async function autoImages(run) {
   const todo = run.script.scenes.filter((sc) => sc.visual && !mediaOf(run, sc).image);
   state.autoRun = { done: 0, total: todo.length };
   refreshMediaStatus();
+  // The hosts' portraits come first: every scene with a host is then drawn from them.
+  for (const c of run.script.cast || []) if (c.look && !hostStore(run, c).image) await startHost(run, c);
   const worker = async () => {
     for (let sc; (sc = todo.shift()); ) {
       await startMedia(run, sc, 'image');
@@ -876,6 +1060,7 @@ function sceneMedia(run, sc) {
             { class: 'shots', role: 'status' },
             Array.from({ length: m.count || 1 }, () => h('div', { class: 'shot loading' }, h('div', { class: 'ph' }, h('span', { class: 'spin' }), h('span', {}, t(kind === 'image' ? 'Generating image…' : 'Generating video…'))))),
           ),
+        m?.status === 'done' && m.referenced && h('span', { class: 'hint' }, t('Drawn from the host portrait')),
         m?.status === 'error' && h('p', { class: 'error' }, m.error),
         h(
           'div',
@@ -888,6 +1073,93 @@ function sceneMedia(run, sc) {
   store.paint = () => box.replaceChildren(...view());
   store.paint();
   return box;
+}
+
+// ---------- The cast: who speaks, who is on screen, and the portrait every scene of a host is drawn from ----------
+
+const hostStore = (run, c) => ((run.media ??= {})[`host${c.id}`] ??= {});
+
+/** Make (or remake) a host's reference portrait, in the frame and the style of the script. */
+async function startHost(run, c) {
+  const store = hostStore(run, c);
+  const m = (store.image = { status: 'running' });
+  const paint = () => (store.paint?.(), refreshMediaStatus());
+  paint();
+  try {
+    const r = await api('/api/media/host', { method: 'POST', body: { historyId: run.historyId, hostId: c.id, cast: run.script.cast, aspectRatio: runAspect(run).id, styleIds: run.styleIds?.length ? run.styleIds : activeStyleIds() } });
+    m.urls = [r.url];
+    m.status = 'done';
+    const entry = state.history.find((e) => e.id === run.historyId);
+    if (entry) ((entry.media ??= {})[`host${c.id}`] ??= {}).image = { url: r.url, urls: [r.url] };
+  } catch (err) {
+    m.status = 'error';
+    m.error = err.message;
+  }
+  paint();
+}
+
+/** Fix a host of this script in the brief, so the next script has the same person. */
+function keepHost(c) {
+  const i = HOSTS.indexOf(c.id);
+  $('hostOn').checked = true;
+  state.hostLooks[i] = 'custom';
+  state.hostCustom[i] = [...c.look].slice(0, state.meta.maxHostLook).join('');
+  refreshHost();
+  saveForm();
+  toast(t('This look is now fixed in the brief: the next script has the same host.'));
+}
+
+/** The people of a script: each with their look and voice, and for a host on screen the portrait and its buttons. */
+function castSection(run) {
+  const cast = run.script.cast || [];
+  if (!cast.length) return null;
+  const seen = cast.some((c) => c.look);
+  const aspect = runAspect(run);
+  const card = (c) => {
+    const store = hostStore(run, c);
+    const box = h('div', { class: 'host-card' });
+    const view = () => {
+      const m = store.image;
+      const busy = m?.status === 'running';
+      const url = m?.status === 'done' ? m.urls[0] : '';
+      const alt = t('Portrait of host {id}', { id: c.id });
+      return [
+        c.look &&
+          h(
+            'div',
+            { class: 'host-portrait', style: `--ar:${aspect.w / aspect.h}` },
+            url
+              ? h('button', { class: 'shot-open', type: 'button', title: t('View larger'), onclick: () => viewImages([{ url, label: c.name || c.id }], 0, alt, aspect) }, h('img', { src: url, alt, loading: 'lazy' }))
+              : h('div', { class: `host-ph${busy ? ' loading' : ''}`, role: busy ? 'status' : null }, busy ? [h('span', { class: 'spin' }), h('span', {}, t('Generating image…'))] : icon('user', 28)),
+          ),
+        h(
+          'div',
+          { class: 'host-info' },
+          h('div', { class: 'host-who' }, h('span', { class: 'host-id' }, c.id), h('b', {}, c.name || t('Host {id}', { id: c.id })), c.role && h('span', { class: 'hint' }, c.role)),
+          (c.look || c.voice) && h('dl', { class: 'cues' }, c.look && [h('dt', {}, t('Look')), h('dd', {}, c.look)], c.voice && [h('dt', {}, t('Voice')), h('dd', {}, c.voice)]),
+          m?.status === 'error' && h('p', { class: 'error' }, m.error),
+          c.look &&
+            h(
+              'div',
+              { class: 'actions' },
+              activeGw().image.ready && iconBtn(busy ? 'refresh' : 'image', busy ? t('Making portrait…') : url ? t('Redo portrait') : t('Generate portrait'), { class: `btn small${busy ? ' busy' : ''}`, disabled: busy, 'aria-busy': busy ? 'true' : null, onclick: () => startHost(run, c) }),
+              url && h('a', { class: 'btn small', href: url, download: url.split('/').pop().split('?')[0], target: '_blank', rel: 'noopener' }, t('Save')),
+              iconBtn('check', t('Keep this host'), { class: 'btn small', title: t('Fixes this look in the brief, so the next script has the same host.'), onclick: () => keepHost(c) }),
+            ),
+        ),
+      ].filter(Boolean);
+    };
+    store.paint = () => box.replaceChildren(...view());
+    store.paint();
+    return box;
+  };
+  return h(
+    'div',
+    { class: 'section' },
+    h('div', { class: 'section-head' }, h('h3', {}, t(seen ? 'On-screen host' : 'Speakers'))),
+    h('div', { class: 'cast' }, cast.map(card)),
+    seen && h('p', { class: 'hint' }, t('Make the portrait first: every scene with this host is then drawn from it, so the face stays the same. It is also the picture to give a talking-avatar tool.')),
+  );
 }
 
 /** The whole package for one script: script files plus every generated image and video, zipped by the server. */
@@ -1681,6 +1953,8 @@ function renderScript(platformId, run) {
 
     s.card && h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h3', {}, t('Viewpoint card'))), cardNode(s.card)),
 
+    castSection(run),
+
     s.whiteboard &&
       h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h3', {}, t('Whiteboard blueprint')), h('div', { class: 'actions' }, h('button', { class: 'btn small', type: 'button', onclick: () => copy(s.whiteboard) }, t('Copy')))), h('pre', { class: 'board' }, s.whiteboard)),
 
@@ -1710,7 +1984,7 @@ function renderScript(platformId, run) {
               h(
                 'div',
                 { class: 'scene' },
-                h('div', {}, h('div', { class: 'time' }, `${fmtTime(sc.start)}–${fmtTime(sc.end)}`), sc.stage && h('span', { class: 'stage' }, sc.stage), layerChip(s.card, sc.stage)),
+                h('div', {}, h('div', { class: 'time' }, `${fmtTime(sc.start)}–${fmtTime(sc.end)}`), sc.stage && h('span', { class: 'stage' }, sc.stage), sc.host && h('span', { class: 'in-frame', title: t('In frame') }, icon('user', 12), [...sc.host].join(' + ')), layerChip(s.card, sc.stage)),
                 h(
                   'div',
                   {},
@@ -2166,6 +2440,8 @@ async function boot() {
   document.body.dataset.auth = 'in';
   wireShell();
   [state.meta, state.gateway] = await Promise.all([api('/api/meta'), api('/api/gateway/config')]);
+  // A server that has not been restarted since the page was updated does not know the hosts yet: the page still works.
+  state.meta = { hostPresets: [], maxHostLook: 240, ...state.meta };
   state.emptyNode = $('result').firstElementChild;
   state.openAccount = wireAccount({ user: me.user, storage: me.storage, platformName: (id) => platformOf(id)?.name || id || '', openSettings });
   buildForm();
@@ -2184,9 +2460,9 @@ async function boot() {
       err.hidden = false;
       return;
     }
-    start();
+    settlePick().then(start);
   });
-  $('briefForm').addEventListener('change', () => (saveForm(), refreshTargets()));
+  $('briefForm').addEventListener('change', () => (saveForm(), refreshTargets(), pickSoon()));
   $('stop').addEventListener('click', () => Object.values(state.runs).forEach((r) => isWriting(r) && r.abort.abort()));
   // A refine menu closes when something else is clicked, or on Escape.
   document.addEventListener('click', (e) => document.querySelectorAll('details.menu[open]').forEach((m) => m.contains(e.target) || (m.open = false)));

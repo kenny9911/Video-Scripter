@@ -11,16 +11,18 @@ import { randomUUID } from 'node:crypto';
 
 import { PLATFORMS } from './src/platforms.mjs';
 import { FRAMEWORKS, FRAMEWORK_GROUPS } from './src/frameworks.mjs';
-import { PROVIDERS } from './src/gateway/providers.mjs';
+import { PROVIDERS, getProvider } from './src/gateway/providers.mjs';
 import { STYLES, STYLE_GROUPS, MAX_STYLES } from './src/styles.mjs';
+import { publicPresets, hostSetting, normalizeCast, onFrame, MAX_HOST_LOOK } from './src/cast.mjs';
+import { suggestStyles, buildStylePrompts, parseStylePick } from './src/suggest.mjs';
 import { IMAGE_MODES, SHOT_LABELS, MAX_IMAGES, planShots } from './src/shots.mjs';
 import { ASPECTS } from './src/aspects.mjs';
 import { loadStore, loadConfig, saveStore, mergeConfig, publicStore, validateConfig, enabledModels, mediaTarget } from './src/gateway/config.mjs';
 import { streamChat, completeChat, listModels, request } from './src/gateway/client.mjs';
 import { generateImage, createVideo, videoStatus, videoContent, clipSeconds } from './src/gateway/media.mjs';
-import { listHistory, getHistory, addHistory, newHistoryId, saveMedia, linkMedia, serveMedia, mediaOwner, deleteUserHistory, transferHistory } from './src/store.mjs';
+import { listHistory, getHistory, addHistory, newHistoryId, saveMedia, linkMedia, serveMedia, mediaOwner, readMedia, deleteUserHistory, transferHistory } from './src/store.mjs';
 import { buildPackage } from './src/package.mjs';
-import { buildPlan, planSummary, buildPrompts, parseScript, buildVisualPrompt, buildNarrationPrompts, parseNarration, buildRefinePrompts, parseRefined, REFINE_PRESETS } from './src/prompt.mjs';
+import { buildPlan, planSummary, buildPrompts, parseScript, settleScript, buildVisualPrompt, buildHostPrompt, showsHost, buildNarrationPrompts, parseNarration, buildRefinePrompts, parseRefined, REFINE_PRESETS } from './src/prompt.mjs';
 import { PACE, MIN_DURATION, MAX_DURATION, normalizeNarration, lockNarration } from './src/narration.mjs';
 import { writeNarration, reviseNarration, checkNarration, AGENT_STEPS } from './src/agent/narrator.mjs';
 import { normalizeCard } from './src/agent/card.mjs';
@@ -121,6 +123,22 @@ async function keep({ historyId, sceneId }, kind, source, { demo = false, link =
     console.warn(`[media] could not save the ${kind}: ${err.message}`);
   }
   return { url: remote || (typeof source === 'string' ? source : ''), saved: false };
+}
+
+/**
+ * The saved portraits of the hosts a scene shows, as reference pictures for its image: [{ id, bytes, type }].
+ * Only a script in the history has portraits, and only a real picture counts (not the demo placeholder).
+ */
+async function hostPortraits(entry, scene) {
+  if (!entry) return [];
+  const ids = normalizeCast(scene.cast).filter((c) => c.look).map((c) => c.id);
+  const found = [];
+  for (const id of onFrame(scene.host, ids)) {
+    const stored = /^\/media\/([\w-]+\.(png|jpg|webp))$/.exec(entry.media?.[`host${id}`]?.image?.url || '');
+    const bytes = stored && (await readMedia(stored[1]).catch(() => null));
+    if (bytes) found.push({ id, bytes, type: `image/${stored[2] === 'jpg' ? 'jpeg' : stored[2]}` });
+  }
+  return found;
 }
 
 /** Start a Server-Sent Events reply: `send(event, data)` writes one event, `signal` fires when the browser goes away. */
@@ -313,7 +331,7 @@ const routes = {
     json(res, 200, {
       platforms: PLATFORMS.map(({ id, name, nameEn, lang, defaultDuration, durations }) => ({ id, name, nameEn, lang, defaultDuration, durations })),
       frameworkGroups: FRAMEWORK_GROUPS,
-      frameworks: FRAMEWORKS.map(({ id, group = 'general', name, blurb, topics, needsReference = false, pace, length, board = false }) => ({ id, group, name, blurb, topics, needsReference, pace, length, board })),
+      frameworks: FRAMEWORKS.map(({ id, group = 'general', name, blurb, topics, needsReference = false, pace, length, board = false, speakers = 1, hosted = false }) => ({ id, group, name, blurb, topics, needsReference, pace, length, board, speakers, hosted })),
       pace: PACE,
       duration: { min: MIN_DURATION, max: MAX_DURATION },
       refinePresets: REFINE_PRESETS,
@@ -323,6 +341,8 @@ const routes = {
       styleGroups: STYLE_GROUPS,
       styles: STYLES.map(({ id, group, name, blurb }) => ({ id, group, name, blurb })),
       maxStyles: MAX_STYLES,
+      hostPresets: publicPresets(),
+      maxHostLook: MAX_HOST_LOOK,
       imageModes: IMAGE_MODES,
       shotLabels: SHOT_LABELS,
       maxImages: MAX_IMAGES,
@@ -446,19 +466,27 @@ const routes = {
   // then stored and linked from the script `historyId`. The scene carries the `aspectRatio` of its script.
   'POST /api/media/image': route('user', async (req, res, user) => {
     const scene = await readJson(req);
-    if (scene.historyId) await ownedHistory(user, scene.historyId);
+    const entry = scene.historyId ? await ownedHistory(user, scene.historyId) : null;
+    if (entry?.script?.cast) scene.cast = entry.script.cast; // the saved script says who the hosts are
     const config = await loadConfig();
     const target = mediaTarget(config, 'image');
     // `count` (1-3) images, related to each other as `mode` says (see src/shots.mjs). Each image is its own
     // request, since many image models only return one, and each shot has its own prompt.
     const shots = planShots(scene.mode, scene.count, scene.styleIds);
-    const prompts = shots.map((shot) => buildVisualPrompt(scene, 'image', scene.styleIds, shot)); // throws on a scene with no visual
+    // A host in frame is drawn from their portrait when there is one, so it is the same face in every scene.
+    const portraits = await hostPortraits(entry, scene);
+    const prompts = shots.map((shot) => {
+      const references = showsHost(shot) ? portraits : [];
+      return { prompt: buildVisualPrompt(scene, 'image', scene.styleIds, shot), references, referencePrompt: references.length ? buildVisualPrompt(scene, 'image', scene.styleIds, shot, { referenced: references.map((r) => r.id) }) : undefined }; // throws on a scene with no visual
+    });
+    let referenced = false;
     const results = await Promise.allSettled(
-      prompts.map(async (prompt) => {
+      prompts.map(async ({ prompt, references, referencePrompt }) => {
         const started = Date.now();
         const usage = { user, taskId: scene.historyId, kind: 'image', config, model: target.model || 'demo' };
         try {
-          const made = await generateImage(config, { prompt, aspectRatio: scene.aspectRatio, signal: AbortSignal.timeout(180_000) });
+          const made = await generateImage(config, { prompt, references, referencePrompt, aspectRatio: scene.aspectRatio, signal: AbortSignal.timeout(180_000) });
+          referenced ||= Boolean(made.referenced);
           await recordUsage({ ...usage, images: 1, inputTokens: made.usage?.inputTokens ?? estimateTokens(prompt), outputTokens: made.usage?.outputTokens, estimated: !made.usage, ms: Date.now() - started });
           return keep(scene, 'image', made.url, { demo: target.demo, link: false, userId: user.id });
         } catch (err) {
@@ -474,13 +502,40 @@ const routes = {
     const urls = done.map((d) => d.url);
     const labels = done.map((d) => d.shot);
     if (done.every((d) => d.saved)) await linkMedia({ historyId: scene.historyId, sceneId: scene.sceneId, kind: 'image', urls, shots: labels });
-    json(res, 200, { url: urls[0], urls, shots: labels, requested: shots.length, ...(failed && { warning: failed.reason.message }) });
+    json(res, 200, { url: urls[0], urls, shots: labels, requested: shots.length, ...(referenced && { referenced: true }), ...(failed && { warning: failed.reason.message }) });
+  }),
+
+  // The reference portrait of a host of a script (`hostId`: "A" or "B"), in the frame and the style of the
+  // video. It is stored with the script like a scene image, and every scene that host is in is then drawn from it.
+  'POST /api/media/host': route('user', async (req, res, user) => {
+    const body = await readJson(req);
+    const entry = body.historyId ? await ownedHistory(user, body.historyId) : null;
+    const id = String(body.hostId || 'A').toUpperCase();
+    const host = normalizeCast(entry?.script?.cast || body.cast).find((c) => c.id === id);
+    if (!host?.look) throw fail('This host has no look to draw a portrait from');
+    const prompt = buildHostPrompt(host, { aspectRatio: body.aspectRatio, styleIds: body.styleIds });
+    const config = await loadConfig();
+    const target = mediaTarget(config, 'image');
+    const usage = { user, taskId: body.historyId, kind: 'image', config, model: target.model || 'demo' };
+    const started = Date.now();
+    try {
+      const made = await generateImage(config, { prompt, aspectRatio: body.aspectRatio, signal: AbortSignal.timeout(180_000) });
+      await recordUsage({ ...usage, images: 1, inputTokens: made.usage?.inputTokens ?? estimateTokens(prompt), outputTokens: made.usage?.outputTokens, estimated: !made.usage, ms: Date.now() - started });
+      const saved = await keep({ historyId: body.historyId, sceneId: `host${id}` }, 'image', made.url, { demo: target.demo, userId: user.id });
+      await logActivity(req, user, 'image.generate', { taskId: body.historyId, scene: `host ${id}`, requested: 1, made: saved.url ? 1 : 0, mode: 'portrait', model: target.model || 'demo' });
+      if (!saved.url) throw new Error('The provider returned no image');
+      json(res, 200, { url: saved.url });
+    } catch (err) {
+      if (!err.message.startsWith('The provider returned no image')) await recordUsage({ ...usage, ok: false, error: err.message, ms: Date.now() - started });
+      throw err;
+    }
   }),
 
   // Videos take minutes: this starts the job and the page polls /status, which saves the file once it is ready.
   'POST /api/media/video': route('user', async (req, res, user) => {
     const scene = await readJson(req);
-    if (scene.historyId) await ownedHistory(user, scene.historyId);
+    const entry = scene.historyId ? await ownedHistory(user, scene.historyId) : null;
+    if (entry?.script?.cast) scene.cast = entry.script.cast;
     const prompt = buildVisualPrompt(scene, 'video');
     const seconds = Number(scene.end) - Number(scene.start);
     const config = await loadConfig();
@@ -505,6 +560,37 @@ const routes = {
     if (job.status !== 'done') return json(res, 200, job);
     const source = job.url || (await videoContent(config, job.id, { signal: AbortSignal.timeout(300_000) }));
     json(res, 200, { ...job, ...(await keep(body, 'video', source, { userId: user.id })) });
+  }),
+
+  // ---------- The look, picked for the brief ----------
+
+  // Suggests the visual style for a brief: one to lead, perhaps a second for its tone, a few alternatives and
+  // a sentence on why. By rule it is instant and calls no model; `by: "model"` puts the same question to the
+  // model in use (in demo mode, and when the model's answer cannot be used, the rules answer instead).
+  'POST /api/styles/suggest': route('user', async (req, res, user) => {
+    const { by, lang, ...brief } = await readJson(req);
+    const language = lang === 'zh' ? 'zh' : 'en';
+    if (!String(brief.topic || '').trim()) throw fail('Topic is required');
+    const rules = suggestStyles(brief, language);
+    if (by !== 'model') return json(res, 200, rules);
+    const config = await loadConfig();
+    if (validateConfig(config) || getProvider(config.provider)?.protocol === 'mock') return json(res, 200, rules);
+    const prompts = buildStylePrompts(brief, language);
+    const started = Date.now();
+    let raw = '';
+    let usage = null;
+    const record = (extra) => recordUsage({ user, kind: 'style', config, ...tokens(usage, prompts, raw), ms: Date.now() - started, ...extra });
+    try {
+      raw = await completeChat(config, { ...prompts, signal: AbortSignal.timeout(90_000), onUsage: (u) => (usage = u) });
+      const pick = parseStylePick(raw);
+      await record(pick ? {} : { ok: false, error: 'Unreadable reply' });
+      if (pick) await logActivity(req, user, 'style.suggest', { topic: String(brief.topic).slice(0, 120), styles: pick.styleIds.join(' + '), model: config.model || config.name });
+      json(res, 200, pick ? { ...pick, model: config.model || config.name } : rules);
+    } catch (err) {
+      const error = err.name === 'TimeoutError' ? 'Timed out after 90s' : err.message;
+      await record({ ok: false, error });
+      json(res, 502, failure(req, err, error));
+    }
   }),
 
   // ---------- Narration first ----------
@@ -695,8 +781,9 @@ const routes = {
       }
       await record(script ? {} : { ok: false, error: `Unreadable reply: ${parseError}` });
       if (script) {
-        const { platformId, narration, card, ...rest } = brief;
+        const { platformId, narration, card, host, ...rest } = brief;
         rest.aspectRatio = plan.brief.aspect.id; // always recorded, so the script keeps its shape if the default ever changes
+        if (hostSetting(host)) rest.host = hostSetting(host); // the host as the creator asked for it, so the form can be put back
         // A script built around a final narration carries it word for word, whatever the model did with it.
         if (plan.brief.narration.length) {
           const byAgent = narrationBy === 'agent';
@@ -707,6 +794,8 @@ const routes = {
           // The viewpoint card the narration was written to stays with the script: it is the first page of the package.
           if (plan.brief.card) script.card = plan.brief.card;
         }
+        // Who is in the video: the hosts keep the look the creator fixed, and each scene says who is in frame.
+        script = settleScript(script, plan.brief);
         const entry = await addHistory({ id: taskId, userId: user.id, platformId: plan.brief.platform.id, brief: rest, plan: planInfo, script });
         await logActivity(req, user, 'script.generate', { ...about, title: script.title, scenes: script.scenes.length, ...(planInfo.narration && { narration: planInfo.narration.agent ? 'agent' : planInfo.narration.repaired ? 'restored' : 'kept' }) });
         await markFirstScript(user);

@@ -1,7 +1,7 @@
 // Prompts for the review step of the narration agent: an editor's read of a draft, then the corrected
 // narration. The step before it, planning and writing, uses buildNarrationPrompts in ../prompt.mjs.
 
-import { LANG_NAME, writesFor, bullets, languageRules, voiceSection, briefLines, cardLines, storyLines, replyJson, parseNarration, EAR_RULES } from '../prompt.mjs';
+import { LANG_NAME, writesFor, bullets, languageRules, voiceSection, briefLines, cardLines, storyLines, replyJson, parseNarration, EAR_RULES, speakerRules } from '../prompt.mjs';
 import { countSpoken } from '../narration.mjs';
 import { skillSection } from './skills.mjs';
 import { LIMITS, findingLines } from './review.mjs';
@@ -64,6 +64,7 @@ export function buildEditPrompts(plan, beats, report, { card = null, round = 1 }
       'Keep every fact, figure, name and quote that is in the draft and is supported by the material. Add no fact from anywhere else.',
       languageRules(brief)[0],
       ...EAR_RULES[lang],
+      ...speakerRules(brief),
       'Return every beat, in the same order and with the same stage keys. When the narration is too long, take out a repeat, a side remark or a whole secondary point; never squeeze sentences into telegram style by dropping the small words speech needs. When it is too short, develop the thinnest beat with the specific point from the plan, never with filler.',
       'Every line must still sound like one person talking to another. If a fix makes a line shorter but stiffer, find another fix.',
       round > 1 ? 'This is the last pass: change only what the listed problems call for.' : 'List at most eight problems, the ones that matter most, each tied to a beat number. "beat" is 0 for a problem with the narration as a whole.',

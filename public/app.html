@@ -134,8 +134,29 @@
           <div class="fold-body">
             <fieldset class="field">
               <legend>Visual style <em>pick one, or two to blend</em></legend>
+              <div class="auto-pick">
+                <label class="check" title="The look is chosen from your topic, structure, platform and tone, and follows them as you type. Tick a style yourself and your choice is kept.">
+                  <input id="styleAuto" type="checkbox" checked>
+                  <span>Pick the look for me from the topic</span>
+                </label>
+                <button id="styleAsk" class="btn small" type="button" data-icon="sparkles" title="Have the model in use choose from all the styles and say why. One short model call."><span>Ask the model</span></button>
+              </div>
+              <div id="stylePick" class="pick-note" role="status" hidden>
+                <p id="stylePickText"></p>
+                <div id="stylePickAlts" class="pick-alts"></div>
+              </div>
               <div id="styleGroups"></div>
               <p id="styleHint" class="hint"></p>
+            </fieldset>
+
+            <fieldset class="field">
+              <legend>On-screen host <em>a digital presenter, the same in every scene</em></legend>
+              <label class="check">
+                <input id="hostOn" type="checkbox">
+                <span>Put a host on screen and keep them the same person throughout</span>
+              </label>
+              <div id="hostFields" hidden></div>
+              <p id="hostHint" class="hint" hidden></p>
             </fieldset>
 
             <label class="check">

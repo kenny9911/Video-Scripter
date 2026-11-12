@@ -58,6 +58,8 @@ const MSG = {
     figures: (n) => `这一段报了 ${n} 个数字，耳朵记不住。只留一个，其余放到画面上。`,
     turns: (secs, has, need) => `这一段约 ${secs} 秒，只有 ${has} 处转折（每 12–15 秒需要一次：反问、“但是”、反差、具体场景）。`,
     noExperience: () => '没有一线经验的段落。加一处“我们在…的时候看到…”的真实场景，否则就是百科解说。',
+    unlabelled: () => '这一段没有“A：”“B：”标签，分不清是谁在说。每句台词开头标出说话的人。',
+    oneVoice: (who) => `全篇只有 ${who} 在说话。双人对谈需要两个人一来一回。`,
     thinLayer: (name, pct) => `“${name}”只占 ${pct}%，三维配比（解说 3 : 经验 3 : 认知 4）失衡。`,
   },
   en: {
@@ -81,6 +83,8 @@ const MSG = {
     figures: (n) => `This beat gives ${n} figures; a listener keeps one. Put the rest on screen.`,
     turns: (secs, has, need) => `This beat runs about ${secs} s with ${has} turn${has === 1 ? '' : 's'} (it needs one every 10–12 s: a question, a "but", a contrast, a scene).`,
     noExperience: () => 'No beat carries first-hand experience. Add one concrete scene from practice, or this is an encyclopedia entry.',
+    unlabelled: () => 'This beat has no "A:" / "B:" labels, so nobody can tell who is speaking. Start every line with its speaker.',
+    oneVoice: (who) => `Only ${who} speaks in the whole narration. A two-host conversation needs both voices.`,
     thinLayer: (name, pct) => `"${name}" is only ${pct}% of the narration; the balance (3 insider : 3 experience : 4 insight) is off.`,
   },
 };
@@ -193,6 +197,18 @@ export function reviewNarration(beats, plan, { card = null } = {}) {
   });
   const notBut = (whole.match(NOT_BUT[lang]) || []).length;
   if (notBut > (lang === 'zh' ? 2 : 1)) add('warn', 'style.notbut', null, say.notBut(notBut));
+
+  // ----- Two voices: every line says whose it is -----
+  if (brief.framework.speakers === 2 && total) {
+    const label = /(?:^|[\s。！？!?….”’」])([AB])[：:]/g;
+    const voices = new Set();
+    texts.forEach((text, i) => {
+      const said = [...text.matchAll(label)].map((m) => m[1]);
+      said.forEach((v) => voices.add(v));
+      if (text && !said.length) add('error', 'speakers.label', i, say.unlabelled());
+    });
+    if (voices.size === 1) add('error', 'speakers.voices', null, say.oneVoice([...voices][0]));
+  }
 
   // ----- The three layers of the viewpoint card -----
   const ratio = layerShares(beats, card, count);

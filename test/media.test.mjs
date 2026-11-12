@@ -97,13 +97,13 @@ test('a custom style carries the creator\'s own words through the script and the
   const { planShots } = await import('../src/shots.mjs');
   const { shotTag } = await import('../src/package.mjs');
 
-  // Every group takes one. A group that is a medium says so; a format or a tone (presenting, bright, mood) is the description alone.
+  // Every group takes one. A group that is a medium says so; a format or a tone (presenting, hosts, bright, mood) is the description alone.
   for (const g of STYLE_GROUPS) {
     const s = customStyle(`custom:${g.id}:warm crayon lines`);
     assert.deepEqual([s.id, s.group, s.custom], [`custom:${g.id}:warm crayon lines`, g.id, true]);
     assert.equal(s.look, g.medium ? `${g.medium}, warm crayon lines` : 'warm crayon lines');
   }
-  assert.deepEqual(STYLE_GROUPS.filter((g) => !g.medium).map((g) => g.id), ['present', 'bright', 'mood']);
+  assert.deepEqual(STYLE_GROUPS.filter((g) => !g.medium).map((g) => g.id), ['present', 'host', 'bright', 'mood']);
 
   // The description is put on one line, loses its closing punctuation, and is cut to length.
   assert.equal(customStyle('custom:illustration:  儿童蜡笔画，\n暖黄纸底。 ').blurb, '儿童蜡笔画， 暖黄纸底');

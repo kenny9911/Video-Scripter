@@ -9,11 +9,13 @@ const LABELS = {
   en: {
     platform: 'Platform', length: 'Length', scenes: 'scenes', hooks: 'Hook options', script: 'Script', voiceover: 'Voiceover only', onScreen: 'On screen', visual: 'Visual', camera: 'Camera', sound: 'Sound',
     publish: 'Publishing package', titles: 'Titles', cover: 'Cover text', description: 'Description', hashtags: 'Hashtags', pinned: 'Pinned comment', notes: 'Production notes', made: 'Made with Video Scripter', pause: 'pause',
+    cast: 'Cast', look: 'Look', voiceOf: 'Voice', inFrame: 'In frame',
     card: 'Viewpoint card', board: 'Whiteboard blueprint', share: 'Line for sharing', chapters: 'Chapters', persona: 'Speaking as', viewer: 'For', insight: 'Core insight', against: 'Overturns', insider: 'Insider explanation', experience: 'First-hand experience', drafted: 'Drafted: confirm or replace', analogy: 'Analogy', mustSay: 'Must be spoken', verify: 'Before you record',
   },
   zh: {
     platform: '平台', length: '时长', scenes: '个场景', hooks: '开场钩子备选', script: '脚本', voiceover: '纯旁白', onScreen: '屏幕文字', visual: '画面', camera: '镜头', sound: '声音',
     publish: '发布素材', titles: '标题', cover: '封面文字', description: '描述文案', hashtags: '话题标签', pinned: '置顶评论', notes: '制作备注', made: '由 Video Scripter 生成', pause: '停顿',
+    cast: '出镜与配音', look: '形象', voiceOf: '声音', inFrame: '出镜',
     card: '三维观点卡', board: '板书蓝图', share: '转发导语', chapters: '章节', persona: '人设', viewer: '受众', insight: '核心认知', against: '推翻的共识', insider: '内行解说', experience: '顾问经验', drafted: '草拟：请确认或替换', analogy: '类比', mustSay: '必须说出口', verify: '录制前核实',
   },
 };
@@ -50,7 +52,7 @@ p{margin:0}
 .time,.stage{font-size:12px;font-weight:600;border-radius:6px;padding:2px 8px}
 .time{font-family:ui-monospace,"SF Mono",Menlo,monospace;background:var(--soft)}
 .stage{background:var(--accent-soft);color:var(--accent)}
-.vo{font-size:18px;line-height:1.7}
+.vo{font-size:18px;line-height:1.7;white-space:pre-line}
 mark{background:var(--mark);color:inherit;border-radius:3px;padding:0 2px}
 .pause{color:var(--muted);font-size:.8em}
 dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 14px;margin:12px 0 0;padding-top:12px;border-top:1px dashed var(--line);font-size:15px}
@@ -68,6 +70,11 @@ dd.screen{font-weight:650}
 .claim{font-weight:650;font-size:17px}
 .tag{display:inline-block;margin-left:8px;padding:0 7px;border-radius:999px;background:var(--mark);font-size:11px;font-weight:650}
 .board{margin:0;font:13px/1.5 ui-monospace,"SF Mono",Menlo,monospace;white-space:pre;overflow-x:auto}
+.person{display:flex;gap:16px;align-items:flex-start}
+.person img{flex:none;width:120px;aspect-ratio:3/4;object-fit:cover;border-radius:12px;border:1px solid var(--line);background:var(--soft)}
+.person .who{font-weight:650;font-size:17px;margin-bottom:6px}
+.person .who b{display:inline-block;min-width:22px;margin-right:8px;padding:0 6px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font-size:13px;text-align:center}
+.person dl{margin:0;padding:0;border:0}
 .value{white-space:pre-wrap;word-break:break-word}
 ol,ul{margin:0;padding-left:22px}
 footer{margin-top:48px;color:var(--muted);font-size:13px}
@@ -98,7 +105,7 @@ export function scriptHtml(entry, { media = [], platformName = '', lang = 'en' }
       const files = media.filter((m) => m.scene === sc.id);
       const cues = [[L.onScreen, sc.onScreenText, 'screen'], [L.visual, sc.visual], [L.camera, sc.camera], [L.sound, sc.sfx]].filter(([, v]) => v);
       return `<article class="card scene">
-<header><span class="time">${clock(sc.start)}–${clock(sc.end)}</span>${sc.stage ? `<span class="stage">${esc(sc.stage)}</span>` : ''}</header>
+<header><span class="time">${clock(sc.start)}–${clock(sc.end)}</span>${sc.stage ? `<span class="stage">${esc(sc.stage)}</span>` : ''}${sc.host ? `<span class="time" title="${esc(L.inFrame)}">${esc(L.inFrame)} ${esc([...sc.host].join(' + '))}</span>` : ''}</header>
 <p class="vo">${voice(sc.voiceover, L)}</p>
 ${cues.length ? `<dl>${cues.map(([k, v, cls]) => `<dt>${esc(k)}</dt><dd${cls ? ` class="${cls}"` : ''}>${esc(v)}</dd>`).join('')}</dl>` : ''}
 ${
@@ -125,6 +132,15 @@ ${
     pub.pinnedComment && card(L.pinned, `<div class="value">${esc(pub.pinnedComment)}</div>`),
     pub.chapters?.length && card(L.chapters, `<ul>${pub.chapters.map((c) => `<li>${c.time ? `<span class="time">${esc(c.time)}</span> ` : ''}${esc(c.title)}</li>`).join('')}</ul>`),
   ].filter(Boolean);
+
+  // Who speaks and who is seen: each person with their look, their voice and, when one was made, their portrait.
+  const people = (s.cast || [])
+    .map((c) => {
+      const portrait = media.find((m) => m.host === c.id);
+      const rows = [[L.look, c.look], [L.voiceOf, c.voice]].filter(([, v]) => v);
+      return `<div class="card person">${portrait ? `<img src="${esc(encodeURI(portrait.file))}" alt="${esc(c.name || c.id)}" loading="lazy">` : ''}<div><div class="who"><b>${esc(c.id)}</b>${esc([c.name, c.role].filter(Boolean).join(' · '))}</div>${rows.length ? `<dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}</div></div>`;
+    })
+    .join('\n');
 
   // The viewpoint card the narration was written to: the first page of the package.
   const vc = s.card;
@@ -162,6 +178,7 @@ ${
 ${s.logline ? `<p class="logline">${esc(s.logline)}</p>` : ''}
 <div class="meta">${meta.map((m) => `<span>${esc(m)}</span>`).join('')}</div>
 ${section(L.card, viewpoint)}
+${section(L.cast, people ? `<div class="grid" style="grid-template-columns:1fr">${people}</div>` : '')}
 ${section(L.board, s.whiteboard ? `<pre class="card board">${esc(s.whiteboard)}</pre>` : '')}
 ${section(L.hooks, s.hookOptions?.length ? `<div class="grid">${s.hookOptions.map((o) => card(o.type, `<div>${voice(o.line, L)}</div>`)).join('')}</div>` : '')}
 ${section(L.script, scenes)}
