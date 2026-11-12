@@ -421,6 +421,20 @@
             <div id="modelList" class="model-list"></div>
           </div>
 
+          <details id="apiTest" class="field media-settings api-test">
+            <summary>Test API</summary>
+            <p class="hint">Send a prompt to the model with the values in this form, saved or not, and see what comes back.</p>
+            <label class="field">
+              <span>Prompt</span>
+              <textarea id="testPrompt" rows="3" maxlength="2000" spellcheck="false">Say hello in one sentence.</textarea>
+            </label>
+            <div class="inline">
+              <button id="sendTest" class="btn" type="button">Send test prompt</button>
+              <span id="testMeta" class="hint" role="status"></span>
+            </div>
+            <pre id="testReply" class="test-reply" hidden></pre>
+          </details>
+
           <details id="mediaSettings" class="field media-settings">
             <summary>Images and videos <span id="mediaSummary" class="hint"></span></summary>
             <p class="hint">Scene images and clips are made by separate models, often at a different address. Give each its own BASE_URL_API and model; leave a model blank to turn that off. A blank base URL or key uses the gateway's.</p>

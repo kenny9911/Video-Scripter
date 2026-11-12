@@ -18,7 +18,7 @@ import { suggestStyles, buildStylePrompts, parseStylePick } from './src/suggest.
 import { IMAGE_MODES, SHOT_LABELS, MAX_IMAGES, planShots } from './src/shots.mjs';
 import { ASPECTS } from './src/aspects.mjs';
 import { loadStore, loadConfig, saveStore, mergeConfig, publicStore, validateConfig, enabledModels, mediaTarget } from './src/gateway/config.mjs';
-import { streamChat, completeChat, listModels, request, cutShort } from './src/gateway/client.mjs';
+import { streamChat, completeChat, listModels, request, cutShort, GatewayError } from './src/gateway/client.mjs';
 import { generateImage, createVideo, videoStatus, videoContent, clipSeconds } from './src/gateway/media.mjs';
 import { listHistory, getHistory, addHistory, newHistoryId, saveMedia, linkMedia, serveMedia, mediaOwner, readMedia, deleteUserHistory, transferHistory } from './src/store.mjs';
 import { buildPackage } from './src/package.mjs';
@@ -111,6 +111,17 @@ function sameOrigin(req) {
 
 const isAdmin = (user) => user?.role === 'admin';
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
+
+// Test API (LLM settings): how much of a prompt is sent and how much of the reply is shown.
+const TEST_PROMPT_MAX = 2000;
+const TEST_REPLY_MAX = 4000;
+const hostOf = (url) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return '';
+  }
+};
 
 /**
  * What a route answers a failure with: the message and whose end it is on (src/errors.mjs). A failure with
@@ -491,19 +502,28 @@ const routes = {
   }),
 
   // Tests the form values in the request body without saving; `id` lets a blank key fall back to the saved one.
+  // With no `prompt` it is a connectivity check. With one (Test API) the prompt is sent as it is and the
+  // model's reply comes back, with how long it took and what it cost: an empty reply counts as a failure.
+  // A failure carries `endpoint`: the address called, its HTTP status and the body it answered with, as sent.
   'POST /api/gateway/test': route('admin', async (req, res, user) => {
-    const config = await draftConfig(await readJson(req));
+    const body = await readJson(req);
+    const config = await draftConfig(body);
+    const asked = typeof body.prompt === 'string' ? body.prompt.trim().slice(0, TEST_PROMPT_MAX) : '';
     const started = Date.now();
-    const prompts = { system: 'You are a connectivity check.', user: 'Reply with the single word OK.' };
+    const prompts = asked ? { system: 'You are a helpful assistant. Answer briefly.', user: asked } : { system: 'You are a connectivity check.', user: 'Reply with the single word OK.' };
+    const seconds = asked ? 60 : 30;
     let usage = null;
     try {
-      const reply = await completeChat(config, { ...prompts, maxTokens: 256, signal: AbortSignal.timeout(30_000), onUsage: (u) => (usage = u) });
-      await recordUsage({ user, kind: 'test', config, ...tokens(usage, prompts, reply), ms: Date.now() - started });
-      json(res, 200, { ok: true, ms: Date.now() - started, model: config.model, reply: reply.trim().slice(0, 120) });
+      const reply = (await completeChat(config, { ...prompts, maxTokens: asked ? 1024 : 256, signal: AbortSignal.timeout(seconds * 1000), onUsage: (u) => (usage = u) })).trim();
+      if (asked && !reply) throw Object.assign(new GatewayError('The model answered with an empty reply', 502), { host: hostOf(config.baseUrl) });
+      const spent = tokens(usage, prompts, reply);
+      await recordUsage({ user, kind: 'test', config, ...spent, ms: Date.now() - started });
+      const shownReply = reply.slice(0, asked ? TEST_REPLY_MAX : 120);
+      json(res, 200, { ok: true, ms: Date.now() - started, model: config.model, reply: shownReply, ...(asked && { ...spent, truncated: shownReply.length < reply.length }) });
     } catch (err) {
-      const error = err.name === 'TimeoutError' ? 'Timed out after 30s' : err.message;
+      const error = err.name === 'TimeoutError' ? `Timed out after ${seconds}s` : err.message;
       await recordUsage({ user, kind: 'test', config, ok: false, error, ms: Date.now() - started });
-      json(res, 200, { ok: false, ms: Date.now() - started, ...failure(req, err, error) });
+      json(res, 200, { ok: false, ms: Date.now() - started, ...failure(req, err, error), ...(err.endpoint && { endpoint: err.endpoint }) }); // what the endpoint itself said, unedited
     }
   }),
 

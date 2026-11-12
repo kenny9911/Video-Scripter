@@ -231,14 +231,15 @@ async function requestOnce(url, init) {
     throw Object.assign(new GatewayError(`Could not reach ${host}: ${err.cause?.message || err.message}`, 502), { host, unreachable: true, code: err.cause?.code || '' });
   }
   if (!res.ok) {
-    const text = (await res.text().catch(() => '')).slice(0, 600);
+    const body = (await res.text().catch(() => '')).slice(0, 4000);
+    const text = body.slice(0, 600);
     let detail = text;
     try {
       const j = JSON.parse(text);
       detail = j.error?.message || j.message || j.detail || j.title || text;
     } catch {}
     const retryAfter = Number(res.headers.get('retry-after')) || 0;
-    throw Object.assign(new GatewayError(`${host} responded ${res.status}: ${detail || res.statusText}`, res.status), { host, upstream: true, ...(retryAfter && { retryAfter }) });
+    throw Object.assign(new GatewayError(`${host} responded ${res.status}: ${detail || res.statusText}`, res.status), { host, upstream: true, ...(retryAfter && { retryAfter }), endpoint: { url: url.split('?')[0], status: res.status, statusText: res.statusText, body } }); // `endpoint`: its answer word for word, for Test API
   }
   return res;
 }

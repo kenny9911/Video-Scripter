@@ -2,7 +2,7 @@
 
 import { t, lang, applyI18n, explain } from './i18n.js';
 import { icon, hydrateIcons } from './icons.js';
-import { showAuth, wireAccount } from './account.js';
+import { showAuth, wireAccount, fmt } from './account.js';
 import { wireTheme, wireLang, enhancePasswords } from './shell.js';
 import { countSpoken, fitDuration, splitNarration, spokenText, MIN_DURATION, MAX_DURATION } from './narration.js';
 import { wireLibrary } from './library.js';
@@ -2385,6 +2385,7 @@ function editProfile(id) {
   }
   $('mediaSettings').open = false;
   setSettingsStatus('');
+  showTest('');
   syncSettingsFields(false);
   syncMediaFields();
   renderProfileList();
@@ -2486,6 +2487,18 @@ function setSettingsStatus(text, kind) {
   el.className = `status ${kind || ''}`;
 }
 
+/** What the endpoint itself answered a failed test with, word for word: the address, the HTTP status and the body. */
+const exactAnswer = (e) => (e ? `${t('The endpoint answered:')}\n${e.url}\nHTTP ${e.status}${e.statusText ? ` ${e.statusText}` : ''}\n${e.body || t('(an empty body)')}` : '');
+
+/** The Test API panel: the reply or the error, and a line about it. */
+function showTest(text, kind = '', meta = '') {
+  const box = $('testReply');
+  box.hidden = !text;
+  box.textContent = text || '';
+  box.className = `test-reply ${kind}`;
+  $('testMeta').textContent = meta;
+}
+
 function openSettings() {
   editProfile(state.gateway.activeId);
   $('settings').showModal();
@@ -2519,6 +2532,23 @@ function wireSettings() {
       setSettingsStatus(err.message, 'bad');
     }
     $('testGateway').disabled = false;
+  });
+
+  $('testPrompt').value = t('Say hello in one sentence.');
+  // Test API: one prompt to the model with the form as it stands, and the reply (or why there was none).
+  $('sendTest').addEventListener('click', async () => {
+    const prompt = $('testPrompt').value.trim();
+    if (!prompt) return showTest(t('Write a prompt to send first.'), 'bad');
+    $('sendTest').disabled = true;
+    showTest('', '', t('Waiting for the model…'));
+    try {
+      const r = await api('/api/gateway/test', { method: 'POST', body: { ...settingsPayload(), prompt } });
+      if (r.ok) showTest(r.reply, 'ok', t('{model} replied in {ms} ms · {input} tokens in, {output} out', { model: r.model, ms: fmt(r.ms), input: fmt(r.inputTokens), output: fmt(r.outputTokens) }) + (r.truncated ? ` · ${t('reply cut short here')}` : ''));
+      else showTest([explain(r.error, r.cause), exactAnswer(r.endpoint)].filter(Boolean).join('\n\n'), 'bad', t('No reply after {ms} ms', { ms: fmt(r.ms) }));
+    } catch (err) {
+      showTest(shown(err), 'bad');
+    }
+    $('sendTest').disabled = false;
   });
 
   $('listModels').addEventListener('click', async () => {

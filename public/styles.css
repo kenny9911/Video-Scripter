@@ -538,6 +538,11 @@ button.chip:hover { color: var(--ink); }
 .model-row .is-default { font-size: 12px; font-weight: 650; color: var(--accent-text); padding: 0 10px; }
 details.media-settings > summary { cursor: pointer; font-size: 14px; font-weight: 600; min-height: var(--tap); display: flex; align-items: center; gap: 6px; }
 .media-settings > .hint { margin-bottom: 12px; }
+.api-test textarea { width: 100%; resize: vertical; }
+.api-test .inline { margin-top: 10px; align-items: center; }
+.test-reply { margin: 12px 0 0; padding: 10px 12px; border-radius: var(--r-sm); background: var(--panel-2); font: inherit; font-size: 14px; white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow: auto; }
+.test-reply.ok { border-left: 3px solid var(--ok); }
+.test-reply.bad { color: var(--bad); background: var(--bad-soft); }
 .media-group { display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px 14px 14px; margin: 0 0 12px; min-width: 0; }
 .media-group legend { font-size: 13px; font-weight: 650; padding: 0 6px; }
 .media-models { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

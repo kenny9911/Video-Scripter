@@ -2,6 +2,7 @@
 // media, the zip package, usage and the activity log.
 // Runs against a temporary folder by default; set TEST_DATABASE_URL to run the same checks on Postgres.
 import test from 'node:test';
+import http from 'node:http';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
@@ -317,6 +318,25 @@ test('accounts, access rules, gateways, scripts, media, usage and activity', asy
   assert.equal((await admin.call('GET', '/api/usage?scope=all&days=0')).body.total.calls, 8); // nothing erased from the audit trail
   const log = (await admin.call('GET', '/api/activity?scope=all&limit=500')).body.items.map((a) => a.type);
   for (const type of ['admin.user_create', 'admin.user_update', 'admin.user_password', 'admin.user_logout', 'admin.user_delete', 'auth.password_change', 'auth.profile_update']) assert.ok(log.includes(type), type);
+
+  // Test API: a prompt goes to the model as the form stands, and the reply comes back with what it cost.
+  r = await admin.call('POST', '/api/gateway/test', { provider: 'mock', prompt: 'Say hello in one sentence.' });
+  assert.ok(r.body.ok && r.body.reply.length > 0, JSON.stringify(r.body));
+  assert.ok(r.body.inputTokens > 0 && r.body.outputTokens > 0 && r.body.truncated === false);
+  r = await admin.call('POST', '/api/gateway/test', { provider: 'mock' });
+  assert.ok(r.body.ok && !('inputTokens' in r.body), 'no prompt: the plain connectivity check');
+  r = await admin.call('POST', '/api/gateway/test', { provider: 'custom', baseUrl: 'http://127.0.0.1:9/v1', model: 'm', prompt: 'hi' });
+  assert.deepEqual([r.body.ok, r.body.cause.side, r.body.cause.code], [false, 'network', 'unreachable'], JSON.stringify(r.body));
+  // A provider that refuses: the test answers with what that endpoint said, word for word.
+  const refusal = '{"error":{"message":"No available accounts","type":"api_error"},"request_id":"r-1"}';
+  const down = http.createServer((q, s) => s.writeHead(403, { 'content-type': 'application/json' }).end(refusal));
+  await new Promise((done) => down.listen(0, '127.0.0.1', done));
+  r = await admin.call('POST', '/api/gateway/test', { provider: 'custom', baseUrl: `http://127.0.0.1:${down.address().port}/v1`, model: 'm', prompt: 'hi' });
+  down.close();
+  assert.deepEqual(r.body.endpoint, { url: `http://127.0.0.1:${down.address()?.port ?? r.body.endpoint.url.split(':')[2].split('/')[0]}/v1/chat/completions`, status: 403, statusText: 'Forbidden', body: refusal });
+  assert.deepEqual([r.body.ok, r.body.cause.code, r.body.error.includes('No available accounts')], [false, 'key', true]);
+  r = await admin.call('GET', '/api/usage?scope=all&days=0');
+  assert.deepEqual(r.body.byKind.find((k) => k.key === 'test').calls, 4, 'each test is on the usage record, failed ones too');
 
   // Five wrong passwords lock an account for a while, even for the right password.
   for (let i = 0; i < 5; i++) await client().call('POST', '/api/auth/login', { email: 'bob@example.test', password: 'guess-number-' + i });
