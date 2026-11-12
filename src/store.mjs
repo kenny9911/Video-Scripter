@@ -100,6 +100,7 @@ export async function serveMedia(req, res, name) {
     'content-type': type,
     'accept-ranges': 'bytes',
     'cache-control': 'private, max-age=31536000, immutable',
+    vary: 'cookie', // a file is its owner's: the browser's own copy must not be handed to whoever signs in next on the same computer
     'x-content-type-options': 'nosniff',
     'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'", // stored files never run script
   };

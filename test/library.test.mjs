@@ -3,19 +3,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { PLATFORMS, getPlatform } from '../src/platforms.mjs';
 import { buildPlan, buildPrompts, buildNarrationPrompts, parseScript, settleScript, buildVisualPrompt } from '../src/prompt.mjs';
 import { shareBudget, normalizeMaterials, materialLines, settleSceneAssets, assetLine, MAX_MATERIALS, MATERIAL_CHARS } from '../src/materials.mjs';
-import { decodeText, docxText, unzipEntry, maxAssetBytes } from '../src/assets.mjs';
+import { decodeText, docxText, unzipEntry, maxAssetBytes, maxDocumentBytes, maxBodyBytes, partBytes, ASSET_KINDS } from '../src/assets.mjs';
 import { suggestStyles } from '../src/suggest.mjs';
 import { zip } from '../src/zip.mjs';
 
 // The smallest PNG there is: one transparent pixel.
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+const GUIDE = await readFile(new URL('./fixtures/two-pages.pdf', import.meta.url)); // two pages, English and Chinese
+const PROTECTED = await readFile(new URL('./fixtures/protected-aes256.pdf', import.meta.url)); // the same, protected against copying
+const LOCKED = await readFile(new URL('./fixtures/password.pdf', import.meta.url)); // the same, behind a password
 const docx = (paragraphs) => zip([{ name: '[Content_Types].xml', data: '<Types/>' }, { name: 'word/document.xml', data: `<w:document><w:body>${paragraphs.map((p) => `<w:p><w:pPr><w:tabs><w:tab w:val="left"/></w:tabs></w:pPr><w:r><w:t xml:space="preserve">${p}</w:t></w:r></w:p>`).join('')}</w:body></w:document>` }]);
 
 test('小红书 is a Chinese platform with its own notes, publishing rules and throttled words', () => {
@@ -129,6 +132,11 @@ test('uploaded documents are read: UTF-8, UTF-16, GB18030 and .docx', () => {
   assert.equal(maxAssetBytes({}), 25 * 1024 * 1024);
   assert.equal(maxAssetBytes({ VERCEL: '1' }), 4 * 1024 * 1024);
   assert.equal(maxAssetBytes({ VERCEL: '1', ASSET_MAX_MB: '2' }), 2 * 1024 * 1024);
+  // A document may be large wherever the app runs: where one request cannot carry it, it comes in parts.
+  assert.deepEqual([maxDocumentBytes({}), maxDocumentBytes({ VERCEL: '1' }), maxDocumentBytes({ ASSET_MAX_MB: '2' })], [25, 25, 2].map((mb) => mb * 1024 * 1024));
+  assert.deepEqual([maxBodyBytes({}), maxBodyBytes({ VERCEL: '1' }), maxBodyBytes({ ASSET_BODY_MB: '1' })], [25, 4, 1].map((mb) => mb * 1024 * 1024));
+  assert.ok(partBytes({ VERCEL: '1' }) < maxBodyBytes({ VERCEL: '1' }) && partBytes({}) <= maxBodyBytes({}));
+  assert.ok(ASSET_KINDS.document.includes('pdf') && ASSET_KINDS.image.includes('jfif') && !Object.values(ASSET_KINDS).flat().includes('svg'));
 });
 
 const PORT = 4100 + Math.floor(Math.random() * 90);
@@ -153,7 +161,14 @@ function client() {
       .split('\n\n')
       .filter(Boolean)
       .map((block) => ({ event: /^event: (.*)$/m.exec(block)?.[1], data: JSON.parse(/^data: (.*)$/m.exec(block)?.[1] || 'null') }));
-  return { raw, call, upload, events };
+  /** Send a file as the page sends one that is too large for a single request: in parts, then the request that puts them together. */
+  const uploadInParts = async (name, bytes, size, { id = `upload-${Math.random().toString(36).slice(2)}`, finish = true } = {}) => {
+    const headers = { 'content-type': 'application/octet-stream', 'x-file-name': encodeURIComponent(name), 'x-upload-id': id };
+    const parts = Math.ceil(bytes.length / size);
+    for (let i = 0; i < parts; i++) assert.equal((await call('POST', '/api/assets/part', bytes.subarray(i * size, (i + 1) * size), { ...headers, 'x-part': String(i) })).status, 200);
+    return finish ? call('POST', '/api/assets', undefined, { ...headers, 'x-parts': String(parts) }) : { id, parts, headers };
+  };
+  return { raw, call, upload, uploadInParts, events };
 }
 
 test('the library through the API: upload, use in a script, place in a scene, draw from, keep and delete', async (t) => {
@@ -193,7 +208,11 @@ test('the library through the API: upload, use in a script, place in a scene, dr
 
   // What is refused: a kind the library does not take, a file that is not what its name says, nothing, too much.
   for (const [name, bytes, status, said] of [
-    ['deck.pdf', Buffer.from('%PDF-1.7'), 415, /cannot be added/],
+    ['deck.pptx', Buffer.from('PK\u0003\u0004 slides'), 415, /cannot be added/],
+    ['logo.svg', Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'), 415, /cannot be added/],
+    ['fake.pdf', Buffer.from('this is not a PDF at all'), 415, /not a real \.pdf/],
+    ['scan.pdf', Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Kids [3 0 R] >>\nendobj\n3 0 obj\n<< /Type /Page >>\nendobj\ntrailer\n<< /Root 1 0 R >>'), 400, /scan/],
+    ['locked.pdf', LOCKED, 400, /password/],
     ['fake.png', Buffer.from('this is not a picture at all'), 415, /not a real \.png/],
     ['binary.txt', Buffer.from([1, 2, 0, 3, 0, 0, 4]), 400, /not text/],
     ['blank.txt', Buffer.from('   \n  '), 400, /No text/],
@@ -214,12 +233,59 @@ test('the library through the API: upload, use in a script, place in a scene, dr
   assert.deepEqual([r.body.asset.name, r.body.asset.note], ['包的正面.png', '黑色托特包， 放在木桌上']);
   const file = await ann.raw('GET', pic.url);
   assert.deepEqual([file.status, file.headers.get('content-type'), Buffer.from(await file.arrayBuffer()).equals(PNG)], [200, 'image/png', true]);
+  // The browser may keep its copy, for this session only: whoever signs in next on the same computer asks the server again.
+  assert.deepEqual([file.headers.get('vary'), /^private/.test(file.headers.get('cache-control'))], ['cookie', true]);
 
   assert.deepEqual((await bob.call('GET', '/api/assets')).body.items, []);
   assert.equal((await bob.raw('GET', pic.url)).status, 404);
   assert.equal((await client().raw('GET', pic.url)).status, 401);
   for (const [url, body] of [['/api/assets/update', { id: pic.id, note: 'mine now' }], ['/api/assets/delete', { id: pic.id }], ['/api/media/asset', { sceneId: 1, assetId: pic.id }]]) assert.equal((await bob.call('POST', url, body)).status, 404, url);
   assert.equal((await bob.call('GET', `/api/assets/text?id=${doc.id}`)).status, 404);
+
+  // ---------- A PDF, and a file sent in parts ----------
+  r = await ann.upload('冲煮指南.pdf', GUIDE);
+  const guide = r.body.asset;
+  assert.deepEqual([r.status, guide.kind, guide.type, guide.pages, guide.url, guide.excerpt.startsWith('The Hario V60 brews 250 ml')], [200, 'document', 'application/pdf', 2, undefined, true]);
+  r = await ann.call('GET', `/api/assets/text?id=${guide.id}`);
+  assert.ok(r.body.text.includes('手冲咖啡：水温九十二度') && r.body.text.endsWith('Page two: price 198 yuan.') && !r.body.partial);
+  // A protected PDF that opens without a password is read all the same; the same file in two parts is one file.
+  assert.equal((await ann.upload('protected.pdf', PROTECTED)).body.asset.chars, guide.chars);
+  r = await ann.uploadInParts('指南 in parts.pdf', GUIDE, 1600);
+  assert.deepEqual([r.status, r.body.asset.name, r.body.asset.pages, r.body.asset.chars, r.body.asset.size], [200, '指南 in parts.pdf', 2, guide.chars, GUIDE.length]);
+  // Parts are the uploader's own: nobody else can finish the upload, and once it is finished they are gone.
+  const open = await ann.uploadInParts('half.pdf', GUIDE, 1600, { finish: false });
+  r = await bob.call('POST', '/api/assets', undefined, { ...open.headers, 'x-parts': String(open.parts) });
+  assert.deepEqual([r.status, /interrupted/.test(r.body.error)], [400, true]);
+  assert.equal((await ann.call('POST', '/api/assets', undefined, { ...open.headers, 'x-parts': String(open.parts) })).status, 200); // hers to finish
+  assert.equal((await ann.call('POST', '/api/assets', undefined, { ...open.headers, 'x-parts': String(open.parts) })).status, 400); // once
+  const torn = { 'content-type': 'application/octet-stream', 'x-file-name': 'torn.pdf', 'x-upload-id': 'upload-torn-1234' };
+  assert.equal((await ann.call('POST', '/api/assets/part', GUIDE.subarray(1600), { ...torn, 'x-part': '1' })).status, 200);
+  r = await ann.call('POST', '/api/assets', undefined, { ...torn, 'x-parts': '2' }); // the first part never arrived
+  assert.deepEqual([r.status, /interrupted/.test(r.body.error)], [400, true]);
+  assert.equal((await ann.call('POST', '/api/assets/part', GUIDE, { 'x-upload-id': '../../etc', 'x-part': '0' })).status, 400);
+  assert.equal((await client().call('POST', '/api/assets/part', GUIDE, { 'x-upload-id': 'upload-12345678', 'x-part': '0' })).status, 401);
+  r = await ann.uploadInParts('big.pdf', Buffer.concat([GUIDE, Buffer.alloc(1024 * 1024, 32)]), 600 * 1024);
+  assert.deepEqual([r.status, /larger than 1 MB/.test(r.body.error)], [413, true]);
+  if (!env.DATABASE_URL) assert.deepEqual((await readdir(path.join(dir, 'media'))).filter((n) => n.startsWith('up-')), []);
+  for (const a of (await ann.call('GET', '/api/assets')).body.items.filter((x) => /protected|in parts|half/.test(x.name))) await ann.call('POST', '/api/assets/delete', { id: a.id });
+
+  // ---------- Each user has a library of their own ----------
+  // Bob adds files with the very names Ann used: two libraries, nothing shared.
+  const bobs = (await bob.upload('测评 笔记.txt', Buffer.from('Bob 的笔记'))).body.asset;
+  const bobsPic = (await bob.upload('front.PNG', PNG)).body.asset;
+  assert.deepEqual((await bob.call('GET', '/api/assets')).body.items.map((a) => a.id).sort(), [bobs.id, bobsPic.id].sort());
+  assert.ok((await ann.call('GET', '/api/assets')).body.items.every((a) => a.id !== bobs.id && a.id !== bobsPic.id));
+  assert.equal((await ann.call('GET', `/api/assets/text?id=${bobs.id}`)).status, 404);
+  assert.equal((await ann.raw('GET', bobsPic.url)).status, 404);
+  assert.equal((await bob.call('GET', `/api/assets/text?id=${guide.id}`)).status, 404);
+  // Not even an administrator sees into a library, or can use a file from one.
+  const boss = client();
+  assert.equal((await boss.call('POST', '/api/auth/login', { email: 'boss@example.test', password: 'correct-horse-battery' })).status, 200);
+  assert.deepEqual((await boss.call('GET', '/api/assets')).body.items, []);
+  for (const url of [pic.url, bobsPic.url]) assert.equal((await boss.raw('GET', url)).status, 404, url);
+  assert.equal((await boss.call('GET', `/api/assets/text?id=${doc.id}`)).status, 404);
+  assert.equal((await boss.call('POST', '/api/assets/delete', { id: bobs.id })).status, 404);
+  assert.equal((await boss.call('POST', '/api/media/asset', { sceneId: 1, assetId: bobsPic.id })).status, 404);
 
   // ---------- A script written from the library ----------
   const brief = { platformId: 'xiaohongshu', topic: '通勤包怎么选', assetIds: [doc.id, pic.id, 'no-such-file'], materials: [{ id: 'x', kind: 'document', name: 'injected.txt', text: 'not from the library' }] };
@@ -235,9 +301,12 @@ test('the library through the API: upload, use in a script, place in a scene, dr
   const placed = done.entry.media[2].image;
   assert.deepEqual([placed.shots, placed.urls.length, new RegExp(`^/media/${done.historyId}-s2-image-`).test(placed.url)], [['library'], 1, true]);
   assert.ok(Buffer.from(await (await ann.raw('GET', placed.url)).arrayBuffer()).equals(PNG));
-  // Bob's brief cannot reach Ann's files.
+  // Bob's brief cannot reach Ann's files: the ids it names are not in his library, so it is written from none.
   const his = (await bob.events('/api/generate', brief)).find((e) => e.event === 'done').data;
   assert.ok(!his.entry.brief.assetIds && his.script.scenes.every((sc) => !sc.asset) && his.script.productionNotes.every((n) => !n.includes('测评')));
+  // A PDF is source material like any other document.
+  const fromPdf = (await ann.events('/api/generate', { platformId: 'xiaohongshu', topic: '手冲咖啡入门', assetIds: [guide.id] })).find((e) => e.event === 'done').data;
+  assert.ok(fromPdf.script.productionNotes.some((n) => n.includes('冲煮指南.pdf')));
   // The plan and the narration read the same files.
   assert.equal((await ann.call('POST', '/api/plan', brief)).status, 200);
   const draft = await ann.events('/api/narration/draft', { ...brief, agent: false });
@@ -266,7 +335,15 @@ test('the library through the API: upload, use in a script, place in a scene, dr
   assert.deepEqual((await ann.call('POST', '/api/assets/delete', { id: pic.id })).body, { ok: true });
   assert.equal((await ann.raw('GET', pic.url)).status, 404);
   assert.equal((await ann.raw('GET', placed.url)).status, 200); // the script keeps its own copy
-  assert.equal((await ann.call('GET', '/api/assets')).body.items.length, 4);
+  assert.equal((await ann.call('GET', '/api/assets')).body.items.length, 5);
   const types = (await ann.call('GET', '/api/activity')).body.items.map((a) => a.type);
   for (const type of ['asset.add', 'asset.use', 'asset.delete']) assert.ok(types.includes(type), type);
+
+  // A library goes with its account, and only that one: Bob's files are removed, Ann's stay.
+  const users = (await boss.call('GET', '/api/admin/users')).body;
+  const bobId = (users.users || users.items || users).find((u) => u.email === 'bob@example.test').id;
+  assert.equal((await boss.call('POST', '/api/admin/users/delete', { id: bobId })).status, 200);
+  if (!env.DATABASE_URL) assert.ok(!(await readdir(path.join(dir, 'media'))).some((n) => n === bobsPic.url.slice(7)));
+  assert.equal((await ann.call('GET', '/api/assets')).body.items.length, 5);
+  assert.equal((await ann.call('GET', `/api/assets/text?id=${guide.id}`)).status, 200);
 });

@@ -34,7 +34,7 @@ import { AuthError, authenticate, checkLogin, createUser, startSession, endSessi
 import { recordUsage, logActivity, summarizeUsage, listActivity, estimateTokens } from './src/audit.mjs';
 import { SITE_TOKEN, configuredSiteUrl, requestSiteUrl, stamp } from './src/site.mjs';
 import { trackVisit, markSignup, markLogin, markFirstScript, summarizeVisitors } from './src/visitors.mjs';
-import { listAssets, addAsset, addTextAsset, updateAsset, deleteAsset, deleteUserAssets, ownedAsset, materialsFor, assetBytes, assetFileOwner, isAssetFile, keepInLibrary, maxAssetBytes, MAX_ASSETS, ASSET_EXTENSIONS } from './src/assets.mjs';
+import { listAssets, addAsset, addTextAsset, addPart, takeParts, updateAsset, deleteAsset, deleteUserAssets, ownedAsset, materialsFor, assetBytes, assetFileOwner, isAssetFile, keepInLibrary, maxAssetBytes, maxDocumentBytes, maxBodyBytes, partBytes, MAX_ASSETS, ASSET_EXTENSIONS, ASSET_KINDS } from './src/assets.mjs';
 import { MAX_MATERIALS } from './src/materials.mjs';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
@@ -437,7 +437,7 @@ const routes = {
       shotLabels: SHOT_LABELS,
       maxImages: MAX_IMAGES,
       aspects: ASPECTS.map(({ id, w, h, name }) => ({ id, w, h, name })),
-      library: { maxBytes: maxAssetBytes(), maxFiles: MAX_ASSETS, maxPerBrief: MAX_MATERIALS, extensions: ASSET_EXTENSIONS },
+      library: { maxBytes: maxAssetBytes(), maxDocumentBytes: maxDocumentBytes(), bodyBytes: maxBodyBytes(), partBytes: partBytes(), maxFiles: MAX_ASSETS, maxPerBrief: MAX_MATERIALS, extensions: ASSET_EXTENSIONS, kinds: ASSET_KINDS },
     });
   }),
 
@@ -527,12 +527,15 @@ const routes = {
 
   // ---------- The asset library (素材库) ----------
 
+  // Each user has a library of their own: every route here works on the files of the signed-in user and no one else's.
   // The signed-in user's files, newest first. A document comes with how it starts, never its whole text.
   'GET /api/assets': route('user', async (req, res, user) => {
     json(res, 200, { items: await listAssets(user.id) });
   }),
 
   // Upload one file: the body is the file itself, its name rides in the x-file-name header (URI-encoded).
+  // A file too large for one request was sent in parts first (below): then the body is empty, and the
+  // x-upload-id and x-parts headers say which parts make it up.
   // With a JSON body instead ({ name, text, note }) it adds text that was pasted or written.
   'POST /api/assets': route('user', async (req, res, user) => {
     let added;
@@ -540,17 +543,26 @@ const routes = {
       const { name, text, note } = await readJson(req);
       added = await addTextAsset({ userId: user.id, name, text, note });
     } else {
-      added = await addAsset({ userId: user.id, name: headerText(req, 'x-file-name'), bytes: await readBytes(req, maxAssetBytes()) });
+      const upload = req.headers['x-upload-id'];
+      const bytes = upload ? await takeParts({ userId: user.id, upload, count: Number(req.headers['x-parts']) }) : await readBytes(req, maxBodyBytes());
+      added = await addAsset({ userId: user.id, name: headerText(req, 'x-file-name'), bytes });
     }
     await logActivity(req, user, 'asset.add', { file: added.name, kind: added.kind, size: added.size });
     json(res, 200, { asset: added });
+  }),
+
+  // One part of a file that is too large for a single request: the body is the part, x-upload-id names the
+  // upload (the page makes it up) and x-part is the part's place, from 0.
+  'POST /api/assets/part': route('user', async (req, res, user) => {
+    await addPart({ userId: user.id, upload: req.headers['x-upload-id'], n: Number(req.headers['x-part']), bytes: await readBytes(req, partBytes()) });
+    json(res, 200, { ok: true });
   }),
 
   // The whole text of a document, to read it before using it.
   'GET /api/assets/text': route('user', async (req, res, user, query) => {
     const asset = await ownedAsset(user.id, query.get('id'));
     if (asset.kind !== 'document') throw fail('This file has no text');
-    json(res, 200, { id: asset.id, name: asset.name, text: asset.text, cut: Boolean(asset.cut) });
+    json(res, 200, { id: asset.id, name: asset.name, text: asset.text, cut: Boolean(asset.cut), partial: Boolean(asset.partial) });
   }),
 
   // Rename a file or change its note (what the scriptwriter is told about a picture it cannot see).

@@ -7,6 +7,8 @@
 //
 // The page cannot show a model what is in a picture, so every picture and clip has a note: the note is
 // what the scriptwriter is told about it. A document needs none; its text is read.
+//
+// The library is the signed-in user's own: the server gives this page that user's files and no one else's.
 
 import { t, lang } from './i18n.js';
 import { icon } from './icons.js';
@@ -14,6 +16,9 @@ import { el, call } from './account.js';
 
 const $ = (id) => document.getElementById(id);
 const KIND_ICON = { document: 'script', image: 'image', video: 'video' };
+// Pictures the library does not keep as they are. A browser that can open one turns it into a JPEG or a PNG first.
+const OTHER_PICTURES = ['heic', 'heif', 'avif', 'bmp', 'tif', 'tiff', 'svg'];
+const OPAQUE = ['jpg', 'jpeg', 'jfif', 'bmp']; // kinds of picture with nothing see-through in them
 const FILTERS = [
   ['all', 'All'],
   ['document', 'Documents'],
@@ -127,7 +132,7 @@ export function wireLibrary({ limits, toast, onChange, view }) {
     dlg.showModal();
     try {
       const r = await call(`/api/assets/text?id=${encodeURIComponent(asset.id)}`);
-      area.value = r.text + (r.cut ? `\n\n${t('[The rest of this document was not kept: it is longer than the library reads.]')}` : '');
+      area.value = (r.partial ? `${t('[Part of this PDF could not be read: some of its fonts do not say which characters they draw. Check what is here before you use it.]')}\n\n` : '') + r.text + (r.cut ? `\n\n${t('[The rest of this document was not kept: it is longer than the library reads.]')}` : '');
     } catch (err) {
       area.value = err.message;
     }
@@ -166,7 +171,15 @@ export function wireLibrary({ limits, toast, onChange, view }) {
       'li',
       { class: `lib-card${on && !state.mode ? ' on' : ''}`, 'data-kind': a.kind },
       thumb,
-      el('div', { class: 'lib-body' }, name, note, el('span', { class: 'lib-meta' }, icon(KIND_ICON[a.kind], 12), a.kind === 'document' ? t('{n} characters', { n: a.chars.toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US') }) : fileSize(a.size)), el('div', { class: 'lib-actions' }, actions)),
+      el(
+        'div',
+        { class: 'lib-body' },
+        name,
+        note,
+        el('span', { class: 'lib-meta' }, icon(KIND_ICON[a.kind], 12), a.kind === 'document' ? [a.pages && (a.pages === 1 ? t('1 page') : t('{n} pages', { n: a.pages })), t('{n} characters', { n: a.chars.toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US') })].filter(Boolean).join(' · ') : fileSize(a.size)),
+        a.partial && el('span', { class: 'lib-meta warn', title: t('Some of its fonts do not say which characters they draw. Read it before you use it.') }, t('Part of this PDF could not be read')),
+        el('div', { class: 'lib-actions' }, actions),
+      ),
     );
   }
 
@@ -174,7 +187,8 @@ export function wireLibrary({ limits, toast, onChange, view }) {
     const mode = state.mode;
     $('libraryTitle').textContent = mode?.title || t('Library');
     $('libraryHint').textContent =
-      mode?.hint || t('Upload your own files once and use them in any script. Documents are read by the scriptwriter as source material; pictures and clips are placed in the scenes that show them. A model cannot see a picture, so say in a few words what each one shows.');
+      mode?.hint ||
+      t('Upload your own files once and use them in any script: only you can see them. Documents (text, Word, PDF) are read by the scriptwriter as source material; pictures and clips are placed in the scenes that show them. A model cannot see a picture, so say in a few words what each one shows.');
     for (const b of $('libraryFilter').children) {
       b.hidden = Boolean(mode?.kinds) && b.dataset.kind !== 'all' && !mode.kinds.includes(b.dataset.kind);
       b.setAttribute('aria-selected', String(b.dataset.kind === state.filter));
@@ -188,7 +202,7 @@ export function wireLibrary({ limits, toast, onChange, view }) {
       ? t('Loading…')
       : state.items.length
         ? t('Nothing of this kind in your library yet.')
-        : t('Your library is empty. Upload notes, articles, product pictures or clips: drop them here, or use the button above.');
+        : t('Your library is empty. Upload notes, articles, PDFs, product pictures or clips: drop them here, or use the button above.');
     const n = picked().filter(byId).length;
     $('libraryCount').textContent = mode ? '' : n ? t('{n} of {max} picked for this brief', { n, max: limits.maxPerBrief }) : t('{n} files', { n: state.items.length });
     $('libraryDone').textContent = mode ? t('Cancel') : t('Done');
@@ -198,11 +212,70 @@ export function wireLibrary({ limits, toast, onChange, view }) {
 
   const extOf = (name) => /\.([a-z0-9]+)$/i.exec(name)?.[1].toLowerCase() || '';
 
+  const kindOf = (name) => Object.keys(limits.kinds).find((kind) => limits.kinds[kind].includes(extOf(name)));
+  const isPicture = (file) => kindOf(file.name) === 'image' || OTHER_PICTURES.includes(extOf(file.name)) || (!kindOf(file.name) && /^image\//.test(file.type));
+  const tooLarge = (file, max) => new Error(t('“{name}” is larger than {max}.', { name: file.name, max: fileSize(max) }));
+
+  /**
+   * A picture as the library keeps it. One it takes, at a size it takes, goes up as it is. A phone photo that
+   * is too large is drawn smaller, and a kind the library does not keep (HEIC, AVIF, BMP, TIFF, SVG) is drawn
+   * as a JPEG, or as a PNG when part of it is see-through. All of that happens here, in the browser.
+   */
+  async function fitPicture(file) {
+    const ext = extOf(file.name);
+    if (kindOf(file.name) === 'image' && file.size <= limits.maxBytes) return file;
+    if (ext === 'gif') throw tooLarge(file, limits.maxBytes); // drawn again, it would stop moving
+    const cannot = () => new Error(t('This browser cannot open “{name}”. Save it as a JPEG or a PNG and add that.', { name: file.name }));
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    try {
+      img.src = url;
+      await img.decode();
+    } catch {
+      throw cannot();
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    const [w, h] = [img.naturalWidth, img.naturalHeight];
+    if (!w || !h) throw cannot();
+    for (const edge of [2560, 1920, 1280, 960]) {
+      const k = ext === 'svg' ? Math.min(edge, 2048) / Math.max(w, h) : Math.min(1, edge / Math.max(w, h));
+      const canvas = Object.assign(document.createElement('canvas'), { width: Math.max(1, Math.round(w * k)), height: Math.max(1, Math.round(h * k)) });
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      // Is any of it see-through? A small copy is enough to tell.
+      const small = Object.assign(document.createElement('canvas'), { width: 64, height: 64 });
+      const ctx = small.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(canvas, 0, 0, 64, 64);
+      const clear = !OPAQUE.includes(ext) && ctx.getImageData(0, 0, 64, 64).data.some((v, i) => i % 4 === 3 && v < 250);
+      const type = clear ? 'image/png' : 'image/jpeg';
+      const blob = await new Promise((done) => canvas.toBlob(done, type, 0.9));
+      if (blob && blob.size <= limits.maxBytes) return new File([blob], `${file.name.replace(/\.[a-z0-9]+$/i, '')}.${clear ? 'png' : 'jpg'}`, { type });
+    }
+    throw tooLarge(file, limits.maxBytes);
+  }
+
+  /** Send one file to the library; the new asset comes back. A file larger than one request may carry goes in parts. */
+  async function send(file) {
+    const post = async (path, headers, body) => {
+      const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/octet-stream', 'x-file-name': encodeURIComponent(file.name), ...headers }, body });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(t(data.error || 'Request failed ({status})', { status: res.status }));
+      return data;
+    };
+    if (file.size <= limits.bodyBytes) return (await post('/api/assets', {}, file)).asset;
+    const upload = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+    const parts = Math.ceil(file.size / limits.partBytes);
+    for (let i = 0; i < parts; i++) await post('/api/assets/part', { 'x-upload-id': upload, 'x-part': String(i) }, file.slice(i * limits.partBytes, (i + 1) * limits.partBytes));
+    return (await post('/api/assets', { 'x-upload-id': upload, 'x-parts': String(parts) }, '')).asset;
+  }
+
   async function upload(files) {
     const taken = [];
     for (const file of files) {
-      if (!limits.extensions.includes(extOf(file.name))) toast(t('“{name}” cannot be added: the library takes text, .docx, pictures and clips.', { name: file.name }));
-      else if (file.size > limits.maxBytes) toast(t('“{name}” is larger than {max}.', { name: file.name, max: fileSize(limits.maxBytes) }));
+      const kind = isPicture(file) ? 'image' : kindOf(file.name);
+      const max = kind === 'document' ? limits.maxDocumentBytes : limits.maxBytes;
+      if (!kind) toast(t('“{name}” cannot be added: the library takes text, Word and PDF documents, pictures and clips.', { name: file.name }));
+      else if (kind !== 'image' && file.size > max) toast(tooLarge(file, max).message);
       else taken.push(file);
     }
     if (!taken.length) return;
@@ -211,12 +284,9 @@ export function wireLibrary({ limits, toast, onChange, view }) {
     render();
     for (const file of taken) {
       try {
-        const res = await fetch('/api/assets', { method: 'POST', headers: { 'content-type': 'application/octet-stream', 'x-file-name': encodeURIComponent(file.name) }, body: file });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || t('Request failed ({status})', { status: res.status }));
-        state.items.unshift(data.asset);
+        state.items.unshift(await send(isPicture(file) ? await fitPicture(file) : file));
       } catch (err) {
-        toast(`${file.name}: ${t(err.message)}`);
+        toast(err.message.includes(file.name) ? err.message : `${file.name}: ${err.message}`);
       }
       state.uploading = state.uploading.filter((n) => n !== file.name);
       render();
@@ -286,7 +356,7 @@ export function wireLibrary({ limits, toast, onChange, view }) {
   }
 
   $('libraryFilter').replaceChildren(...FILTERS.map(([kind, label]) => el('button', { class: 'seg-btn', type: 'button', role: 'tab', 'data-kind': kind, onclick: () => ((state.filter = kind), render()) }, t(label))));
-  $('libraryFile').accept = limits.extensions.map((e) => `.${e}`).join(',');
+  $('libraryFile').accept = [...limits.extensions.map((e) => `.${e}`), 'image/*'].join(','); // image/*: a phone hands over a photo as a JPEG
   $('libraryUpload').addEventListener('click', () => $('libraryFile').click());
   $('libraryFile').addEventListener('change', (e) => (upload([...e.target.files]), (e.target.value = '')));
   $('libraryPaste').addEventListener('click', pasteText);

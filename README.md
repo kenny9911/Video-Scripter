@@ -240,13 +240,17 @@ The portrait is also the picture to give a talking-avatar tool, together with `v
 
 ## Your library
 
-The library (素材库) holds your own files, so they are uploaded once and used in any script. Open it with **Library** in the top bar, or from **Materials** in the brief.
+The library (素材库) holds your own files, so they are uploaded once and used in any script. Every user has a library of their own. Open it with **Library** in the top bar, or from **Materials** in the brief.
 
 | Kind | Files | What a script does with it |
 | --- | --- | --- |
-| Document | `.txt` `.md` `.csv` `.tsv` `.json` `.srt` `.vtt` `.docx`, or text you paste | Its text is read when it is added. A brief that uses it gives that text to the model as more reference material, under the same rule: only figures and quotes found there are used |
-| Picture | `.png` `.jpg` `.webp` `.gif` | Named to the scriptwriter, which builds a scene around it. The picture is then placed in that scene as it is |
+| Document | `.pdf` `.docx` `.txt` `.md` `.csv` `.tsv` `.json` `.srt` `.vtt`, or text you paste | Its text is read when it is added. A brief that uses it gives that text to the model as more reference material, under the same rule: only figures and quotes found there are used |
+| Picture | `.png` `.jpg` `.webp` `.gif`; also `.heic` `.avif` `.bmp` `.tiff` `.svg`, which the page turns into a JPEG or a PNG first | Named to the scriptwriter, which builds a scene around it. The picture is then placed in that scene as it is |
 | Clip | `.mp4` `.mov` `.webm` | The same, as the scene's clip |
+
+**PDFs.** A PDF is read as it is added, page by page: Chinese and English, files exported from Word, WPS, Keynote, PowerPoint or a browser, and files that are protected against copying but open without a password. The page count and the text are kept, not the file. Three kinds cannot be read, and the library says which: a scan (it has no text; paste the text, or add the pages as pictures), a PDF that needs a password, and one whose fonts do not say which characters they draw. When only part of a PDF is like that, it is added with a note saying so: open it in the library to see what was read.
+
+**Pictures.** A phone photo is often larger than a file may be. The page draws it smaller in your browser (2560 pixels on its long side, then less) and uploads that, so nothing has to be resized by hand. Pictures in a format the library does not keep are redrawn the same way, as a JPEG, or as a PNG when part of the picture is see-through. An iPhone's `.heic` needs a browser that can open it (Safari); elsewhere, save it as a JPEG first.
 
 A model cannot see a picture, so each picture and clip has a note: a few words on what it shows. The note and the name are all the scriptwriter knows about it, so write one.
 
@@ -258,7 +262,9 @@ There are three ways to put visuals on a scene, and they can be mixed within one
 
 Going the other way, **To library** on a generated image keeps it for other scripts, and **To library** on a script saves its narration as a document to write the next script from.
 
-A brief uses up to 8 files, and their documents share about 24,000 characters of the prompt: short ones are read whole, long ones are cut to fit. A file may be 25 MB (4 MB on a serverless host, whose request body is capped; `ASSET_MAX_MB` changes it), and a library holds 300 files. A script keeps its own copy of every file placed in it, so deleting from the library never breaks a script. The library is private to its owner: nobody else can list or open its files.
+A brief uses up to 8 files, and their documents share about 24,000 characters of the prompt: short ones are read whole, long ones are cut to fit. A document may be 25 MB, and a picture or a clip 25 MB too, or 4 MB on a serverless host, which caps what one request can carry (`ASSET_MAX_MB` changes both). A document larger than that cap is sent in parts, so a 20 MB PDF uploads there as well. A library holds 300 files. A script keeps its own copy of every file placed in it, so deleting from the library never breaks a script.
+
+The library is private to its owner. Every file carries the id of the user who added it, and every request works on the signed-in user's files only: nobody else can list them, read them, use them in a script or open them by their address, an administrator included. Deleting an account deletes its library.
 
 ## Images and video
 
@@ -497,7 +503,8 @@ Everything below is optional. Settings saved in the app take precedence over the
 | `VIDEO_BASE_URL_API`, `VIDEO_MODEL`, `VIDEO_API_KEY` | Video generation defaults | Off |
 | `GATEWAY_RETRY_BASE_MS` | The first pause, in milliseconds, before a failed provider request is tried again; later pauses grow from it | `900` |
 | `REQUEST_TIME_LIMIT_S` | How many seconds the host lets one request run. The server winds a request up shortly before, and a script that is not finished is carried on in the next request | `800` on Vercel, otherwise no limit |
-| `ASSET_MAX_MB` | The largest file the library takes, in megabytes | `25`, on Vercel `4` |
+| `ASSET_MAX_MB` | The largest file the library takes, in megabytes | `25`; for pictures and clips on Vercel `4` |
+| `ASSET_BODY_MB` | The largest upload one request may carry, for a host or a proxy that caps it. A larger file is sent in parts | no cap; on Vercel `4` |
 
 ## For developers
 
@@ -536,6 +543,7 @@ src/auth.mjs            accounts, password hashing, sessions, the first administ
 src/audit.mjs           usage records (every model call) and the activity log
 src/store.mjs           saved scripts and generated media
 src/assets.mjs          the library (素材库): uploaded files, the text read from documents, who owns what
+src/pdf.mjs             the text of a PDF, read without a PDF library
 src/materials.mjs       the library files one brief uses: what the prompts say about them, and the scene that shows one
 api/index.mjs           serverless entry point (Vercel); vercel.json routes requests to it
 src/package.mjs         the downloadable .zip for one script (src/zip.mjs writes the archive)
@@ -617,6 +625,7 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `GET` | `/media/<file>` | A stored image or video |
 | `GET` | `/api/assets` | The signed-in user's library, newest first |
 | `POST` | `/api/assets` | Add a file: the body is the file, its name is in the `x-file-name` header (URI-encoded). A JSON body `{ name?, text }` adds pasted text as a document |
+| `POST` | `/api/assets/part` | One part of a file too large for a single request: the body is the part, `x-upload-id` names the upload and `x-part` its place, from 0. `POST /api/assets` with `x-upload-id` and `x-parts` then adds the file |
 | `GET` | `/api/assets/text?id=` | The whole text of a document |
 | `POST` | `/api/assets/update`, `/api/assets/delete` | `{ id, name?, note? }` Rename a file or change its note; `{ id }` delete it |
 | `POST` | `/api/assets/keep` | `{ url, name? }` Copies one of your generated images or clips into the library |

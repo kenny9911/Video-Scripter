@@ -1,27 +1,38 @@
 // The asset library (素材库): files a creator uploads once and uses in any script.
 //
-//   document   .txt .md .csv .tsv .json .srt .vtt .docx   read when it is uploaded: its text is kept, the file is not.
-//                                                         A brief that uses it gives that text to the model as source material.
-//   image      .png .jpg .webp .gif                       kept as a file. A scene can show it as it is, or have its image drawn from it.
-//   video      .mp4 .mov .webm                            kept as a file. A scene can use it as its clip.
+//   document   .txt .md .csv .tsv .json .srt .vtt .docx .pdf   read when it is uploaded: its text is kept, the file is not.
+//                                                              A brief that uses it gives that text to the model as source material.
+//   image      .png .jpg .webp .gif                            kept as a file. A scene can show it as it is, or have its image drawn from it.
+//                                                              (The page turns other pictures, .heic .avif .bmp .tiff .svg, into one of these first.)
+//   video      .mp4 .mov .webm                                 kept as a file. A scene can use it as its clip.
 //
-// Every asset is a document in the `assets` collection, owned by the user who added it; a picture or a
-// clip also has a blob, `lib-<id>.<ext>`, served from /media/ to its owner alone (server.mjs).
-// What a brief does with the assets it names is in src/materials.mjs.
+// Each user has a library of their own. Every asset is a document in the `assets` collection carrying the id
+// of the user who added it, and nothing here reads, changes or counts an asset without that id: a list is
+// the user's own, an id that belongs to someone else is "not in your library" (ownedAsset), and a picture or
+// a clip, kept as the blob `lib-<id>.<ext>`, is served from /media/ to its owner alone (server.mjs), not even
+// to an administrator. What a brief does with the assets it names is in src/materials.mjs.
 
 import { randomUUID } from 'node:crypto';
 import { inflateRawSync } from 'node:zlib';
 import { db } from './db.mjs';
 import { MAX_MATERIALS } from './materials.mjs';
+import { pdfText, isPdf } from './pdf.mjs';
 
 const MB = 1024 * 1024;
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 
-/** One file may be this large. A serverless host caps a request body at about 4.5 MB, so the limit is lower there. */
-export function maxAssetBytes(env = process.env) {
-  const set = Number(env.ASSET_MAX_MB);
-  return Math.round((Number.isFinite(set) && set > 0 ? set : env.VERCEL ? 4 : 25) * MB);
-}
+const setMax = (env) => (Number(env.ASSET_MAX_MB) > 0 ? Number(env.ASSET_MAX_MB) : 0);
+/**
+ * A picture or a clip may be this large. A serverless host caps what one request can carry, in or out, at
+ * about 4.5 MB, and a file that is kept has to be served back whole, so the limit is lower there.
+ */
+export const maxAssetBytes = (env = process.env) => Math.round((setMax(env) || (env.VERCEL ? 4 : 25)) * MB);
+/** A document may be this large wherever the app runs: only its text is kept, and a large one is sent in parts. */
+export const maxDocumentBytes = (env = process.env) => Math.round((setMax(env) || 25) * MB);
+/** What one request may carry (`ASSET_BODY_MB`, for a host or a proxy with a cap of its own). A file larger than this comes in parts (addPart, takeParts). */
+export const maxBodyBytes = (env = process.env) => (Number(env.ASSET_BODY_MB) > 0 ? Math.round(Number(env.ASSET_BODY_MB) * MB) : env.VERCEL ? 4 * MB : Math.max(maxAssetBytes(env), maxDocumentBytes(env)));
+/** How large the parts of a file sent in parts are. */
+export const partBytes = (env = process.env) => Math.min(maxBodyBytes(env), 3.5 * MB);
 /** How many assets one library holds. */
 export const MAX_ASSETS = 300;
 /** How much of a document's text is kept, in characters. */
@@ -39,9 +50,11 @@ const FORMATS = {
   srt: ['document', 'application/x-subrip'],
   vtt: ['document', 'text/vtt'],
   docx: ['document', DOCX],
+  pdf: ['document', 'application/pdf'],
   png: ['image', 'image/png', 'png'],
   jpg: ['image', 'image/jpeg', 'jpg'],
   jpeg: ['image', 'image/jpeg', 'jpg'],
+  jfif: ['image', 'image/jpeg', 'jpg'],
   webp: ['image', 'image/webp', 'webp'],
   gif: ['image', 'image/gif', 'gif'],
   mp4: ['video', 'video/mp4', 'mp4'],
@@ -50,6 +63,8 @@ const FORMATS = {
 };
 /** The extensions the library takes, for the file picker and the error that names them. */
 export const ASSET_EXTENSIONS = Object.keys(FORMATS);
+/** The same, by what the file is: { document: [...], image: [...], video: [...] }. */
+export const ASSET_KINDS = Object.entries(FORMATS).reduce((by, [ext, [kind]]) => ((by[kind] ||= []).push(ext), by), {});
 
 const extOf = (name) => /\.([a-z0-9]+)$/i.exec(String(name || ''))?.[1].toLowerCase() || '';
 const cleanName = (v) => String(v ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
@@ -143,7 +158,7 @@ export function publicAsset(a) {
     size: a.size,
     note: a.note || '',
     ...(a.file && { url: `/media/${a.file}` }),
-    ...(a.kind === 'document' && { chars: a.chars || 0, excerpt: String(a.text || '').slice(0, 200) }),
+    ...(a.kind === 'document' && { chars: a.chars || 0, excerpt: String(a.text || '').slice(0, 200), ...(a.pages && { pages: a.pages }), ...(a.cut && { cut: true }), ...(a.partial && { partial: true }) }),
   };
 }
 
@@ -160,22 +175,42 @@ async function room(userId) {
   if ((await db.list('assets', { userId })).length >= MAX_ASSETS) throw fail(`Your library is full (${MAX_ASSETS} files). Delete some to add more.`);
 }
 
-function textAsset({ userId, name, type, size, text, note }) {
+function textAsset({ userId, name, type, size, text, note, pages, cut, partial }) {
   const whole = tidy(String(text || '').replace(/\u0000/g, ''));
   if (!whole) throw fail('No text could be read from this file');
-  return { id: randomUUID().slice(0, 12), userId, ts: Date.now(), name, kind: 'document', type, size, note: cleanNote(note), text: whole.slice(0, MAX_ASSET_TEXT), chars: Math.min(whole.length, MAX_ASSET_TEXT), ...(whole.length > MAX_ASSET_TEXT && { cut: true }) };
+  return {
+    id: randomUUID().slice(0, 12),
+    userId,
+    ts: Date.now(),
+    name,
+    kind: 'document',
+    type,
+    size,
+    note: cleanNote(note),
+    text: whole.slice(0, MAX_ASSET_TEXT),
+    chars: Math.min(whole.length, MAX_ASSET_TEXT),
+    ...(pages && { pages }),
+    ...((cut || whole.length > MAX_ASSET_TEXT) && { cut: true }),
+    ...(partial && { partial: true }), // some of a PDF's text was in fonts that could not be read
+  };
 }
 
 /** Add an uploaded file. `bytes` is the file as it was sent; its name says what it is, and its content has to agree. */
 export async function addAsset({ userId, name, bytes, note }) {
   const clean = cleanName(name);
   const format = FORMATS[extOf(clean)];
-  if (!clean || !format) throw fail(`This kind of file cannot be added. The library takes ${ASSET_EXTENSIONS.filter((e) => !['markdown', 'jpeg'].includes(e)).map((e) => `.${e}`).join(' ')}.`, 415);
+  if (!clean || !format) throw fail(`This kind of file cannot be added. The library takes ${ASSET_EXTENSIONS.filter((e) => !['markdown', 'jpeg', 'jfif'].includes(e)).map((e) => `.${e}`).join(' ')}.`, 415);
   if (!bytes?.length) throw fail('The file is empty');
-  if (bytes.length > maxAssetBytes()) throw fail(`The file is larger than ${Math.round(maxAssetBytes() / MB)} MB`, 413);
-  await room(userId);
   const [kind, type, ext] = format;
+  const max = kind === 'document' ? maxDocumentBytes() : maxAssetBytes();
+  if (bytes.length > max) throw fail(`The file is larger than ${Math.round(max / MB)} MB`, 413);
+  await room(userId);
 
+  if (type === 'application/pdf') {
+    if (!isPdf(bytes)) throw fail('This file is not a real .pdf document', 415);
+    const read = pdfText(bytes, { maxChars: MAX_ASSET_TEXT });
+    return publicAsset(await db.put('assets', textAsset({ userId, name: clean, type, size: bytes.length, note, ...read })));
+  }
   if (kind === 'document') {
     if (type !== DOCX && bytes.subarray(0, 4096).includes(0) && bytes[0] !== 0xff && bytes[0] !== 0xfe) throw fail('This file is not text');
     return publicAsset(await db.put('assets', textAsset({ userId, name: clean, type, size: bytes.length, text: type === DOCX ? docxText(bytes) : decodeText(bytes), note })));
@@ -185,6 +220,45 @@ export async function addAsset({ userId, name, bytes, note }) {
   const file = `lib-${id}.${ext}`;
   await db.putBlob(file, { userId, type, bytes });
   return publicAsset(await db.put('assets', { id, userId, ts: Date.now(), name: clean, kind, type, size: bytes.length, note: cleanNote(note), file }));
+}
+
+// ---------- A file sent in parts ----------
+//
+// A host that caps a request at a few megabytes still has to take a 20 MB PDF: the page cuts it up, each
+// part is kept as a blob of the user's (`up-<user>-<upload>-<n>`, a name /media/ never serves), and the last
+// request puts them together and adds the file as usual. Starting a file clears whatever an earlier one left.
+
+const partName = (userId, upload, n) => `up-${userId}-${upload}-${n}`;
+const cleanUpload = (id) => (/^[\w-]{8,64}$/.test(String(id || '')) ? String(id) : '');
+const maxParts = () => Math.ceil(Math.max(maxAssetBytes(), maxDocumentBytes()) / partBytes()) + 1; // so what waits to be put together stays small
+
+/** Keep part `n` of the file being uploaded as `upload`. */
+export async function addPart({ userId, upload, n, bytes }) {
+  const id = cleanUpload(upload);
+  const at = Number(n);
+  if (!id || !Number.isInteger(at) || at < 0 || at >= maxParts()) throw fail('This upload cannot be followed. Try again.');
+  if (!bytes?.length) throw fail('The file is empty');
+  if (bytes.length > partBytes()) throw fail(`The file is larger than ${Math.round(partBytes() / MB)} MB`, 413);
+  if (at === 0) await db.delBlobs(`up-${userId}-`);
+  await db.putBlob(partName(userId, id, at), { userId, type: 'application/octet-stream', bytes });
+}
+
+/** The file that was sent as `count` parts, whole. The parts are gone afterwards. */
+export async function takeParts({ userId, upload, count }) {
+  const id = cleanUpload(upload);
+  const n = Number(count);
+  if (!id || !Number.isInteger(n) || n < 1 || n > maxParts()) throw fail('This upload cannot be followed. Try again.');
+  try {
+    const parts = [];
+    for (let i = 0; i < n; i++) {
+      const blob = await db.getBlob(partName(userId, id, i));
+      if (!blob) throw fail('The upload was interrupted. Try again.');
+      parts.push(await blob.bytes());
+    }
+    return Buffer.concat(parts);
+  } finally {
+    await db.delBlobs(`up-${userId}-${id}-`);
+  }
 }
 
 /** Add text that was pasted or written, not uploaded: a note, an article, the narration of a script. */
@@ -217,6 +291,7 @@ export async function deleteUserAssets(userId) {
     if (a.file) await db.delBlobs(`lib-${a.id}.`);
     await db.del('assets', a.id);
   }
+  await db.delBlobs(`up-${userId}-`); // and an upload that never finished
   return all.length;
 }
 
