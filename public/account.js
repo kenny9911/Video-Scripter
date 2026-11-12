@@ -105,6 +105,9 @@ export const ACTIVITY = {
   'image.generate': 'Generated images',
   'style.suggest': 'Had the model pick a visual style',
   'video.generate': 'Started a video',
+  'asset.add': 'Added a file to the library',
+  'asset.delete': 'Deleted a file from the library',
+  'asset.use': 'Placed a library file in a scene',
   'gateway.create': 'Added a gateway',
   'gateway.update': 'Changed a gateway',
   'gateway.delete': 'Deleted a gateway',
@@ -123,6 +126,7 @@ export function activityDetail(a) {
   const d = a.detail || {};
   return [
     d.title || d.topic,
+    d.file,
     d.gateway,
     d.target && `${d.target}${d.disabled ? ` · ${t('disabled')}` : ''}${d.role ? ` · ${t(d.role === 'admin' ? 'Administrator' : 'Member')}` : ''}`,
     d.scripts != null && t(d.kept ? '{n} scripts moved to the administrator' : '{n} scripts deleted', { n: d.scripts }),

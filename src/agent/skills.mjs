@@ -85,7 +85,7 @@ export const SKILLS = loadSkills();
 
 /** The skills that apply to a brief (as normalizeBrief returns it), in a stable order. */
 export function selectSkills(brief, all = SKILLS) {
-  const said = squash([brief.topic, brief.keyMessage, brief.brand, brief.experience, brief.reference].join('\n'));
+  const said = squash([brief.topic, brief.keyMessage, brief.brand, brief.experience, brief.reference, ...(brief.materials?.docs || []).map((d) => d.text)].join('\n'));
   const group = brief.framework.group || 'general';
   return all.filter((s) => {
     if (s.lang && s.lang !== brief.lang) return false;

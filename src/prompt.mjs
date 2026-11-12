@@ -20,6 +20,7 @@ import { selectSkills, skillSection, publicSkill } from './agent/skills.mjs';
 import { normalizeCard, cardBlock, CARD_SCHEMA, PLAN_RULES } from './agent/card.mjs';
 import { normalizeHosts, normalizeCast, settleCast, settleSceneHost, castLine, hostBrief } from './cast.mjs';
 import { replyJson } from './json.mjs';
+import { normalizeMaterials, materialLines, materialRules, assetSchemaLine, settleSceneAssets, assetLine } from './materials.mjs';
 
 export { repairJson, replyJson } from './json.mjs'; // where they used to live
 
@@ -59,6 +60,7 @@ export function normalizeBrief(input = {}) {
     aspect: getAspect(input.aspectRatio),
     styles: pickStyles(input.styleIds),
     hosts: normalizeHosts(input.host, framework.speakers, lang), // the digital host(s) on screen, [] when there is none
+    materials: normalizeMaterials(input.materials), // the files from the creator's library this brief uses (src/materials.mjs)
   };
 }
 
@@ -112,7 +114,7 @@ const scriptSchema = (brief) => `{
       "voiceover": "exactly what is spoken in this scene",
       "onScreenText": "text overlay shown in this scene, or empty string",
       "visual": "what the viewer sees: shot, subject, action, graphics",
-      "camera": "framing and movement, or cut/transition",${
+      "camera": "framing and movement, or cut/transition",${assetSchemaLine(brief.materials)}${
         brief.hosts.length
           ? `
       "host": "who is in frame: ${brief.hosts.length > 1 ? 'A, B or AB' : 'A'}, or an empty string for a shot without ${brief.hosts.length > 1 ? 'them' : 'the host'}",`
@@ -311,6 +313,7 @@ export function briefLines(brief) {
       'REFERENCE>>>',
     );
   }
+  lines.push(...materialLines(brief.materials));
   return lines;
 }
 
@@ -356,7 +359,7 @@ export function buildPrompts(plan) {
         VISUAL_RULE[lang],
         zh ? 'hookOptions 给出3个不同手法的备选开场白，第一个场景使用其中最强的一个。' : 'Give 3 hookOptions using different techniques; the first scene uses the strongest one.',
       ];
-  rules.push(...speakerRules(brief, locked), ...extrasRules(brief));
+  rules.push(...speakerRules(brief, locked), ...materialRules(brief.materials), ...extrasRules(brief));
   // A script written in one go needs the writing playbooks as well as the ones for what surrounds the voiceover.
   const skills = locked ? skillSection(plan.skills, 'script') : skillSection(plan.skills.map((sk) => (sk.steps.includes('write') ? { ...sk, steps: [...sk.steps, 'script'] } : sk)), 'script');
 
@@ -422,6 +425,7 @@ export function parseScript(raw) {
       camera: str(s.camera),
       host: s.host == null ? null : str(s.host), // who is in frame, as the model wrote it; settled by settleScript
       sfx: str(s.sfx),
+      ...(s.asset && { asset: s.asset }), // the creator's own picture or clip this scene shows, as the model tagged it; settled by settleScript
     })),
     whiteboard: str(obj.whiteboard).replace(/\s+$/, ''),
     publish: {
@@ -447,7 +451,11 @@ export function parseScript(raw) {
 export function settleScript(script, brief) {
   const cast = settleCast(script.cast, brief);
   const seen = cast.some((c) => c.look);
-  const scenes = script.scenes.map(({ host, ...scene }) => (seen ? { ...scene, host: settleSceneHost({ ...scene, host }, cast) } : scene));
+  // A scene that shows one of the creator's own pictures or clips names it; a tag that is not in the brief is dropped.
+  const scenes = settleSceneAssets(
+    script.scenes.map(({ host, ...scene }) => (seen ? { ...scene, host: settleSceneHost({ ...scene, host }, cast) } : scene)),
+    brief.materials,
+  );
   const { cast: _, ...rest } = script;
   return { ...rest, ...(cast.length && { cast }), scenes };
 }
@@ -694,9 +702,10 @@ const CUTAWAYS = new Set(['detail', 'context']); // shots that leave the subject
  * `shot` (from planShots) places the image within a multi-image set: a moment, a framing, a cutaway or a style.
  * The frame is the scene's `aspectRatio` (vertical when it has none). A scene with a host in frame (`host`,
  * from the script's `cast`) also carries that host's fixed look; `referenced` lists the hosts whose portrait
- * is attached to the request.
+ * is attached to the request. `asset` ({ name, note }) is a picture from the creator's library the image is
+ * drawn from: `assetAttached` says whether it is attached too, after the portraits.
  */
-export function buildVisualPrompt(scene = {}, kind = 'image', styleIds = scene.styleIds, shot = null, { referenced = [] } = {}) {
+export function buildVisualPrompt(scene = {}, kind = 'image', styleIds = scene.styleIds, shot = null, { referenced = [], asset = null, assetAttached = false } = {}) {
   const visual = clean(scene.visual, 1500);
   if (!visual) throw new Error('This scene has no visual description to generate from');
   const camera = clean(scene.camera, 400);
@@ -705,7 +714,8 @@ export function buildVisualPrompt(scene = {}, kind = 'image', styleIds = scene.s
     `${frame.shape} ${frame.id} ${kind === 'video' ? 'shot for' : 'still frame from'} a short social video.`,
     visual,
     !shot?.replaceCamera && camera && `Camera: ${camera}`,
-    !CUTAWAYS.has(shot?.id) && castLine(scene.cast, scene.host, { referenced }),
+    !CUTAWAYS.has(shot?.id) && castLine(scene.cast, scene.host, { referenced, others: asset && assetAttached ? 1 : 0 }),
+    asset && assetLine(asset, { attached: assetAttached, at: referenced.length + 1, of: referenced.length + 1 }),
     shot?.directive,
     styleLook(pickStyles(shot?.styleIds || styleIds)),
     shot?.set,

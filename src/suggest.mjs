@@ -91,6 +91,7 @@ export const BY_FRAMEWORK = {
 const BY_PLATFORM = {
   wechat_channels: { deck: 1, office: 1, whiteboard: 1 },
   douyin: { ugc: 1, cinematic: 1 },
+  xiaohongshu: { lifestyle: 1, airy: 1, ugc: 1 },
   tiktok: { ugc: 1, dopamine: 1 },
   instagram: { lifestyle: 1, airy: 1, pastel: 1 },
   youtube_shorts: { techdesk: 1, diagram: 1 },

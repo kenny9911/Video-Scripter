@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Video Scripter</title>
-  <meta name="description" content="Write short-video scripts for 视频号, 抖音, TikTok, Instagram and YouTube, with scene images and clips.">
+  <meta name="description" content="Write short-video scripts for 视频号, 抖音, 小红书, TikTok, Instagram and YouTube, with scene images and clips.">
   <meta name="robots" content="noindex">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <meta name="color-scheme" content="light dark">
@@ -59,7 +59,7 @@
       <span class="logo" data-icon="logo" data-icon-size="16" aria-hidden="true"></span>
       <div class="brand-text">
         <h1>Video Scripter</h1>
-        <p class="tagline">Short-video scripts for 视频号 · 抖音 · TikTok · Instagram · YouTube</p>
+        <p class="tagline">Short-video scripts for 视频号 · 抖音 · 小红书 · TikTok · Instagram · YouTube</p>
       </div>
     </div>
     <div class="topbar-actions">
@@ -67,6 +67,7 @@
         <span class="dot" id="gatewayDot"></span><span id="gatewayLabel">Loading…</span>
       </button>
       <button id="openHistory" class="icon-btn labelled desktop-only" type="button" data-icon="clock"><span>History</span><span id="historyCount" class="count" hidden></span></button>
+      <button id="openLibrary" class="icon-btn labelled desktop-only" type="button" data-icon="folder"><span>Library</span></button>
       <button id="openSettings" class="icon-btn labelled desktop-only admin-only" type="button" data-icon="settings"><span>LLM settings</span></button>
       <a class="icon-btn labelled desktop-only admin-only" href="admin.html" data-icon="users"><span>Users</span></a>
       <button id="openAccount" class="icon-btn labelled desktop-only" type="button" data-icon="user"><span id="accountName"></span></button>
@@ -92,6 +93,12 @@
           <div id="topicIdeas" class="ideas" hidden>
             <span class="hint">Need an idea?</span>
             <div id="topicIdeaList" class="chips"></div>
+          </div>
+
+          <div class="field">
+            <span>Materials <em>from your library</em></span>
+            <div id="assetChips" class="chips"></div>
+            <p id="assetHint" class="hint"></p>
           </div>
 
           <fieldset class="field">
@@ -286,6 +293,37 @@
         </label>
         <div id="historyList" class="history-list"></div>
       </div>
+    </div>
+  </dialog>
+
+  <dialog id="libraryDialog" class="dialog wide library" aria-labelledby="libraryTitle">
+    <div class="dialog-shell">
+      <header class="dialog-head">
+        <h2 id="libraryTitle">Library</h2>
+        <button id="closeLibrary" class="icon-btn" type="button" aria-label="Close" data-icon="x"></button>
+      </header>
+      <div id="libraryDrop" class="dialog-body">
+        <p id="libraryHint" class="hint"></p>
+        <div class="lib-bar">
+          <button id="libraryUpload" class="btn primary" type="button" data-icon="upload"><span>Upload files</span></button>
+          <button id="libraryPaste" class="btn" type="button" data-icon="clipboard"><span>Paste text</span></button>
+          <input id="libraryFile" type="file" multiple hidden>
+          <span class="spacer"></span>
+          <div id="libraryFilter" class="seg" role="tablist" aria-label="Kind of file"></div>
+        </div>
+        <ul id="libraryGrid" class="lib-grid"></ul>
+        <div id="libraryEmpty" class="lib-empty" hidden>
+          <span class="empty-art" data-icon="folder" data-icon-size="28" aria-hidden="true"></span>
+          <p id="libraryEmptyText"></p>
+        </div>
+      </div>
+      <footer class="dialog-foot">
+        <div class="dialog-actions">
+          <span id="libraryCount" class="hint"></span>
+          <span class="spacer"></span>
+          <button id="libraryDone" class="btn primary" type="button">Done</button>
+        </div>
+      </footer>
     </div>
   </dialog>
 

@@ -144,10 +144,11 @@ export function settleSceneHost(scene, cast) {
 
 /**
  * What an image or clip prompt says about the hosts in frame: the fixed look of each, and that it never
- * changes. `referenced` lists the ids whose portrait is attached to the request, in the order attached.
+ * changes. `referenced` lists the ids whose portrait is attached to the request, in the order attached;
+ * `others` is how many more pictures are attached after them (a picture from the creator's library).
  * Empty when nobody with a look is in frame.
  */
-export function castLine(cast, host, { referenced = [] } = {}) {
+export function castLine(cast, host, { referenced = [], others = 0 } = {}) {
   const all = normalizeCast(cast).filter((c) => c.look);
   const on = all.filter((c) => onFrame(host, all.map((x) => x.id)).includes(c.id));
   if (!on.length) return '';
@@ -156,7 +157,7 @@ export function castLine(cast, host, { referenced = [] } = {}) {
   const person = (c) => `${many ? `Host ${c.id}` : 'The host'}${c.name ? `, ${c.name}` : ''} (called ${many ? `"主播${c.id}" or "Host ${c.id}"` : '"主播" or "the host"'} in the description): ${c.look}.`;
   const attached = !refs.length
     ? ''
-    : refs.length === 1 && on.length === 1
+    : refs.length === 1 && on.length === 1 && !others
       ? ' The attached image is the reference portrait of this person: match the face, hair and clothes in it exactly.'
       : ` ${refs.map((id, i) => `${i ? 'attached' : 'Attached'} image ${i + 1} is the reference portrait of Host ${id}`).join('; ')}: match each face, hair and clothes exactly.`;
   return `Recurring ${on.length > 1 ? 'hosts of this video, the same people' : 'host of this video, the same person'} in every shot. ${on.map(person).join(' ')} Keep face, hair, build and clothes exactly as described; only pose, expression and framing change.${attached}`;

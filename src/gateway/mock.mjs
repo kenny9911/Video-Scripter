@@ -94,6 +94,9 @@ function demoScript(plan) {
   const { brief, timeline } = plan;
   const zh = brief.lang === 'zh';
   const t = brief.topic;
+  // The creator's own pictures and clips (src/materials.mjs): the demo shows one in each scene after the hook.
+  const { docs = [], media = [] } = brief.materials || {};
+  const shown = (scenes) => scenes.map((sc, i) => (media[i - 1] ? { ...sc, asset: media[i - 1].tag } : sc));
   return {
     title: zh ? `【演示】${t}` : `[Demo] ${t}`,
     logline: zh ? `这是离线演示输出，用来预览界面。请在设置里接入真实模型后生成正式脚本。` : `Offline demo output for previewing the interface. Connect a real model in Settings to generate an actual script.`,
@@ -109,7 +112,7 @@ function demoScript(plan) {
           { type: 'Open question', line: `${t}: which step actually trips people up?` },
         ],
     cast: demoCast(brief),
-    scenes: brief.narration?.length ? lockedScenes(plan) : timeline.map((s, i) => ({
+    scenes: shown(brief.narration?.length ? lockedScenes(plan) : timeline.map((s, i) => ({
       id: i + 1,
       start: s.start,
       end: s.end,
@@ -120,7 +123,7 @@ function demoScript(plan) {
       visual: zh ? '演示占位：此处为画面描述。' : 'Demo placeholder: the shot description goes here.',
       camera: zh ? '中景，硬切' : 'Medium shot, hard cut',
       sfx: '',
-    })),
+    }))),
     whiteboard: brief.framework.board ? (zh ? '+--------+    +--------+    +--------+\n| 演示 A | -> | 演示 B | -> | 演示 C |\n+--------+    +--------+    +--------+' : '+--------+    +--------+    +--------+\n| Demo A | -> | Demo B | -> | Demo C |\n+--------+    +--------+    +--------+') : '',
     publish: {
       titles: zh ? [`演示标题一`, `演示标题二`, `演示标题三`] : ['Demo title one', 'Demo title two', 'Demo title three'],
@@ -131,7 +134,7 @@ function demoScript(plan) {
       pinnedComment: zh ? '演示置顶评论' : 'Demo pinned comment',
       chapters: brief.duration >= 180 ? timeline.map((s) => ({ time: `${String(Math.floor(s.start / 60)).padStart(2, '0')}:${String(s.start % 60).padStart(2, '0')}`, title: s.label.split(/[：:]/)[0] })) : [],
     },
-    productionNotes: [zh ? '当前使用的是离线演示提供方，内容为占位文本。' : 'The offline demo provider is active; all content is placeholder text.'],
+    productionNotes: [zh ? '当前使用的是离线演示提供方，内容为占位文本。' : 'The offline demo provider is active; all content is placeholder text.', ...(docs.length ? [`${zh ? '素材库资料（已作为参考资料交给模型）：' : 'Library documents given to the model as reference material: '}${docs.map((d) => d.name).join(zh ? '、' : ', ')}`] : [])],
   };
 }
 

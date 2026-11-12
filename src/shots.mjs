@@ -93,7 +93,8 @@ export const IMAGE_MODES = [
 ];
 
 /** Everything the page needs to label modes and shots. */
-export const SHOT_LABELS = Object.fromEntries(Object.entries(SHOTS).map(([id, s]) => [id, s.label]));
+// `library` is not a shot that is made: it captions a picture or a clip the creator placed from their own library.
+export const SHOT_LABELS = { ...Object.fromEntries(Object.entries(SHOTS).map(([id, s]) => [id, s.label])), library: { en: 'From your library', zh: '来自素材库' } };
 
 /**
  * The shots to make for one scene: [{ id, directive, replaceCamera, styleIds, set }].

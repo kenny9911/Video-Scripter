@@ -750,6 +750,45 @@ select.compact { width: auto; min-height: 36px; padding-top: 4px; padding-bottom
   .pick-alts button.chip { min-height: 36px; }
 }
 
+/* ---------- The asset library (素材库) ---------- */
+
+/* In the brief: the files the next script is written from, and the way into the library. */
+button.chip.asset-chip, button.chip.asset-add { gap: 6px; max-width: 100%; cursor: pointer; }
+button.chip.asset-chip { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-text); font-weight: 550; }
+button.chip .asset-chip-name { display: block; min-height: 0; max-width: 180px; padding: 0; border: 0; border-radius: 0; background: none; color: inherit; font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.chip.asset-add { border-style: dashed; color: var(--muted); }
+button.chip.asset-add:hover { color: var(--ink); }
+
+/* The dialog: a toolbar, then a grid of cards. A card is a preview, a name, a note and its buttons. */
+.dialog.library { width: min(980px, calc(100vw - 32px)); height: min(820px, calc(100dvh - 32px)); }
+.lib-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dialog-body.over { outline: 2px dashed var(--accent); outline-offset: -8px; background: var(--accent-soft); }
+.lib-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(208px, 1fr)); gap: 12px; }
+.lib-card { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); overflow: hidden; }
+.lib-card.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.lib-thumb { display: grid; place-items: center; width: 100%; aspect-ratio: 4 / 3; padding: 0; border: 0; border-bottom: 1px solid var(--line); background: var(--panel-2); color: var(--muted); overflow: hidden; }
+button.lib-thumb { cursor: zoom-in; }
+.lib-thumb img, .lib-thumb video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.lib-thumb.lib-text { display: block; padding: 12px; font-size: 12px; line-height: 1.55; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); cursor: pointer; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+.lib-body { display: flex; flex-direction: column; gap: 6px; padding: 10px; min-width: 0; flex: 1; }
+.lib-body input.lib-name, .lib-body input.lib-note { min-height: 32px; padding: 4px 8px; font-size: 13px; border-color: transparent; background: transparent; }
+.lib-body input.lib-name { font-weight: 600; font-size: 14px; }
+.lib-body input.lib-note { background: var(--panel-2); }
+.lib-body input:hover { border-color: var(--line-strong); }
+.lib-body span.lib-name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 8px; }
+.lib-meta { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; font-size: 12px; color: var(--muted); }
+.lib-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: auto; padding-top: 4px; }
+.lib-actions .icon-btn { min-width: 32px; height: 32px; padding: 0 6px; }
+.lib-use.on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-text); }
+.lib-card.loading .lib-thumb .spin { width: 22px; height: 22px; border-width: 3px; color: var(--accent-text); }
+.lib-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: auto; padding: 32px 16px; max-width: 420px; text-align: center; color: var(--muted); }
+.shot-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+@media (max-width: 899px) {
+  .dialog.library { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; border: 0; }
+  .lib-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .lib-bar .seg { width: 100%; }
+}
+
 /* ---------- Admin page ---------- */
 
 .admin-page .brand { text-decoration: none; color: inherit; }

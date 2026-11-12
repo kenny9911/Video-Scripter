@@ -5,6 +5,7 @@ import { icon, hydrateIcons } from './icons.js';
 import { showAuth, wireAccount } from './account.js';
 import { wireTheme, wireLang, enhancePasswords } from './shell.js';
 import { countSpoken, fitDuration, splitNarration, spokenText, MIN_DURATION, MAX_DURATION } from './narration.js';
+import { wireLibrary } from './library.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -45,6 +46,9 @@ const state = {
   narrationMode: 'auto', // 'auto' with the script | 'draft' written first, then edited | 'own' the creator's own
   emptyNode: null, // the "No script yet" block, kept so it can be shown again
 };
+
+// The creator's library (素材库, library.js): set once the page knows who is signed in. Until then nothing is picked.
+let library = { selected: () => [], setSelected() {}, has: () => false, open() {}, pick() {}, load() {}, added() {}, saveText: async () => null };
 
 const HISTORY_KEY = 'video-scripter.history';
 const FORM_KEY = 'video-scripter.brief';
@@ -551,7 +555,7 @@ function setNarrationMode(mode) {
 
 function saveForm() {
   const data = Object.fromEntries(FIELDS.map((f) => [f, $(f).value]));
-  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: durationValue(), aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: activeStyleIds(), styleAuto: state.styleAuto, host: hostValue() || null, narrationMode: state.narrationMode, agent: $('agent').checked });
+  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: durationValue(), aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: activeStyleIds(), styleAuto: state.styleAuto, host: hostValue() || null, narrationMode: state.narrationMode, agent: $('agent').checked, assetIds: library.selected() });
   try {
     localStorage.setItem(FORM_KEY, JSON.stringify(data));
   } catch {}
@@ -570,6 +574,7 @@ function fillForm(data) {
   // autoImages is not restored from a saved brief: it is remembered on the user's account (see buildForm).
   if ('imageCount' in data) $('imageCount').value = ['2', '3'].includes(String(data.imageCount)) ? String(data.imageCount) : '1';
   setHost(data.host);
+  library.setSelected(data.assetIds); // the library files the brief is written from; none when it names none
   // Styles someone picked by hand stay theirs; a brief without any gets them picked from its topic.
   state.styleAuto = 'styleAuto' in data ? Boolean(data.styleAuto) : !data.styles?.length;
   $('styleAuto').checked = state.styleAuto;
@@ -751,6 +756,7 @@ async function runPlatform(platformId, brief) {
               if (data.entry) {
                 state.history.unshift(data.entry);
                 run.plan = { ...run.plan, ...data.entry.plan }; // says whether a locked narration had to be put back
+                run.media = savedMedia(data.entry); // the creator's own pictures and clips are already in the scenes that show them
               }
               renderHistory();
             } else {
@@ -793,7 +799,7 @@ function runChanged(platformId) {
 /** The brief as the form has it now. */
 function collectBrief() {
   const brief = Object.fromEntries(FIELDS.map((f) => [f, $(f).value.trim()]));
-  return Object.assign(brief, { frameworkId: $('framework').value, duration: durationValue() || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: activeStyleIds(), host: hostValue(), agent: $('agent').checked });
+  return Object.assign(brief, { frameworkId: $('framework').value, duration: durationValue() || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: activeStyleIds(), host: hostValue(), agent: $('agent').checked, assetIds: library.selected().length ? library.selected() : undefined });
 }
 
 const isWriting = (run) => run.status === 'running' || run.status === 'drafting';
@@ -860,16 +866,22 @@ async function loadHistory() {
   renderHistory();
 }
 
+/** The media saved with a script, as a run keeps it: run.media[sceneId][kind] = { status, urls, shots }. */
+function savedMedia(entry) {
+  const media = {};
+  for (const [sceneId, kinds] of Object.entries(entry.media || {})) {
+    media[sceneId] = Object.fromEntries(Object.entries(kinds).map(([kind, m]) => [kind, { status: 'done', urls: m.urls?.length ? m.urls : [m.url], shots: m.shots }]));
+  }
+  return media;
+}
+
 /**
  * Show a saved script and put the brief it was written from back into the form, so it can be edited and
  * generated again. Generating always saves a new history entry: the one opened here is never changed.
  */
 function openHistory(entry) {
   if (!mayReplaceRuns()) return;
-  const media = {};
-  for (const [sceneId, kinds] of Object.entries(entry.media || {})) {
-    media[sceneId] = Object.fromEntries(Object.entries(kinds).map(([kind, m]) => [kind, { status: 'done', urls: m.urls?.length ? m.urls : [m.url], shots: m.shots }]));
-  }
+  const media = savedMedia(entry);
   const brief = entry.brief?.topic ? entry.brief : null; // an imported script may have no brief
   if (brief) {
     fillForm({ ...brief, platforms: [entry.platformId], framework: brief.frameworkId, styles: brief.styleIds, styleAuto: false });
@@ -938,6 +950,7 @@ function toMarkdown(platformId, run) {
     if (sc.visual) L.push(`- **${t('Visual')}:** ${sc.visual}`);
     if (sc.camera) L.push(`- **${t('Camera')}:** ${sc.camera}`);
     if (sc.host) L.push(`- **${t('In frame')}:** ${[...sc.host].join(' + ')}`);
+    if (sc.asset) L.push(`- **${t('From your library')}:** ${sc.asset.name}`);
     if (sc.sfx) L.push(`- **${t('Sound')}:** ${sc.sfx}`);
     L.push('');
   }
@@ -983,23 +996,73 @@ async function makeVideo(body, onProgress) {
 // Per-scene media state lives on the run, so it survives re-rendering: run.media[sceneId][kind] = { status, url, error, note }
 const mediaOf = (run, sc) => ((run.media ??= {})[sc.id] ??= {});
 
-async function startMedia(run, sc, kind) {
+/** Keep a scene's finished media on the script's history entry too, so it is there when the script is opened again. */
+function rememberMedia(run, sc, kind, m) {
+  const entry = state.history.find((e) => e.id === run.historyId);
+  if (entry) ((entry.media ??= {})[sc.id] ??= {})[kind] = { url: m.urls[0], urls: m.urls, shots: m.shots };
+}
+
+/** Make a scene's image or clip from the script. With `asset` (a picture from the library) the image is drawn from that picture and the scene. */
+async function startMedia(run, sc, kind, asset = null) {
   const store = mediaOf(run, sc);
   const m = (store[kind] = { status: 'running', note: '', count: kind === 'image' ? Number($('imageCount').value) || 1 : 1 });
   const paint = () => (store.paint?.(), refreshMediaStatus());
-  const body = { ...sc, cast: run.script.cast, historyId: run.historyId, sceneId: sc.id, aspectRatio: runAspect(run).id, styleIds: run.styleIds?.length ? run.styleIds : activeStyleIds() };
+  const body = { ...sc, cast: run.script.cast, historyId: run.historyId, sceneId: sc.id, aspectRatio: runAspect(run).id, styleIds: run.styleIds?.length ? run.styleIds : activeStyleIds(), ...(asset && { assetId: asset.id }) };
   paint();
   try {
-    if (kind === 'image') ({ urls: m.urls, shots: m.shots, referenced: m.referenced } = await makeImage(body));
+    if (kind === 'image') ({ urls: m.urls, shots: m.shots, referenced: m.referenced, from: m.from } = await makeImage(body));
     else m.urls = [await makeVideo(body, (p) => ((m.note = p ? ` ${Math.round(p)}%` : ''), paint()))];
     m.status = 'done';
-    const entry = state.history.find((e) => e.id === run.historyId);
-    if (entry) ((entry.media ??= {})[sc.id] ??= {})[kind] = { url: m.urls[0], urls: m.urls, shots: m.shots };
+    rememberMedia(run, sc, kind, m);
   } catch (err) {
     m.status = 'error';
     m.error = err.message;
   }
   paint();
+}
+
+/** Use a picture or a clip from the library as a scene's image or clip, as it is. */
+async function placeAsset(run, sc, asset) {
+  const store = mediaOf(run, sc);
+  const m = (store[asset.kind] = { status: 'running', note: '', count: 1 });
+  const paint = () => (store.paint?.(), refreshMediaStatus());
+  paint();
+  try {
+    ({ urls: m.urls, shots: m.shots } = await api('/api/media/asset', { method: 'POST', body: { historyId: run.historyId, sceneId: sc.id, assetId: asset.id } }));
+    m.status = 'done';
+    rememberMedia(run, sc, asset.kind, m);
+  } catch (err) {
+    m.status = 'error';
+    m.error = err.message;
+  }
+  paint();
+}
+
+/** Open the library to choose a scene's picture or clip: one of the creator's own as it is, or a new image drawn from one. */
+function pickForScene(run, sc) {
+  const canDraw = activeGw().image.ready;
+  library.pick({
+    title: t('A picture or clip for scene {n}', { n: sc.id }),
+    hint: canDraw ? t('Use one of your own files as it is, or have a new image drawn from a picture and what this scene says.') : t('Use one of your own files as this scene’s picture or clip.'),
+    kinds: ['image', 'video'],
+    actions: (a) =>
+      [
+        { label: a.kind === 'video' ? t('Use this clip') : t('Use this picture'), primary: true, run: () => placeAsset(run, sc, a) },
+        a.kind === 'image' && canDraw && { label: t('Generate from it'), icon: 'sparkles', title: t('A new image is drawn from this picture and what the scene says.'), run: () => startMedia(run, sc, 'image', a) },
+      ].filter(Boolean),
+  });
+}
+
+/** Save a generated image or clip to the library, so other scripts can use it. */
+async function keepInLibrary(url, name, btn) {
+  btn.disabled = true;
+  try {
+    library.added((await api('/api/assets/keep', { method: 'POST', body: { url, name } })).asset);
+    toast(t('Saved to your library'));
+  } catch (err) {
+    toast(err.message);
+    btn.disabled = false;
+  }
 }
 
 /** The "generate images with the script" option: one image per scene, two at a time. */
@@ -1076,8 +1139,10 @@ function sceneMedia(run, sc) {
   const g = activeGw();
   const store = mediaOf(run, sc);
   const kinds = ['image', 'video'].filter((k) => g[k].ready || store[k]);
-  if (!sc.visual || !kinds.length) return null;
+  const own = library.has('image') || library.has('video'); // the creator has pictures or clips of their own to use
+  if (!sc.visual || (!kinds.length && !own)) return null;
   const box = h('div', { class: 'media', 'data-aspect': runAspect(run).id });
+  const title = run.script.title || t('Script');
 
   const view = () =>
     kinds.map((kind) => {
@@ -1103,7 +1168,12 @@ function sceneMedia(run, sc) {
                       h('img', { src: url, alt: t('Generated image for scene {n}', { n: sc.id }), loading: 'lazy' }),
                     )
                   : h('video', { src: url, controls: true, playsinline: true, preload: 'metadata' }),
-                h('a', { class: 'btn small', href: url, download: url.split('/').pop().split('?')[0] || `scene-${sc.id}`, target: '_blank', rel: 'noopener' }, t('Save')),
+                h(
+                  'div',
+                  { class: 'shot-actions' },
+                  h('a', { class: 'btn small', href: url, download: url.split('/').pop().split('?')[0] || `scene-${sc.id}`, target: '_blank', rel: 'noopener' }, t('Save')),
+                  url.startsWith('/media/') && !url.endsWith('.svg') && m.shots?.[i] !== 'library' && h('button', { class: 'btn small', type: 'button', title: t('Saves this to your library, so other scripts can use it.'), onclick: (e) => keepInLibrary(url, `${title} · ${t('scene {n}', { n: sc.id })}`, e.currentTarget) }, t('To library')),
+                ),
               ),
             ),
           ),
@@ -1113,7 +1183,8 @@ function sceneMedia(run, sc) {
             { class: 'shots', role: 'status' },
             Array.from({ length: m.count || 1 }, () => h('div', { class: 'shot loading' }, h('div', { class: 'ph' }, h('span', { class: 'spin' }), h('span', {}, t(kind === 'image' ? 'Generating image…' : 'Generating video…'))))),
           ),
-        m?.status === 'done' && m.referenced && h('span', { class: 'hint' }, t('Drawn from the host portrait')),
+        m?.status === 'done' && m.from && h('span', { class: 'hint' }, t('Drawn from your picture “{name}”', { name: m.from })),
+        m?.status === 'done' && m.referenced && !m.from && h('span', { class: 'hint' }, t('Drawn from the host portrait')),
         m?.status === 'error' && h('p', { class: 'error' }, m.error),
         h(
           'div',
@@ -1123,7 +1194,9 @@ function sceneMedia(run, sc) {
       );
     });
 
-  store.paint = () => box.replaceChildren(...view());
+  // The creator's own files: one as it is, or a new image drawn from one of their pictures.
+  const fromLibrary = () => own && h('div', { class: 'media-item' }, h('div', { class: 'actions' }, iconBtn('folder', t('From library'), { class: 'btn small', title: t('Use one of your own pictures or clips in this scene.'), onclick: () => pickForScene(run, sc) })));
+  store.paint = () => box.replaceChildren(...view(), ...[fromLibrary()].filter(Boolean));
   store.paint();
   return box;
 }
@@ -2006,6 +2079,10 @@ function renderScript(platformId, run) {
         iconBtn('download', '.md', { onclick: () => download(`${fileStem(platformId, run)}.md`, toMarkdown(platformId, run), 'text/markdown') }),
         iconBtn('download', '.json', { onclick: () => download(`${fileStem(platformId, run)}.json`, JSON.stringify({ platform: platformId, brief: run.brief, ...s }, null, 2), 'application/json') }),
         iconBtn('mic', t('Edit narration'), { title: t('Change the narration, then build a new script around it. This one stays in History.'), onclick: () => editNarration(platformId) }),
+        iconBtn('folder', t('To library'), {
+          title: t('Saves the narration of this script to your library as a document, to write other scripts from.'),
+          onclick: async () => (await library.saveText(`${s.title || t('Script')} · ${platformOf(platformId).name}`, [s.title, s.logline, voText].filter(Boolean).join('\n\n'))) && toast(t('Saved to your library')),
+        }),
         run.brief && iconBtn('refresh', t('Regenerate'), { title: t('Writes a new script from the brief. This one stays in History.'), onclick: () => rerun(platformId) }),
       ),
     ),
@@ -2056,6 +2133,7 @@ function renderScript(platformId, run) {
                     sc.visual && [h('dt', {}, t('Visual')), h('dd', {}, sc.visual)],
                     sc.camera && [h('dt', {}, t('Camera')), h('dd', {}, sc.camera)],
                     sc.sfx && [h('dt', {}, t('Sound')), h('dd', {}, sc.sfx)],
+                    sc.asset && [h('dt', {}, t('From your library')), h('dd', {}, sc.asset.name)],
                   ),
                   sceneMedia(run, sc),
                 ),
@@ -2505,7 +2583,28 @@ async function boot() {
   state.meta = { hostPresets: [], maxHostLook: 240, ...state.meta };
   state.emptyNode = $('result').firstElementChild;
   state.openAccount = wireAccount({ user: me.user, storage: me.storage, platformName: (id) => platformOf(id)?.name || id || '', openSettings });
+  // A server that has not been restarted since the page was updated has no library yet: the rest of the page still works.
+  if (state.meta.library) {
+    library = wireLibrary({
+      limits: state.meta.library,
+      toast,
+      view: (a) => viewImages([{ url: a.url, label: a.name }], 0, a.note || a.name, { w: 4, h: 3 }),
+      // The files picked for the brief changed, or the library did: the brief is saved, and a script on screen offers them.
+      onChange: () => {
+        if (!$('framework').options.length) return; // the form is still being built
+        saveForm();
+        refreshTargets();
+        const run = state.runs[state.active];
+        if (run?.status === 'done' && !showsEditor(run)) render();
+      },
+    });
+    $('openLibrary').addEventListener('click', () => library.open());
+  } else {
+    $('openLibrary').hidden = true;
+    $('assetChips').closest('.field').hidden = true;
+  }
   buildForm();
+  library.load();
   wireSettings();
   renderGateway();
   wireTheme($('themeToggle'));

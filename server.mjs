@@ -34,6 +34,8 @@ import { AuthError, authenticate, checkLogin, createUser, startSession, endSessi
 import { recordUsage, logActivity, summarizeUsage, listActivity, estimateTokens } from './src/audit.mjs';
 import { SITE_TOKEN, configuredSiteUrl, requestSiteUrl, stamp } from './src/site.mjs';
 import { trackVisit, markSignup, markLogin, markFirstScript, summarizeVisitors } from './src/visitors.mjs';
+import { listAssets, addAsset, addTextAsset, updateAsset, deleteAsset, deleteUserAssets, ownedAsset, materialsFor, assetBytes, assetFileOwner, isAssetFile, keepInLibrary, maxAssetBytes, MAX_ASSETS, ASSET_EXTENSIONS } from './src/assets.mjs';
+import { MAX_MATERIALS } from './src/materials.mjs';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const PORT = Number(process.env.PORT) || 3789;
@@ -64,6 +66,34 @@ async function readJson(req) {
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
   } catch {
     throw Object.assign(new Error('Invalid JSON body'), { status: 400 });
+  }
+}
+
+/** The body of an upload as it was sent, up to `max` bytes. */
+async function readBytes(req, max) {
+  const tooLarge = () => Object.assign(new Error(`The file is larger than ${Math.round(max / 1048576)} MB`), { status: 413 });
+  let size = 0;
+  const chunks = [];
+  for await (const c of req) {
+    size += c.length;
+    if (size > max) throw tooLarge();
+    chunks.push(c);
+  }
+  // Some serverless runtimes read the body before the handler runs and hand it over as a buffer.
+  if (!chunks.length && Buffer.isBuffer(req.body)) {
+    if (req.body.length > max) throw tooLarge();
+    return req.body;
+  }
+  return Buffer.concat(chunks);
+}
+
+/** A header that carries text the browser had to encode (a file name in any language). */
+function headerText(req, name) {
+  const raw = String(req.headers[name] || '');
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
   }
 }
 
@@ -140,6 +170,43 @@ async function hostPortraits(entry, scene) {
     if (bytes) found.push({ id, bytes, type: `image/${stored[2] === 'jpg' ? 'jpeg' : stored[2]}` });
   }
   return found;
+}
+
+/**
+ * A brief with the files it names from the creator's library (`assetIds`) looked up: they ride along as
+ * `materials`, which is what the prompts read (src/materials.mjs). Only the user's own files are found.
+ */
+async function withMaterials(user, brief) {
+  const { materials: _, ...rest } = brief;
+  const found = await materialsFor(user.id, brief.assetIds);
+  return found.length ? { ...rest, materials: found } : rest;
+}
+
+/** Put a picture or a clip from the library into a scene of a script, as that scene's image or clip. */
+async function placeAsset(user, { historyId, sceneId }, asset) {
+  if (asset.kind !== 'image' && asset.kind !== 'video') throw fail('Only a picture or a clip can be placed in a scene');
+  const { bytes, type } = await assetBytes(asset);
+  const saved = await saveMedia({ historyId, sceneId, kind: asset.kind, source: new Response(bytes, { headers: { 'content-type': type } }), link: false, userId: user.id });
+  if (!saved) throw fail('This file cannot be used in a scene');
+  const media = { url: saved.url, urls: [saved.url], shots: ['library'] };
+  await linkMedia({ historyId, sceneId, kind: asset.kind, urls: media.urls, shots: media.shots });
+  return { kind: asset.kind, ...media };
+}
+
+/**
+ * A new script whose scenes name the creator's own pictures and clips gets them placed straight away:
+ * the scene shows the real thing, and nothing has to be generated for it. Returns the entry as it is then.
+ */
+async function placeSceneAssets(user, entry) {
+  const scenes = entry.script.scenes.filter((sc) => sc.asset?.id);
+  for (const sc of scenes) {
+    try {
+      await placeAsset(user, { historyId: entry.id, sceneId: sc.id }, await ownedAsset(user.id, sc.asset.id));
+    } catch (err) {
+      console.warn(`[library] could not place "${sc.asset.name}" in scene ${sc.id}: ${err.message}`);
+    }
+  }
+  return scenes.length ? (await getHistory(entry.id)) || entry : entry;
 }
 
 /**
@@ -342,8 +409,9 @@ const routes = {
     if (target.id === user.id) throw fail('You cannot delete your own account');
     const moved = scripts === 'transfer';
     const count = moved ? await transferHistory(target.id, user.id) : await deleteUserHistory(target.id);
+    const files = await deleteUserAssets(target.id); // the library is theirs alone: it goes with the account
     await deleteUser(target.id);
-    await logActivity(req, user, 'admin.user_delete', { target: target.email, scripts: count, kept: moved });
+    await logActivity(req, user, 'admin.user_delete', { target: target.email, scripts: count, kept: moved, files });
     json(res, 200, { ok: true, scripts: count, transferred: moved });
   }),
 
@@ -369,6 +437,7 @@ const routes = {
       shotLabels: SHOT_LABELS,
       maxImages: MAX_IMAGES,
       aspects: ASPECTS.map(({ id, w, h, name }) => ({ id, w, h, name })),
+      library: { maxBytes: maxAssetBytes(), maxFiles: MAX_ASSETS, maxPerBrief: MAX_MATERIALS, extensions: ASSET_EXTENSIONS },
     });
   }),
 
@@ -456,6 +525,73 @@ const routes = {
     }
   }),
 
+  // ---------- The asset library (素材库) ----------
+
+  // The signed-in user's files, newest first. A document comes with how it starts, never its whole text.
+  'GET /api/assets': route('user', async (req, res, user) => {
+    json(res, 200, { items: await listAssets(user.id) });
+  }),
+
+  // Upload one file: the body is the file itself, its name rides in the x-file-name header (URI-encoded).
+  // With a JSON body instead ({ name, text, note }) it adds text that was pasted or written.
+  'POST /api/assets': route('user', async (req, res, user) => {
+    let added;
+    if (/^application\/json/.test(req.headers['content-type'] || '')) {
+      const { name, text, note } = await readJson(req);
+      added = await addTextAsset({ userId: user.id, name, text, note });
+    } else {
+      added = await addAsset({ userId: user.id, name: headerText(req, 'x-file-name'), bytes: await readBytes(req, maxAssetBytes()) });
+    }
+    await logActivity(req, user, 'asset.add', { file: added.name, kind: added.kind, size: added.size });
+    json(res, 200, { asset: added });
+  }),
+
+  // The whole text of a document, to read it before using it.
+  'GET /api/assets/text': route('user', async (req, res, user, query) => {
+    const asset = await ownedAsset(user.id, query.get('id'));
+    if (asset.kind !== 'document') throw fail('This file has no text');
+    json(res, 200, { id: asset.id, name: asset.name, text: asset.text, cut: Boolean(asset.cut) });
+  }),
+
+  // Rename a file or change its note (what the scriptwriter is told about a picture it cannot see).
+  'POST /api/assets/update': route('user', async (req, res, user) => {
+    const { id, name, note } = await readJson(req);
+    json(res, 200, { asset: await updateAsset(user.id, id, { name, note }) });
+  }),
+
+  // Scripts that already used the file keep their own copy of it.
+  'POST /api/assets/delete': route('user', async (req, res, user) => {
+    const { id } = await readJson(req);
+    const asset = await ownedAsset(user.id, id);
+    await deleteAsset(user.id, asset.id);
+    await logActivity(req, user, 'asset.delete', { file: asset.name, kind: asset.kind });
+    json(res, 200, { ok: true });
+  }),
+
+  // Save a generated image or clip (`url`, one of the user's own media files) to the library, for other scripts.
+  'POST /api/assets/keep': route('user', async (req, res, user) => {
+    const { url, name, note } = await readJson(req);
+    const file = /^\/media\/([\w-]+\.\w+)$/.exec(String(url || ''))?.[1];
+    if (!file || isAssetFile(file)) throw fail('That file cannot be saved to the library');
+    const owner = mediaOwner(file);
+    if (owner) await ownedHistory(user, owner);
+    const bytes = await readMedia(file);
+    if (!bytes) throw fail('That file is no longer stored', 404);
+    const added = await keepInLibrary({ userId: user.id, file, bytes, name, note });
+    await logActivity(req, user, 'asset.add', { file: added.name, kind: added.kind, size: added.size, from: 'script' });
+    json(res, 200, { asset: added });
+  }),
+
+  // Use a picture or a clip from the library as a scene's image or clip, as it is. The script keeps its own copy.
+  'POST /api/media/asset': route('user', async (req, res, user) => {
+    const { historyId, sceneId, assetId } = await readJson(req);
+    if (historyId) await ownedHistory(user, historyId);
+    const asset = await ownedAsset(user.id, assetId);
+    const placed = await placeAsset(user, { historyId, sceneId }, asset);
+    await logActivity(req, user, 'asset.use', { taskId: historyId, scene: sceneId, file: asset.name, kind: asset.kind });
+    json(res, 200, placed);
+  }),
+
   // ---------- Scripts ----------
 
   // The signed-in user's scripts, newest first; generated media is linked from each entry.
@@ -497,9 +633,16 @@ const routes = {
     const shots = planShots(scene.mode, scene.count, scene.styleIds);
     // A host in frame is drawn from their portrait when there is one, so it is the same face in every scene.
     const portraits = await hostPortraits(entry, scene);
+    // `assetId`: a picture from the creator's library the image is drawn from, together with the scene as written.
+    const asset = scene.assetId ? await ownedAsset(user.id, scene.assetId) : null;
+    if (asset && asset.kind !== 'image') throw fail('Only a picture from the library can be drawn from');
+    const picture = asset && (await assetBytes(asset));
+    const about = asset ? { asset: { name: asset.name, note: asset.note } } : {};
     const prompts = shots.map((shot) => {
-      const references = showsHost(shot) ? portraits : [];
-      return { prompt: buildVisualPrompt(scene, 'image', scene.styleIds, shot), references, referencePrompt: references.length ? buildVisualPrompt(scene, 'image', scene.styleIds, shot, { referenced: references.map((r) => r.id) }) : undefined }; // throws on a scene with no visual
+      const hosts = showsHost(shot) ? portraits : [];
+      const references = picture ? [...hosts, picture] : hosts;
+      // throws on a scene with no visual
+      return { prompt: buildVisualPrompt(scene, 'image', scene.styleIds, shot, about), references, referencePrompt: references.length ? buildVisualPrompt(scene, 'image', scene.styleIds, shot, { referenced: hosts.map((r) => r.id), ...about, assetAttached: Boolean(picture) }) : undefined };
     });
     let referenced = false;
     const results = await Promise.allSettled(
@@ -519,12 +662,12 @@ const routes = {
     );
     const done = results.map((r, i) => (r.status === 'fulfilled' && r.value.url ? { ...r.value, shot: shots[i].id } : null)).filter(Boolean);
     const failed = results.find((r) => r.status === 'rejected');
-    await logActivity(req, user, 'image.generate', { taskId: scene.historyId, scene: scene.sceneId, requested: shots.length, made: done.length, mode: scene.mode || 'variations', model: target.model || 'demo', ...(failed && { error: failed.reason.message.slice(0, 200) }) });
+    await logActivity(req, user, 'image.generate', { taskId: scene.historyId, scene: scene.sceneId, requested: shots.length, made: done.length, mode: scene.mode || 'variations', model: target.model || 'demo', ...(asset && { from: asset.name }), ...(failed && { error: failed.reason.message.slice(0, 200) }) });
     if (!done.length) throw failed?.reason || new Error('The provider returned no image');
     const urls = done.map((d) => d.url);
     const labels = done.map((d) => d.shot);
     if (done.every((d) => d.saved)) await linkMedia({ historyId: scene.historyId, sceneId: scene.sceneId, kind: 'image', urls, shots: labels });
-    json(res, 200, { url: urls[0], urls, shots: labels, requested: shots.length, ...(referenced && { referenced: true }), ...(failed && { warning: failed.reason.message }) });
+    json(res, 200, { url: urls[0], urls, shots: labels, requested: shots.length, ...(referenced && { referenced: true }), ...(asset && { from: asset.name }), ...(failed && { warning: failed.reason.message }) });
   }),
 
   // The reference portrait of a host of a script (`hostId`: "A" or "B"), in the frame and the style of the
@@ -619,9 +762,9 @@ const routes = {
 
   // The plan for a brief, without writing anything: the story line with its times, the length, the
   // voiceover budget and the skills that apply. The narration editor shows it as what there is room for.
-  'POST /api/plan': route('user', async (req, res) => {
+  'POST /api/plan': route('user', async (req, res, user) => {
     const { narration, ...brief } = await readJson(req);
-    json(res, 200, planSummary(buildPlan(brief)));
+    json(res, 200, planSummary(buildPlan(await withMaterials(user, brief))));
   }),
 
   // Writes the narration alone, one beat per stage, for the editor. Nothing is saved here: it becomes a
@@ -631,7 +774,7 @@ const routes = {
   // request of its own, /api/narration/review, so that no request carries two long model calls.
   'POST /api/narration/draft': route('user', async (req, res, user) => {
     const { narration, agent, card: _card, ...brief } = await readJson(req);
-    const plan = buildPlan(brief); // throws on a bad brief -> 400 below
+    const plan = buildPlan(await withMaterials(user, brief)); // throws on a bad brief -> 400 below
     const config = await loadConfig();
     const invalid = validateConfig(config);
     if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
@@ -690,9 +833,9 @@ const routes = {
 
   // Measures a narration against its brief: length, breath-length sentences, wrap-up phrases, throttled
   // words, missing names, rhythm, the balance of the viewpoint card. No model is called and nothing is changed.
-  'POST /api/narration/check': route('user', async (req, res) => {
+  'POST /api/narration/check': route('user', async (req, res, user) => {
     const { narration, card, agent, ...brief } = await readJson(req);
-    const plan = buildPlan(brief);
+    const plan = buildPlan(await withMaterials(user, brief));
     json(res, 200, checkNarration(plan, normalizeNarration(narration), normalizeCard(card, plan.timeline.map((s) => s.key))));
   }),
 
@@ -700,7 +843,7 @@ const routes = {
   // and the corrected narration comes back with what is still left. Streams its progress like a draft does.
   'POST /api/narration/review': route('user', async (req, res, user) => {
     const { narration, card, agent, ...brief } = await readJson(req);
-    const plan = buildPlan(brief);
+    const plan = buildPlan(await withMaterials(user, brief));
     const beats = normalizeNarration(narration);
     if (!beats.length) throw fail('There is no narration to review');
     const config = await loadConfig();
@@ -726,7 +869,7 @@ const routes = {
   // The "review" preset is the agent's review step: it answers { beats, report }.
   'POST /api/narration/refine': route('user', async (req, res, user) => {
     const { narration, index, preset, instruction, target, card, agent, ...brief } = await readJson(req);
-    const plan = buildPlan(brief);
+    const plan = buildPlan(await withMaterials(user, brief));
     const beats = normalizeNarration(narration);
     const at = Number.isInteger(index) ? index : null;
     const agentReview = preset === 'review' && at == null;
@@ -775,7 +918,7 @@ const routes = {
   // `resume: { text, part }`, the reply so far. The model then carries on from the last character of it.
   'POST /api/generate': route('user', async (req, res, user) => {
     const { agent, narrationBy, resume, ...brief } = await readJson(req);
-    const plan = buildPlan(brief); // throws on a bad brief -> 400 below
+    const plan = buildPlan(await withMaterials(user, brief)); // throws on a bad brief -> 400 below
     const given = resumeOf(resume);
     const config = await loadConfig();
     const invalid = validateConfig(config);
@@ -814,7 +957,9 @@ const routes = {
       }
       await record(script ? {} : { ok: false, error: `Unreadable reply: ${parseError}` });
       if (script) {
-        const { platformId, narration, card, host, ...rest } = brief;
+        const { platformId, narration, card, host, assetIds: _ids, materials: _materials, ...rest } = brief;
+        // The library files the script was written from, by id: the form can pick them again, and their text is not kept twice.
+        if (plan.brief.materials.ids.length) rest.assetIds = plan.brief.materials.ids;
         rest.aspectRatio = plan.brief.aspect.id; // always recorded, so the script keeps its shape if the default ever changes
         if (hostSetting(host)) rest.host = hostSetting(host); // the host as the creator asked for it, so the form can be put back
         // A script built around a final narration carries it word for word, whatever the model did with it.
@@ -829,7 +974,8 @@ const routes = {
         }
         // Who is in the video: the hosts keep the look the creator fixed, and each scene says who is in frame.
         script = settleScript(script, plan.brief);
-        const entry = await addHistory({ id: taskId, userId: user.id, platformId: plan.brief.platform.id, brief: rest, plan: planInfo, script });
+        const saved = await addHistory({ id: taskId, userId: user.id, platformId: plan.brief.platform.id, brief: rest, plan: planInfo, script });
+        const entry = await placeSceneAssets(user, saved); // a scene that shows the creator's own picture or clip has it from the start
         await logActivity(req, user, 'script.generate', { ...about, title: script.title, scenes: script.scenes.length, ...(planInfo.narration && { narration: planInfo.narration.agent ? 'agent' : planInfo.narration.repaired ? 'restored' : 'kept' }) });
         await markFirstScript(user);
         send('done', { script, historyId: entry.id, entry });
@@ -905,8 +1051,13 @@ export async function handler(req, res) {
       const name = pathname.slice(7);
       const user = await authenticate(req);
       if (!user) return json(res, 401, { error: 'Sign in to continue' });
-      const owner = mediaOwner(name);
-      if (owner) await ownedHistory(user, owner);
+      if (isAssetFile(name)) {
+        // A file in someone's library is theirs alone.
+        if ((await assetFileOwner(name)) !== user.id) return json(res, 404, { error: 'Not found' });
+      } else {
+        const owner = mediaOwner(name);
+        if (owner) await ownedHistory(user, owner);
+      }
       if (await serveMedia(req, res, name)) return;
       return json(res, 404, { error: 'Not found' });
     }

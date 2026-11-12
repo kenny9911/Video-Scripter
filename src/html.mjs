@@ -9,13 +9,13 @@ const LABELS = {
   en: {
     platform: 'Platform', length: 'Length', scenes: 'scenes', hooks: 'Hook options', script: 'Script', voiceover: 'Voiceover only', onScreen: 'On screen', visual: 'Visual', camera: 'Camera', sound: 'Sound',
     publish: 'Publishing package', titles: 'Titles', cover: 'Cover text', description: 'Description', hashtags: 'Hashtags', pinned: 'Pinned comment', notes: 'Production notes', made: 'Made with Video Scripter', pause: 'pause',
-    cast: 'Cast', look: 'Look', voiceOf: 'Voice', inFrame: 'In frame',
+    cast: 'Cast', look: 'Look', voiceOf: 'Voice', inFrame: 'In frame', library: 'From your library',
     card: 'Viewpoint card', board: 'Whiteboard blueprint', share: 'Line for sharing', chapters: 'Chapters', persona: 'Speaking as', viewer: 'For', insight: 'Core insight', against: 'Overturns', insider: 'Insider explanation', experience: 'First-hand experience', drafted: 'Drafted: confirm or replace', analogy: 'Analogy', mustSay: 'Must be spoken', verify: 'Before you record',
   },
   zh: {
     platform: '平台', length: '时长', scenes: '个场景', hooks: '开场钩子备选', script: '脚本', voiceover: '纯旁白', onScreen: '屏幕文字', visual: '画面', camera: '镜头', sound: '声音',
     publish: '发布素材', titles: '标题', cover: '封面文字', description: '描述文案', hashtags: '话题标签', pinned: '置顶评论', notes: '制作备注', made: '由 Video Scripter 生成', pause: '停顿',
-    cast: '出镜与配音', look: '形象', voiceOf: '声音', inFrame: '出镜',
+    cast: '出镜与配音', look: '形象', voiceOf: '声音', inFrame: '出镜', library: '来自素材库',
     card: '三维观点卡', board: '板书蓝图', share: '转发导语', chapters: '章节', persona: '人设', viewer: '受众', insight: '核心认知', against: '推翻的共识', insider: '内行解说', experience: '顾问经验', drafted: '草拟：请确认或替换', analogy: '类比', mustSay: '必须说出口', verify: '录制前核实',
   },
 };
@@ -103,7 +103,7 @@ export function scriptHtml(entry, { media = [], platformName = '', lang = 'en' }
   const scenes = s.scenes
     .map((sc) => {
       const files = media.filter((m) => m.scene === sc.id);
-      const cues = [[L.onScreen, sc.onScreenText, 'screen'], [L.visual, sc.visual], [L.camera, sc.camera], [L.sound, sc.sfx]].filter(([, v]) => v);
+      const cues = [[L.onScreen, sc.onScreenText, 'screen'], [L.visual, sc.visual], [L.camera, sc.camera], [L.sound, sc.sfx], [L.library, sc.asset?.name]].filter(([, v]) => v);
       return `<article class="card scene">
 <header><span class="time">${clock(sc.start)}–${clock(sc.end)}</span>${sc.stage ? `<span class="stage">${esc(sc.stage)}</span>` : ''}${sc.host ? `<span class="time" title="${esc(L.inFrame)}">${esc(L.inFrame)} ${esc([...sc.host].join(' + '))}</span>` : ''}</header>
 <p class="vo">${voice(sc.voiceover, L)}</p>

@@ -10,7 +10,7 @@ It works with the model provider you already use, runs on your own machine or on
 
 ## Why Video Scripter
 
-- **One brief, five platforms.** A 抖音 script and a YouTube Shorts script are different pieces of writing. Each platform gets its own script instead of one draft pasted everywhere.
+- **One brief, six platforms.** A 抖音 script and a YouTube Shorts script are different pieces of writing. Each platform gets its own script instead of one draft pasted everywhere.
 - **Ready to shoot.** Every scene is timed and carries its voiceover, on-screen text, visual, camera and sound notes.
 - **Ready to publish.** Titles, cover text, description, hashtags and a pinned comment come with every script.
 - **A narration agent, not a one-shot prompt.** The spoken words are planned on a viewpoint card, written with the skills that fit the brief, then measured, reviewed and corrected before a script is built around them.
@@ -18,6 +18,7 @@ It works with the model provider you already use, runs on your own machine or on
 - **Storyboards included.** Turn any scene into an image or clip in the video's aspect ratio (9:16, 16:9, 1:1, 3:4 or 4:3), in one of 74 visual styles.
 - **The look picked for you.** Type a topic and the visual style is chosen from it, with the reason and a few alternatives. One click has the model choose instead.
 - **A host who stays the same.** Put a digital presenter on screen, or two for a podcast conversation. Their look is written into the script once, a portrait is made from it, and every scene they are in is drawn from that portrait.
+- **Your own material.** Upload notes, articles, product pictures and clips to your library once. Pick the ones a script is written from: documents are read as source material, and your pictures and clips go into the scenes that show them.
 - **Any model.** Ten provider presets, from OpenAI and Anthropic to 通义千问, 豆包 and local Ollama, plus any OpenAI-compatible or Anthropic-compatible endpoint. Switch model per script.
 - **Yours to keep.** Every script, image and clip is saved to your account and exports as one tidy `.zip`.
 - **Built for a team.** Accounts with sign-up and log-in, an administrator who manages models and users, token and image usage per script and per user, and an activity log.
@@ -28,6 +29,7 @@ It works with the model provider you already use, runs on your own machine or on
 | --- | --- | --- |
 | 中文 | 视频号 (WeChat Channels) | 30, 60, 90, 120 |
 | 中文 | 抖音 (Douyin) | 15, 30, 45, 60, 90 |
+| 中文 | 小红书 (Xiaohongshu) | 15, 30, 45, 60, 90, 120, 180 |
 | English | TikTok | 15, 30, 45, 60, 90 |
 | English | Instagram Reels | 15, 30, 45, 60, 90 |
 | English | YouTube Shorts | 30, 45, 60, 90, 180 |
@@ -60,6 +62,7 @@ Only the topic is required. The rest sharpens the result.
 | --- | --- |
 | Topic | What the video is about |
 | Platforms | One script is written per platform you tick |
+| Materials | Files from [your library](#your-library) that this script is written from: up to 8 documents, pictures and clips |
 | Structure and Length | The story framework, or a narration style that also sets the voice and the pace, and the running time: Auto (the length the style is made for, otherwise the platform's usual one), one of the platform's lengths, or **Custom** for any length from 10 to 360 seconds |
 | Visual style | One look, or two blended, for the scene notes and all generated media. Picked from the topic until you pick your own (see [Visual styles](#visual-styles)) |
 | On-screen host | A digital presenter who is the same person in every scene, or two for a conversation (see [On-screen host](#on-screen-host)) |
@@ -102,6 +105,8 @@ Each platform opens in its own tab, and the script streams in as it is written. 
 ### 4. Generate the visuals
 
 Once the gateway in use has an image or video model, every scene gets **Generate image** and **Generate video** buttons that turn its Visual and Camera notes into a frame or clip in the **Aspect ratio** chosen in the brief: 9:16 vertical (the default), 16:9 landscape, 1:1 square, 3:4 portrait or 4:3 standard. The Size in the image and video settings is entered for vertical video and is turned to match; its edges are not rescaled, so 3:4 and 4:3 use the model's nearest size. Tick **Also generate an image for every scene** in the brief to have the images made automatically when the script is finished.
+
+With pictures or clips in [your library](#your-library), every scene also has **From library**: use one of your own files as the scene's picture or clip as it is, or have a new image drawn from one of your pictures together with what the scene says.
 
 ### 5. Export
 
@@ -233,6 +238,28 @@ To keep the same face in every picture:
 
 The portrait is also the picture to give a talking-avatar tool, together with `voiceover.txt`. The app writes and draws the host; it does not animate lip-sync.
 
+## Your library
+
+The library (素材库) holds your own files, so they are uploaded once and used in any script. Open it with **Library** in the top bar, or from **Materials** in the brief.
+
+| Kind | Files | What a script does with it |
+| --- | --- | --- |
+| Document | `.txt` `.md` `.csv` `.tsv` `.json` `.srt` `.vtt` `.docx`, or text you paste | Its text is read when it is added. A brief that uses it gives that text to the model as more reference material, under the same rule: only figures and quotes found there are used |
+| Picture | `.png` `.jpg` `.webp` `.gif` | Named to the scriptwriter, which builds a scene around it. The picture is then placed in that scene as it is |
+| Clip | `.mp4` `.mov` `.webm` | The same, as the scene's clip |
+
+A model cannot see a picture, so each picture and clip has a note: a few words on what it shows. The note and the name are all the scriptwriter knows about it, so write one.
+
+There are three ways to put visuals on a scene, and they can be mixed within one script:
+
+1. **From your library, as it is.** The script names the picture or clip a scene shows and it is there when the script is done. On any other scene, **From library → Use this picture** does the same.
+2. **Drawn from a library picture and the scene.** **From library → Generate from it** sends your picture to the image model as its reference, with the scene's notes: your product in the setting the script describes. Where the image model takes no reference picture, the note is used instead.
+3. **From the script alone.** **Generate image** and **Generate video**, as before.
+
+Going the other way, **To library** on a generated image keeps it for other scripts, and **To library** on a script saves its narration as a document to write the next script from.
+
+A brief uses up to 8 files, and their documents share about 24,000 characters of the prompt: short ones are read whole, long ones are cut to fit. A file may be 25 MB (4 MB on a serverless host, whose request body is capped; `ASSET_MAX_MB` changes it), and a library holds 300 files. A script keeps its own copy of every file placed in it, so deleting from the library never breaks a script. The library is private to its owner: nobody else can list or open its files.
+
 ## Images and video
 
 **Images per scene** (1 to 3, default 1) sets how many images each **Generate image** click, or the automatic run, makes for a scene. Each image is a separate request to the image model.
@@ -306,7 +333,6 @@ Providers, and the gateways in front of them, fail in passing: no capacity for a
 
 While this goes on the page says so ("gw.example is not answering (503). Trying again: attempt 2 of 3."), and what has been written stays on screen. If it still fails, the error says how often it was tried and whose end the failure is on. The tokens of every attempt are counted in the usage of that one call.
 
-## Accounts, usage and activity
 ### When a script outlasts one request
 
 A host such as Vercel stops a request after a fixed time (800 seconds as this repository is set up), and it does so without a word: the reply just ends. A long script from a slow or unsteady provider can take longer than that, so the server keeps its own clock and stops a little earlier, while it can still say what happened.
@@ -319,6 +345,7 @@ A host such as Vercel stops a request after a fixed time (800 seconds as this re
 
 With `npm start` there is no limit, so none of this happens unless you set `REQUEST_TIME_LIMIT_S`. Each request of a script that was carried over is one call in the usage record.
 
+## Accounts, usage and activity
 
 ### Accounts
 
@@ -378,6 +405,8 @@ Everything is stored on the server, per user. Where it lives depends on how the 
 | --- | --- | --- |
 | Scripts, users, sessions, usage, activity, visitors, gateways | `data/<name>.json` | Postgres table `vs_docs` |
 | Generated images and videos | `data/media/` | Postgres table `vs_blobs` |
+| Library documents (their text) | `data/assets.json` | Postgres table `vs_docs` |
+| Library pictures and clips | `data/media/lib-*` | Postgres table `vs_blobs` |
 
 Reopening a script from History shows its media again and puts the brief it was written from back into the form (topic, platform, structure, length, style and details), so you can adjust it and generate again. Generating always saves a new script with its own package; the one you opened is left as it was. Redoing an image or video keeps the earlier file and shows the newest. If a provider returns a link instead of a file, the file is downloaded and stored too. Media is private: only its owner and administrators can open it.
 
@@ -409,7 +438,7 @@ When a scene has several images, each file name gains a number, and its role whe
 - **Keys cannot leak to another service.** Changing a gateway's provider or base URL clears its saved key.
 - **Out of version control.** `data/` is git-ignored. Never put `ADMIN_PASSWORD` or API keys in the repository; set them as environment variables.
 
-A brief and its reference material are sent to the model provider the user picked, and to no one else.
+A brief, its reference material and the text of the library documents it uses are sent to the model provider the user picked, and to no one else. A library picture is sent to the image provider only when an image is drawn from it.
 
 ## Deploy on Vercel
 
@@ -467,8 +496,9 @@ Everything below is optional. Settings saved in the app take precedence over the
 | `IMAGE_BASE_URL_API`, `IMAGE_MODEL`, `IMAGE_API_KEY` | Image generation defaults | Off |
 | `VIDEO_BASE_URL_API`, `VIDEO_MODEL`, `VIDEO_API_KEY` | Video generation defaults | Off |
 | `GATEWAY_RETRY_BASE_MS` | The first pause, in milliseconds, before a failed provider request is tried again; later pauses grow from it | `900` |
-
 | `REQUEST_TIME_LIMIT_S` | How many seconds the host lets one request run. The server winds a request up shortly before, and a script that is not finished is carried on in the next request | `800` on Vercel, otherwise no limit |
+| `ASSET_MAX_MB` | The largest file the library takes, in megabytes | `25`, on Vercel `4` |
+
 ## For developers
 
 Video Scripter is plain Node.js with no build step. Its one dependency is `pg`, loaded only when `DATABASE_URL` is set.
@@ -497,14 +527,16 @@ src/cast.mjs            the people of a video: speakers, the on-screen host, and
 src/shots.mjs           how several images of one scene relate (multi-image modes)
 src/prompt.mjs          brief -> timeline + prompts; model reply -> script, narration or refinement
 src/json.mjs            reads the JSON in a model reply and mends its small slips
-src/agent/              the narration agent: narrator.mjs (the steps), review.mjs (the measured checks),
 src/limits.mjs          how long one request may run, and how many requests one script may take
+src/agent/              the narration agent: narrator.mjs (the steps), review.mjs (the measured checks),
                         card.mjs (the viewpoint card), prompts.mjs (the editor step), skills.mjs (loads skills/)
 skills/                 the agent's playbooks, one folder with a SKILL.md each
 src/db.mjs              storage: JSON documents and blobs, on disk or in Postgres
 src/auth.mjs            accounts, password hashing, sessions, the first administrator
 src/audit.mjs           usage records (every model call) and the activity log
 src/store.mjs           saved scripts and generated media
+src/assets.mjs          the library (素材库): uploaded files, the text read from documents, who owns what
+src/materials.mjs       the library files one brief uses: what the prompts say about them, and the scene that shows one
 api/index.mjs           serverless entry point (Vercel); vercel.json routes requests to it
 src/package.mjs         the downloadable .zip for one script (src/zip.mjs writes the archive)
 public/                 the web UI: index.html and zh.html are the home page (English, 中文), app.html the app,
@@ -583,6 +615,12 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `POST` | `/api/media/video` | `{ visual, camera, start, end }` Starts a video job |
 | `POST` | `/api/media/video/status` | `{ id, historyId, sceneId }` Polls a job and stores the file when ready |
 | `GET` | `/media/<file>` | A stored image or video |
+| `GET` | `/api/assets` | The signed-in user's library, newest first |
+| `POST` | `/api/assets` | Add a file: the body is the file, its name is in the `x-file-name` header (URI-encoded). A JSON body `{ name?, text }` adds pasted text as a document |
+| `GET` | `/api/assets/text?id=` | The whole text of a document |
+| `POST` | `/api/assets/update`, `/api/assets/delete` | `{ id, name?, note? }` Rename a file or change its note; `{ id }` delete it |
+| `POST` | `/api/assets/keep` | `{ url, name? }` Copies one of your generated images or clips into the library |
+| `POST` | `/api/media/asset` | `{ historyId, sceneId, assetId }` Places a library picture or clip in a scene as it is |
 | `POST` | `/api/plan` | The plan for a brief without writing anything: story line with times, length and voiceover budget |
 | `POST` | `/api/narration/draft` | Writes the narration alone, one beat per stage: the agent's plan-and-write step, or a plain draft with `agent: false`. Server-sent events: `plan`, `step`, `delta`, `done` (`{ narration, card, report }`) or `error`. Nothing is saved |
 | `POST` | `/api/narration/review` | `{ ...brief, narration, card? }` The agent's review step. Server-sent events: `plan`, `step`, `delta`, `done` (`{ beats, report }`) or `error` |
