@@ -5,8 +5,9 @@
 //   pick for the brief    tick the files the next script is written from (the chips under the topic)
 //   pick for a scene      choose one picture or clip, with the buttons the caller gives (see `pick`)
 //
-// The page cannot show a model what is in a picture, so every picture and clip has a note: the note is
-// what the scriptwriter is told about it. A document needs none; its text is read.
+// The scriptwriter is not shown the pictures, so every picture and clip has a note: the note is what it is
+// told about them. A picture's note is written for the creator when the picture is added: the model in use
+// looks at a small copy of it (`describe`). A document needs no note; its text is read.
 //
 // The library is the signed-in user's own: the server gives this page that user's files and no one else's.
 
@@ -47,6 +48,8 @@ export function wireLibrary({ limits, toast, onChange, view }) {
     filter: 'all',
     mode: null, // while a scene is picking: { title, hint, kinds, actions(asset) }
     uploading: [], // names of files on their way up
+    reading: new Set(), // of those, the ones that have been up for a while: a scan is being read
+    describing: new Set(), // ids of pictures the model is looking at
   };
   const dialog = $('libraryDialog');
   const byId = (id) => state.items.find((a) => a.id === id);
@@ -100,6 +103,47 @@ export function wireLibrary({ limits, toast, onChange, view }) {
     }
   }
 
+  /**
+   * A small copy of a picture for the model to look at: a data: URI of a JPEG at most 1024 pixels on its long
+   * side, or null when the browser cannot make one in a few seconds (the server then shows the model the picture itself).
+   */
+  async function previewOf(asset) {
+    const make = async () => {
+      // Read and decoded as data, not through an <img>: that waits for the page to be drawn, which a tab in the background is not.
+      const bitmap = await createImageBitmap(await (await fetch(asset.url)).blob());
+      const k = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
+      const canvas = Object.assign(document.createElement('canvas'), { width: Math.max(1, Math.round(bitmap.width * k)), height: Math.max(1, Math.round(bitmap.height * k)) });
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff'; // what is see-through in the picture is white in the copy
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close?.();
+      const uri = canvas.toDataURL('image/jpeg', 0.8);
+      return uri.length < 900_000 ? uri : null;
+    };
+    return Promise.race([make().catch(() => null), new Promise((done) => setTimeout(done, 5000, null))]);
+  }
+
+  /** Have the model look at a picture and write its note. `quiet`: say nothing when it cannot. Returns whether it did. */
+  async function describe(asset, { quiet = false } = {}) {
+    if (state.describing.has(asset.id)) return false;
+    state.describing.add(asset.id);
+    refresh(asset);
+    try {
+      const preview = await previewOf(asset);
+      const { asset: next } = await call('/api/assets/describe', { method: 'POST', body: { id: asset.id, lang, ...(preview && { preview }) } });
+      Object.assign(byId(asset.id) || asset, next); // the list may have been loaded again meanwhile: the file is the one with this id
+      changed();
+      return true;
+    } catch (err) {
+      if (!quiet) toast(err.message);
+      return false;
+    } finally {
+      state.describing.delete(asset.id);
+      refresh(asset);
+    }
+  }
+
   async function remove(asset) {
     if (!confirm(t('Delete “{name}” from your library? Scripts that already use it keep their copy.', { name: asset.name }))) return;
     try {
@@ -132,7 +176,8 @@ export function wireLibrary({ limits, toast, onChange, view }) {
     dlg.showModal();
     try {
       const r = await call(`/api/assets/text?id=${encodeURIComponent(asset.id)}`);
-      area.value = (r.partial ? `${t('[Part of this PDF could not be read: some of its fonts do not say which characters they draw. Check what is here before you use it.]')}\n\n` : '') + r.text + (r.cut ? `\n\n${t('[The rest of this document was not kept: it is longer than the library reads.]')}` : '');
+      const before = [r.scanned && t('[This PDF is a scan. The model read its pages: check names and figures before you rely on them.]'), r.partial && (r.scanned ? t('[Some pages of the scan could not be read.]') : t('[Part of this PDF could not be read: some of its fonts do not say which characters they draw. Check what is here before you use it.]'))].filter(Boolean);
+      area.value = (before.length ? `${before.join('\n')}\n\n` : '') + r.text + (r.cut ? `\n\n${t('[The rest of this document was not kept: it is longer than the library reads.]')}` : '');
     } catch (err) {
       area.value = err.message;
     }
@@ -154,8 +199,9 @@ export function wireLibrary({ limits, toast, onChange, view }) {
       maxlength: 300,
       value: a.note,
       'aria-label': t('What this is'),
-      title: a.kind === 'document' ? null : t('The scriptwriter cannot see a picture or a clip: this note is all it knows about it.'),
-      placeholder: a.kind === 'document' ? t('What this is (optional)') : t('What does it show?'),
+      title: a.kind === 'document' ? null : t('The scriptwriter is not shown a picture or a clip: this note is all it knows about it.'),
+      placeholder: state.describing.has(a.id) ? t('Looking at the picture…') : a.kind === 'document' ? t('What this is (optional)') : t('What does it show?'),
+      disabled: state.describing.has(a.id) || null,
     });
     note.addEventListener('change', () => save(a, { note: note.value }));
     const actions = state.mode
@@ -165,11 +211,17 @@ export function wireLibrary({ limits, toast, onChange, view }) {
       : [
           el('button', { class: `btn small lib-use${on ? ' on' : ''}`, type: 'button', 'aria-pressed': String(on), onclick: () => toggle(a.id) }, on && icon('check', 14), el('span', {}, on ? t('In this brief') : t('Use in the brief'))),
           el('span', { class: 'spacer' }),
+          a.kind === 'image' &&
+            el(
+              'button',
+              { class: 'icon-btn', type: 'button', disabled: state.describing.has(a.id) || null, title: t('Have the model look at this picture and write its note'), 'aria-label': t('Write the note for “{name}”', { name: a.name }), onclick: () => describe(a) },
+              state.describing.has(a.id) ? el('span', { class: 'spin' }) : icon('sparkles', 16),
+            ),
           el('button', { class: 'icon-btn', type: 'button', title: t('Delete'), 'aria-label': t('Delete “{name}”', { name: a.name }), onclick: () => remove(a) }, icon('trash', 16)),
         ];
     return el(
       'li',
-      { class: `lib-card${on && !state.mode ? ' on' : ''}`, 'data-kind': a.kind },
+      { class: `lib-card${on && !state.mode ? ' on' : ''}`, 'data-kind': a.kind, 'data-id': a.id },
       thumb,
       el(
         'div',
@@ -177,10 +229,18 @@ export function wireLibrary({ limits, toast, onChange, view }) {
         name,
         note,
         el('span', { class: 'lib-meta' }, icon(KIND_ICON[a.kind], 12), a.kind === 'document' ? [a.pages && (a.pages === 1 ? t('1 page') : t('{n} pages', { n: a.pages })), t('{n} characters', { n: a.chars.toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US') })].filter(Boolean).join(' · ') : fileSize(a.size)),
-        a.partial && el('span', { class: 'lib-meta warn', title: t('Some of its fonts do not say which characters they draw. Read it before you use it.') }, t('Part of this PDF could not be read')),
+        a.scanned && el('span', { class: 'lib-meta', title: t('This PDF is a scan: the model read its pages. Check names and figures before you rely on them.') }, icon('eye', 12), t('Read from a scan')),
+        a.partial && el('span', { class: 'lib-meta warn', title: a.scanned ? t('Some pages of the scan could not be read. Read it before you use it.') : t('Some of its fonts do not say which characters they draw. Read it before you use it.') }, t('Part of this PDF could not be read')),
         el('div', { class: 'lib-actions' }, actions),
       ),
     );
+  }
+
+  /** Draw one card again, where it is: the rest of the dialog, and whatever is being typed in it, stays. */
+  function refresh(asset) {
+    const old = [...$('libraryGrid').children].find((li) => li.dataset.id === asset.id);
+    const now = byId(asset.id);
+    if (old && now && visible().includes(now)) old.replaceWith(card(now));
   }
 
   function render() {
@@ -188,14 +248,14 @@ export function wireLibrary({ limits, toast, onChange, view }) {
     $('libraryTitle').textContent = mode?.title || t('Library');
     $('libraryHint').textContent =
       mode?.hint ||
-      t('Upload your own files once and use them in any script: only you can see them. Documents (text, Word, PDF) are read by the scriptwriter as source material; pictures and clips are placed in the scenes that show them. A model cannot see a picture, so say in a few words what each one shows.');
+      t('Upload your own files once and use them in any script: only you can see them. Documents (text, Word, PDF, scans included) are read by the scriptwriter as source material; pictures and clips are placed in the scenes that show them. The scriptwriter is told what each one shows by its note: a picture’s note is written for you when you add it, and you can change it.');
     for (const b of $('libraryFilter').children) {
       b.hidden = Boolean(mode?.kinds) && b.dataset.kind !== 'all' && !mode.kinds.includes(b.dataset.kind);
       b.setAttribute('aria-selected', String(b.dataset.kind === state.filter));
     }
     $('libraryPaste').hidden = Boolean(mode);
     const list = visible();
-    const waiting = state.uploading.map((name) => el('li', { class: 'lib-card loading', role: 'status' }, el('div', { class: 'lib-thumb' }, el('span', { class: 'spin' })), el('div', { class: 'lib-body' }, el('span', { class: 'lib-name' }, name), el('span', { class: 'lib-meta' }, t('Uploading…')))));
+    const waiting = state.uploading.map((name) => el('li', { class: 'lib-card loading', role: 'status' }, el('div', { class: 'lib-thumb' }, el('span', { class: 'spin' })), el('div', { class: 'lib-body' }, el('span', { class: 'lib-name' }, name), el('span', { class: 'lib-meta' }, state.reading.has(name) ? t('Reading its pages… a scan takes a minute or more') : t('Uploading…')))));
     $('libraryGrid').replaceChildren(...waiting, ...list.map(card));
     $('libraryEmpty').hidden = list.length + waiting.length > 0;
     $('libraryEmptyText').textContent = !state.loaded
@@ -226,17 +286,21 @@ export function wireLibrary({ limits, toast, onChange, view }) {
     if (kindOf(file.name) === 'image' && file.size <= limits.maxBytes) return file;
     if (ext === 'gif') throw tooLarge(file, limits.maxBytes); // drawn again, it would stop moving
     const cannot = () => new Error(t('This browser cannot open “{name}”. Save it as a JPEG or a PNG and add that.', { name: file.name }));
-    const img = new Image();
+    // Decoded as data where the browser can (that does not wait for the page to be drawn); an SVG only opens as an <img>.
+    let img;
     const url = URL.createObjectURL(file);
     try {
-      img.src = url;
-      await img.decode();
+      if (ext === 'svg') {
+        img = new Image();
+        img.src = url;
+        await img.decode();
+      } else img = await createImageBitmap(file);
     } catch {
       throw cannot();
     } finally {
       URL.revokeObjectURL(url);
     }
-    const [w, h] = [img.naturalWidth, img.naturalHeight];
+    const [w, h] = [img.naturalWidth || img.width, img.naturalHeight || img.height];
     if (!w || !h) throw cannot();
     for (const edge of [2560, 1920, 1280, 960]) {
       const k = ext === 'svg' ? Math.min(edge, 2048) / Math.max(w, h) : Math.min(1, edge / Math.max(w, h));
@@ -282,12 +346,28 @@ export function wireLibrary({ limits, toast, onChange, view }) {
     state.uploading = taken.map((f) => f.name);
     state.filter = 'all';
     render();
+    // Each new picture gets its note written, one after another, while the rest go up. The first that fails says
+    // why (no model that takes pictures, say) and the others are left for the creator, or for the button on each card.
+    let notes = Promise.resolve(true);
     for (const file of taken) {
+      // A PDF that is still not in after a few seconds is a scan being read page by page.
+      const slow = extOf(file.name) === 'pdf' && setTimeout(() => (state.reading.add(file.name), render()), 6000);
       try {
-        state.items.unshift(await send(isPicture(file) ? await fitPicture(file) : file));
+        const asset = await send(isPicture(file) ? await fitPicture(file) : file);
+        state.items.unshift(asset);
+        if (asset.kind === 'image' && !asset.note) {
+          notes = notes.then(async (ok) => {
+            if (!ok || !byId(asset.id) || asset.note) return ok;
+            const wrote = await describe(asset, { quiet: true });
+            if (!wrote) toast(t('The notes for your pictures were not written: the model in use could not look at them. Write them yourself, or try the button on each picture.'));
+            return wrote;
+          });
+        }
       } catch (err) {
         toast(err.message.includes(file.name) ? err.message : `${file.name}: ${err.message}`);
       }
+      clearTimeout(slow);
+      state.reading.delete(file.name);
       state.uploading = state.uploading.filter((n) => n !== file.name);
       render();
     }

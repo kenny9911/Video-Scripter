@@ -81,10 +81,18 @@ export function endpointFor(protocol, baseUrl) {
 const continueFrom = (partial) =>
   `The connection dropped while you were writing, so your reply above stops in the middle. It ends with:\n<<<\n${partial.slice(-160)}\n>>>\nContinue from exactly the character after that. Write only what comes next: do not repeat anything that is already there, do not start again, and add no preamble, no apology and no markdown fence. The whole reply must read as if it had never been interrupted.`;
 
-function buildRequest(protocol, config, { system, user, maxTokens, partial = '' }, withUsage = true) {
+/** The user's turn with pictures to look at (`images`: [{ type, bytes }]), as each protocol takes them. */
+function withImages(protocol, user, images) {
+  if (!images?.length) return user;
+  const data = (img) => Buffer.from(img.bytes).toString('base64');
+  if (protocol === 'anthropic') return [...images.map((img) => ({ type: 'image', source: { type: 'base64', media_type: img.type, data: data(img) } })), { type: 'text', text: user }];
+  return [{ type: 'text', text: user }, ...images.map((img) => ({ type: 'image_url', image_url: { url: `data:${img.type};base64,${data(img)}` } }))];
+}
+
+function buildRequest(protocol, config, { system, user, images, maxTokens, partial = '' }, withUsage = true) {
   const headers = { 'content-type': 'application/json', accept: 'text/event-stream' };
   // A reply that is being picked up: the model's own unfinished turn, then the request for the rest.
-  const turns = [{ role: 'user', content: user }, ...(partial ? [{ role: 'assistant', content: partial }, { role: 'user', content: continueFrom(partial) }] : [])];
+  const turns = [{ role: 'user', content: withImages(protocol, user, images) }, ...(partial ? [{ role: 'assistant', content: partial }, { role: 'user', content: continueFrom(partial) }] : [])];
   if (protocol === 'anthropic') {
     if (config.apiKey) headers['x-api-key'] = config.apiKey;
     headers['anthropic-version'] = '2023-06-01';
@@ -295,10 +303,10 @@ export async function listModels(config, { signal } = {}) {
  * throws a GatewayError marked `midstream` when the stream breaks or ends before the reply is finished.
  * Token counts of the attempt are added to `usage` whichever way it ends.
  */
-async function* streamOnce(protocol, url, config, { system, user, maxTokens, signal, onRetry, partial, usage }) {
+async function* streamOnce(protocol, url, config, { system, user, images, maxTokens, signal, onRetry, partial, usage }) {
   const host = new URL(url).host;
   const send = (withUsage) => {
-    const { headers, body } = buildRequest(protocol, config, { system, user, maxTokens, partial }, withUsage);
+    const { headers, body } = buildRequest(protocol, config, { system, user, images, maxTokens, partial }, withUsage);
     return request(url, { method: 'POST', headers, body: JSON.stringify(body), signal }, { onRetry });
   };
   let res;
@@ -375,8 +383,9 @@ async function* streamOnce(protocol, url, config, { system, user, maxTokens, sig
  * reply was under way (true) or had not begun (false).
  * `partial` is the start of this reply as an earlier request left it (one that ran out of time: src/limits.mjs).
  * The model is asked for the rest, and only the rest is yielded.
+ * `images` ([{ type, bytes }]) are pictures the model is to look at with the user's turn (src/vision.mjs).
  */
-export async function* streamChat(config, { system, user, signal, maxTokens, meta, onUsage, onRetry, partial = '' }) {
+export async function* streamChat(config, { system, user, images, signal, maxTokens, meta, onUsage, onRetry, partial = '' }) {
   const invalid = validateConfig(config);
   if (invalid) throw new GatewayError(invalid, 400);
   const { protocol } = getProvider(config.provider);
@@ -393,7 +402,7 @@ export async function* streamChat(config, { system, user, signal, maxTokens, met
   for (let resumes = 0; ; resumes++) {
     const had = said.length;
     try {
-      for await (const text of streamOnce(protocol, url, config, { system, user, maxTokens, signal, onRetry, partial: said, usage })) {
+      for await (const text of streamOnce(protocol, url, config, { system, user, images, maxTokens, signal, onRetry, partial: said, usage })) {
         said += text;
         yield text;
       }

@@ -36,6 +36,7 @@ import { SITE_TOKEN, configuredSiteUrl, requestSiteUrl, stamp } from './src/site
 import { trackVisit, markSignup, markLogin, markFirstScript, summarizeVisitors } from './src/visitors.mjs';
 import { listAssets, addAsset, addTextAsset, addPart, takeParts, updateAsset, deleteAsset, deleteUserAssets, ownedAsset, materialsFor, assetBytes, assetFileOwner, isAssetFile, keepInLibrary, maxAssetBytes, maxDocumentBytes, maxBodyBytes, partBytes, MAX_ASSETS, ASSET_EXTENSIONS, ASSET_KINDS } from './src/assets.mjs';
 import { MAX_MATERIALS } from './src/materials.mjs';
+import { describePicture, readScan, lookLimit } from './src/vision.mjs';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const PORT = Number(process.env.PORT) || 3789;
@@ -545,9 +546,13 @@ const routes = {
     } else {
       const upload = req.headers['x-upload-id'];
       const bytes = upload ? await takeParts({ userId: user.id, upload, count: Number(req.headers['x-parts']) }) : await readBytes(req, maxBodyBytes());
-      added = await addAsset({ userId: user.id, name: headerText(req, 'x-file-name'), bytes });
+      // A scanned PDF has no text of its own: the model in use reads its pages, when there is one.
+      const config = await loadConfig();
+      const until = Date.now() + (workBudgetMs() || 15 * 60_000) - 10_000;
+      const scan = validateConfig(config) ? null : ({ pictures, name }) => readScan({ config, pictures, name, until, onCall: usageRecorder(user, config, 'read') });
+      added = await addAsset({ userId: user.id, name: headerText(req, 'x-file-name'), bytes, readScan: scan, lookBytes: lookLimit(config) });
     }
-    await logActivity(req, user, 'asset.add', { file: added.name, kind: added.kind, size: added.size });
+    await logActivity(req, user, 'asset.add', { file: added.name, kind: added.kind, size: added.size, ...(added.scanned && { scanned: true, pages: added.pages }) });
     json(res, 200, { asset: added });
   }),
 
@@ -562,7 +567,30 @@ const routes = {
   'GET /api/assets/text': route('user', async (req, res, user, query) => {
     const asset = await ownedAsset(user.id, query.get('id'));
     if (asset.kind !== 'document') throw fail('This file has no text');
-    json(res, 200, { id: asset.id, name: asset.name, text: asset.text, cut: Boolean(asset.cut), partial: Boolean(asset.partial) });
+    json(res, 200, { id: asset.id, name: asset.name, text: asset.text, cut: Boolean(asset.cut), partial: Boolean(asset.partial), scanned: Boolean(asset.scanned) });
+  }),
+
+  // Have the model in use look at a picture and write its note: `{ id, lang?, preview? }`. `preview` is a small
+  // copy of the picture as the page made it (a data: URI), which is what the model is shown; without one it is
+  // shown the stored picture. The note is saved, and the file comes back with it.
+  'POST /api/assets/describe': route('user', async (req, res, user) => {
+    const { id, lang, preview } = await readJson(req);
+    const asset = await ownedAsset(user.id, id);
+    if (asset.kind !== 'image') throw fail('Only a picture can be described');
+    const config = await loadConfig();
+    const invalid = validateConfig(config);
+    if (invalid) throw fail(invalid);
+    const picture = previewPicture(preview) || (await assetBytes(asset));
+    if (picture.bytes.length > lookLimit(config)) throw fail('This picture is too large for the model to look at');
+    let note;
+    try {
+      note = await describePicture({ config, picture, name: asset.name, lang: lang === 'zh' ? 'zh' : 'en', signal: AbortSignal.timeout(90_000), onCall: usageRecorder(user, config, 'read') });
+    } catch (err) {
+      return json(res, 502, failure(req, err, err.name === 'TimeoutError' ? 'Timed out after 90s' : err.message));
+    }
+    const next = await updateAsset(user.id, asset.id, { note });
+    await logActivity(req, user, 'asset.describe', { file: asset.name, model: config.model || config.name });
+    json(res, 200, { asset: next });
   }),
 
   // Rename a file or change its note (what the scriptwriter is told about a picture it cannot see).
@@ -1011,9 +1039,18 @@ const routes = {
   }),
 };
 
-/** A recorder for the narration agent: one usage record per model call it makes, as "narration". */
-function usageRecorder(user, config) {
-  return ({ prompts, raw, usage, ms, ok, error }) => recordUsage({ user, kind: 'narration', config, ...tokens(usage, prompts, raw), ms, ...(!ok && { ok: false, error }) });
+/** A recorder for work that makes several model calls: one usage record per call, as "narration" (the narration agent) or "read" (looking at pictures). */
+function usageRecorder(user, config, kind = 'narration') {
+  return ({ prompts, raw, usage, ms, ok, error }) => recordUsage({ user, kind, config, ...tokens(usage, prompts, raw), ms, ...(!ok && { ok: false, error }) });
+}
+
+/** A preview of a picture as the page sends it (a data: URI of a small JPEG, PNG or WebP): { type, bytes }, or null. */
+function previewPicture(uri) {
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(uri || ''));
+  if (!m) return null;
+  const bytes = Buffer.from(m[2], 'base64');
+  const real = { 'image/jpeg': bytes[0] === 0xff && bytes[1] === 0xd8, 'image/png': bytes.readUInt32BE?.(0) === 0x89504e47, 'image/webp': bytes.toString('latin1', 8, 12) === 'WEBP' }[m[1]];
+  return real && bytes.length > 100 ? { type: m[1], bytes } : null;
 }
 
 /** Token counts for a usage record: the provider's when it reported them, otherwise an estimate from the text. */

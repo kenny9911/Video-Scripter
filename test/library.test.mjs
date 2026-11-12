@@ -19,6 +19,12 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const GUIDE = await readFile(new URL('./fixtures/two-pages.pdf', import.meta.url)); // two pages, English and Chinese
 const PROTECTED = await readFile(new URL('./fixtures/protected-aes256.pdf', import.meta.url)); // the same, protected against copying
 const LOCKED = await readFile(new URL('./fixtures/password.pdf', import.meta.url)); // the same, behind a password
+// A scan: two pages, each a JPEG and no text. And one a scanner packed as a fax, which cannot be handed to a model.
+const scanPdf = (filter = '/DCTDecode') => {
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('a scanned page'), Buffer.from([0xff, 0xd9])]).toString('latin1');
+  const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>', ...[6, 7].map((n) => `<< /Type /Page /Parent 2 0 R /Contents 5 0 R /Resources << /XObject << /Im1 ${n} 0 R >> >> >>`), '<< /Length 31 >>\nstream\nq 595 0 0 842 0 0 cm /Im1 Do Q\nendstream', ...[1, 2].map(() => `<< /Type /XObject /Subtype /Image /Width 1240 /Height 1754 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter ${filter} /Length ${jpeg.length} >>\nstream\n${jpeg}\nendstream`)];
+  return Buffer.from(`%PDF-1.5\n${objects.map((o, i) => `${i + 1} 0 obj\n${o}\nendobj\n`).join('')}trailer\n<< /Root 1 0 R >>\n%%EOF\n`, 'latin1');
+};
 const docx = (paragraphs) => zip([{ name: '[Content_Types].xml', data: '<Types/>' }, { name: 'word/document.xml', data: `<w:document><w:body>${paragraphs.map((p) => `<w:p><w:pPr><w:tabs><w:tab w:val="left"/></w:tabs></w:pPr><w:r><w:t xml:space="preserve">${p}</w:t></w:r></w:p>`).join('')}</w:body></w:document>` }]);
 
 test('小红书 is a Chinese platform with its own notes, publishing rules and throttled words', () => {
@@ -269,6 +275,27 @@ test('the library through the API: upload, use in a script, place in a scene, dr
   if (!env.DATABASE_URL) assert.deepEqual((await readdir(path.join(dir, 'media'))).filter((n) => n.startsWith('up-')), []);
   for (const a of (await ann.call('GET', '/api/assets')).body.items.filter((x) => /protected|in parts|half/.test(x.name))) await ann.call('POST', '/api/assets/delete', { id: a.id });
 
+  // ---------- What the model in use reads: a scanned PDF, and a picture for its note ----------
+  // (The demo model sees nothing and says so; what is checked here is the way there and back.)
+  r = await ann.upload('合同 扫描件.pdf', scanPdf());
+  const scan = r.body.asset;
+  assert.deepEqual([r.status, scan.kind, scan.pages, scan.scanned, scan.partial, /^\[Demo\] The text of page 1 of “合同 扫描件.pdf”/.test(scan.excerpt)], [200, 'document', 2, true, undefined, true]);
+  r = await ann.call('GET', `/api/assets/text?id=${scan.id}`);
+  assert.ok(r.body.scanned && r.body.text.includes('page 1') && r.body.text.includes('page 2'));
+  r = await ann.upload('fax.pdf', scanPdf('/CCITTFaxDecode'));
+  assert.deepEqual([r.status, /stored in a way that cannot be read/.test(r.body.error)], [400, true]);
+  const detail = (await ann.upload('detail.png', PNG)).body.asset;
+  assert.equal(detail.note, '');
+  r = await ann.call('POST', '/api/assets/describe', { id: detail.id, lang: 'zh', preview: `data:image/png;base64,${PNG.toString('base64')}` });
+  assert.deepEqual([r.status, r.body.asset.id, r.body.asset.note.startsWith('【演示】图片“detail.png”的说明')], [200, detail.id, true]);
+  assert.ok((await ann.call('POST', '/api/assets/describe', { id: detail.id, preview: 'data:text/html;base64,PGI+' })).body.asset.note.startsWith('[Demo] A note for “detail.png”')); // not a picture: the stored one is shown
+  assert.equal((await ann.call('POST', '/api/assets/describe', { id: doc.id })).status, 400); // a document has no picture
+  assert.equal((await bob.call('POST', '/api/assets/describe', { id: detail.id })).status, 404); // and nobody describes another's
+  assert.equal((await client().call('POST', '/api/assets/describe', { id: detail.id })).status, 401);
+  const usage = (await ann.call('GET', '/api/usage')).body;
+  assert.ok(JSON.stringify(usage).includes('"read"'), 'looking at pictures is in the usage log');
+  for (const a of [scan, detail]) await ann.call('POST', '/api/assets/delete', { id: a.id });
+
   // ---------- Each user has a library of their own ----------
   // Bob adds files with the very names Ann used: two libraries, nothing shared.
   const bobs = (await bob.upload('测评 笔记.txt', Buffer.from('Bob 的笔记'))).body.asset;
@@ -337,7 +364,7 @@ test('the library through the API: upload, use in a script, place in a scene, dr
   assert.equal((await ann.raw('GET', placed.url)).status, 200); // the script keeps its own copy
   assert.equal((await ann.call('GET', '/api/assets')).body.items.length, 5);
   const types = (await ann.call('GET', '/api/activity')).body.items.map((a) => a.type);
-  for (const type of ['asset.add', 'asset.use', 'asset.delete']) assert.ok(types.includes(type), type);
+  for (const type of ['asset.add', 'asset.describe', 'asset.use', 'asset.delete']) assert.ok(types.includes(type), type);
 
   // A library goes with its account, and only that one: Bob's files are removed, Ann's stay.
   const users = (await boss.call('GET', '/api/admin/users')).body;

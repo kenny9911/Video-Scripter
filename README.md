@@ -248,11 +248,13 @@ The library (素材库) holds your own files, so they are uploaded once and used
 | Picture | `.png` `.jpg` `.webp` `.gif`; also `.heic` `.avif` `.bmp` `.tiff` `.svg`, which the page turns into a JPEG or a PNG first | Named to the scriptwriter, which builds a scene around it. The picture is then placed in that scene as it is |
 | Clip | `.mp4` `.mov` `.webm` | The same, as the scene's clip |
 
-**PDFs.** A PDF is read as it is added, page by page: Chinese and English, files exported from Word, WPS, Keynote, PowerPoint or a browser, and files that are protected against copying but open without a password. The page count and the text are kept, not the file. Three kinds cannot be read, and the library says which: a scan (it has no text; paste the text, or add the pages as pictures), a PDF that needs a password, and one whose fonts do not say which characters they draw. When only part of a PDF is like that, it is added with a note saying so: open it in the library to see what was read.
+**PDFs.** A PDF is read as it is added, page by page: Chinese and English, files exported from Word, WPS, Keynote, PowerPoint or a browser, and files that are protected against copying but open without a password. The page count and the text are kept, not the file. Two kinds cannot be read, and the library says which: a PDF that needs a password, and one whose fonts do not say which characters they draw. When only part of a PDF is like that, it is added with a note saying so: open it in the library to see what was read.
+
+**Scans.** A scanned PDF has no text, only a picture of each page. The model in use reads those pictures, one request a page, up to 40 pages, and what it writes out becomes the document's text. It is marked *Read from a scan*: a model reads print well and can still get a name or a figure wrong, so check those before a script relies on them. This needs a model that takes pictures, which most current chat models do; with one that does not, the scan is refused with the provider's own answer. Pages a scanner stored as fax or JBIG2 images, or as JPEG 2000, cannot be handed to a model and are refused too.
 
 **Pictures.** A phone photo is often larger than a file may be. The page draws it smaller in your browser (2560 pixels on its long side, then less) and uploads that, so nothing has to be resized by hand. Pictures in a format the library does not keep are redrawn the same way, as a JPEG, or as a PNG when part of the picture is see-through. An iPhone's `.heic` needs a browser that can open it (Safari); elsewhere, save it as a JPEG first.
 
-A model cannot see a picture, so each picture and clip has a note: a few words on what it shows. The note and the name are all the scriptwriter knows about it, so write one.
+The scriptwriter is not shown your pictures, so each picture and clip has a note: a few words on what it shows. The note and the name are all it knows about them. A picture's note is written for you when you add the picture: the model in use looks at a small copy of it (1024 pixels, made in your browser) and says what it shows, in the language you use the app in. Change it whenever it misses the point, or have it written again with the button on the picture. A clip's note is yours to write.
 
 There are three ways to put visuals on a scene, and they can be mixed within one script:
 
@@ -543,7 +545,8 @@ src/auth.mjs            accounts, password hashing, sessions, the first administ
 src/audit.mjs           usage records (every model call) and the activity log
 src/store.mjs           saved scripts and generated media
 src/assets.mjs          the library (素材库): uploaded files, the text read from documents, who owns what
-src/pdf.mjs             the text of a PDF, read without a PDF library
+src/pdf.mjs             the text of a PDF, read without a PDF library, and the page pictures of a scan
+src/vision.mjs          the model in use looks at pictures: a picture's note, the pages of a scan
 src/materials.mjs       the library files one brief uses: what the prompts say about them, and the scene that shows one
 api/index.mjs           serverless entry point (Vercel); vercel.json routes requests to it
 src/package.mjs         the downloadable .zip for one script (src/zip.mjs writes the archive)
@@ -627,6 +630,7 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `POST` | `/api/assets` | Add a file: the body is the file, its name is in the `x-file-name` header (URI-encoded). A JSON body `{ name?, text }` adds pasted text as a document |
 | `POST` | `/api/assets/part` | One part of a file too large for a single request: the body is the part, `x-upload-id` names the upload and `x-part` its place, from 0. `POST /api/assets` with `x-upload-id` and `x-parts` then adds the file |
 | `GET` | `/api/assets/text?id=` | The whole text of a document |
+| `POST` | `/api/assets/describe` | `{ id, lang?, preview? }` Has the model in use look at a picture and write its note. `preview` is a small copy of the picture as a `data:` URI; without one the stored picture is shown |
 | `POST` | `/api/assets/update`, `/api/assets/delete` | `{ id, name?, note? }` Rename a file or change its note; `{ id }` delete it |
 | `POST` | `/api/assets/keep` | `{ url, name? }` Copies one of your generated images or clips into the library |
 | `POST` | `/api/media/asset` | `{ historyId, sceneId, assetId }` Places a library picture or clip in a scene as it is |

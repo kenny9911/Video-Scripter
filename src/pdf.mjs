@@ -11,7 +11,7 @@
 // A scan has no text to take, and a font with neither a map nor a known encoding cannot be read: both are
 // said plainly (the errors at the end), never answered with garbage.
 
-import { inflateSync, inflateRawSync, constants as Z } from 'node:zlib';
+import { inflateSync, inflateRawSync, deflateSync, constants as Z } from 'node:zlib';
 import { createHash, createCipheriv, createDecipheriv } from 'node:crypto';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -477,7 +477,11 @@ function open(bytes) {
   let left = MAX_UNPACKED;
 
   /** The unpacked bytes of a stream object (given as a reference or as its entry), or null. */
-  const data = (ref) => {
+  /**
+   * A stream object (a reference, or its entry) with its packing undone as far as this reader can:
+   * { bytes, packed } or null. `packed` names the filters that are left, which only a picture has (a JPEG stays a JPEG).
+   */
+  const unpack = (ref) => {
     const o = ref instanceof Ref ? objs.get(ref.num) : ref;
     if (!o?.stream) return null;
     if (left <= 0) return null; // a file built to unpack without end
@@ -495,10 +499,16 @@ function open(bytes) {
       else if (name === '/ASCII85Decode' || name === '/A85') out = ascii85(out);
       else if (name === '/ASCIIHexDecode' || name === '/AHx') out = Buffer.from(out.toString('latin1').replace(/[^0-9a-fA-F]/g, '').replace(/^((?:..)*).$/, '$1'), 'hex');
       else if (name === '/RunLengthDecode' || name === '/RL') out = runLength(out);
-      else if (name !== '/Crypt') return null; // a picture: nothing to read
+      else if (name !== '/Crypt') return { bytes: out, packed: filters.slice(i).map(get) };
     }
-    if (out) left -= out.length;
-    return out;
+    if (!out) return null;
+    left -= out.length;
+    return { bytes: out, packed: [] };
+  };
+  /** The unpacked bytes of a stream that holds text or data, or null (a picture is not that). */
+  const data = (ref) => {
+    const got = unpack(ref);
+    return got && !got.packed.length ? got.bytes : null;
   };
 
   // Objects packed into object streams (most files since PDF 1.5). One that was written again later in the file wins.
@@ -533,7 +543,7 @@ function open(bytes) {
   const root = get(trailer.Root) ?? [...objs.values()].find((o) => isDict(o.value) && o.value.Type === '/Catalog')?.value;
   if (isDict(root)) walk(root.Pages, undefined);
   if (!pages.length) for (const o of [...objs.values()].sort((a, b) => a.num - b.num)) if (isDict(o.value) && o.value.Type === '/Page' && pages.length < MAX_PAGES) pages.push({ dict: o.value, resources: get(o.value.Resources) });
-  return { get, data, pages };
+  return { get, data, unpack, pages, entry: (ref) => (ref instanceof Ref ? objs.get(ref.num) : null) };
 }
 
 // ---------- Fonts: which characters a string draws ----------
@@ -898,6 +908,7 @@ function draw(doc, content, resources, runs, ctm = IDENTITY, depth = 0) {
         // A form: a piece of page kept apart and drawn here (a letterhead, a whole slide).
         const ref = xobjects?.[typeof a[0] === 'string' ? a[0].slice(1) : ''];
         const form = get(ref);
+        if (ref instanceof Ref && isDict(form) && get(form.Subtype) === '/Image') doc.shown?.push(ref); // a picture the page shows (pdfPictures)
         if (depth >= 6 || !(ref instanceof Ref) || !isDict(form) || get(form.Subtype) !== '/Form' || doc.drawing.has(ref.num)) break;
         const inner = data(ref);
         if (!inner) break;
@@ -971,6 +982,151 @@ const clean = (text) =>
     .replace(/ /g, ' ')
     .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f�﻿-]/g, '');
 
+const NO_TEXT = 'This PDF has no text to read: it is a scan or a set of pictures. Paste its text instead, or add its pages as pictures.';
+
+// ---------- The pictures of a scan ----------
+
+const CRC = Array.from({ length: 256 }, (_, n) => {
+  for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1;
+  return n >>> 0;
+});
+/** One chunk of a PNG file: its length, its name, its bytes and their checksum. */
+function pngChunk(name, body) {
+  const out = Buffer.alloc(body.length + 12);
+  out.writeUInt32BE(body.length, 0);
+  out.write(name, 4, 'latin1');
+  body.copy(out, 8);
+  let crc = 0xffffffff;
+  for (let i = 4; i < body.length + 8; i++) crc = CRC[(crc ^ out[i]) & 255] ^ (crc >>> 8);
+  out.writeUInt32BE((crc ^ 0xffffffff) >>> 0, body.length + 8);
+  return out;
+}
+
+/** How a picture's samples are to be read: { n: values per pixel, palette: Buffer of RGB triples | null }, or null for a kind this reader leaves. */
+function colours(doc, space) {
+  const { get, data } = doc;
+  const cs = get(space);
+  const name = Array.isArray(cs) ? get(cs[0]) : cs;
+  if (name === '/DeviceGray' || name === '/CalGray' || name === '/G') return { n: 1 };
+  if (name === '/DeviceRGB' || name === '/CalRGB' || name === '/RGB') return { n: 3 };
+  if (name === '/DeviceCMYK' || name === '/CMYK') return { n: 4 };
+  if (name === '/ICCBased' && Array.isArray(cs)) {
+    const n = num(get(doc.entry(cs[1])?.value?.N));
+    return n === 1 || n === 3 || n === 4 ? { n } : null;
+  }
+  if ((name === '/Indexed' || name === '/I') && Array.isArray(cs)) {
+    const base = colours(doc, cs[1]);
+    const table = cs[3] instanceof Ref ? data(cs[3]) : get(cs[3]) instanceof Str ? Buffer.from(get(cs[3]).v, 'latin1') : null;
+    if (!base || base.palette || !table) return null;
+    const entries = Math.min(256, num(get(cs[2])) + 1, Math.floor(table.length / base.n));
+    const palette = Buffer.alloc(entries * 3);
+    for (let i = 0; i < entries; i++) toRgb(table, i * base.n, base.n, palette, i * 3);
+    return { n: 1, palette };
+  }
+  return null;
+}
+
+/** One pixel, grey, RGB or CMYK, written as RGB. */
+function toRgb(from, at, n, to, out) {
+  if (n === 1) to[out] = to[out + 1] = to[out + 2] = from[at];
+  else if (n === 3) from.copy(to, out, at, at + 3);
+  else for (let k = 0; k < 3; k++) to[out + k] = 255 - Math.min(255, from[at + k] + from[at + 3]);
+}
+
+/**
+ * A picture of the file as a picture a model can be shown: { type, bytes, width, height }, or null.
+ * A JPEG is handed over as it is. Plain samples (what a scanner writes for a page in black and white or
+ * in grey, and what a screenshot is kept as) are wrapped as a PNG. Fax and JBIG2 pages and JPEG 2000 are
+ * left: undoing them takes a decoder this reader does not have.
+ */
+function pictureOf(doc, ref) {
+  const { get } = doc;
+  const d = doc.entry(ref)?.value;
+  if (!isDict(d)) return null;
+  const width = num(get(d.Width));
+  const height = num(get(d.Height));
+  if (width < 1 || height < 1 || width * height > 60_000_000) return null;
+  const got = doc.unpack(ref);
+  if (!got) return null;
+  if (got.packed.length) return got.packed.length === 1 && (got.packed[0] === '/DCTDecode' || got.packed[0] === '/DCT') ? { type: 'image/jpeg', bytes: got.bytes, width, height } : null;
+
+  const mask = get(d.ImageMask) === true;
+  const bits = mask ? 1 : num(get(d.BitsPerComponent), 8);
+  const space = mask ? { n: 1 } : colours(doc, d.ColorSpace);
+  if (!space || ![1, 2, 4, 8].includes(bits) || (space.n > 1 && bits !== 8)) return null;
+  const row = Math.ceil((width * space.n * bits) / 8);
+  if (got.bytes.length < row * height) return null;
+  const decode = get(d.Decode);
+  const inverted = !space.palette && space.n === 1 && Array.isArray(decode) && num(get(decode[0])) > num(get(decode[1]));
+  const outRow = space.n === 4 ? width * 3 : row;
+  const lines = Buffer.alloc((outRow + 1) * height); // each line of a PNG opens with a byte that says how it is packed: 0, as it is
+  for (let y = 0; y < height; y++) {
+    const from = y * row;
+    const to = y * (outRow + 1) + 1;
+    if (space.n === 4) for (let x = 0; x < width; x++) toRgb(got.bytes, from + x * 4, 4, lines, to + x * 3);
+    else if (inverted) for (let i = 0; i < row; i++) lines[to + i] = 255 - got.bytes[from + i];
+    else got.bytes.copy(lines, to, from, from + row);
+  }
+  const head = Buffer.alloc(13);
+  head.writeUInt32BE(width, 0);
+  head.writeUInt32BE(height, 4);
+  head[8] = bits;
+  head[9] = space.palette ? 3 : space.n === 1 ? 0 : 2; // palette, grey, or RGB
+  const bytes = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), pngChunk('IHDR', head), ...(space.palette ? [pngChunk('PLTE', space.palette)] : []), pngChunk('IDAT', deflateSync(lines)), pngChunk('IEND', Buffer.alloc(0))]);
+  return { type: 'image/png', bytes, width, height };
+}
+
+/**
+ * The pictures a PDF's pages are made of, for a file that is a scan: { pages, pictures, more, unread }.
+ * `pictures` has one list per page, in the order the page shows them ([{ type, bytes, width, height }]); a page
+ * whose picture cannot be handed over has an empty list. Small pictures (a logo, a stamp) and one that sits on
+ * many pages (a letterhead) are not the page. `maxPages` pages with pictures are taken; `more` says there were others.
+ * `maxBytes` is the largest picture worth handing over. `unread` counts the page pictures that could not be handed
+ * over (too large, or packed in a way this reader cannot undo).
+ */
+export function pdfPictures(bytes, { maxPages = 40, maxBytes = 12 * 1024 * 1024 } = {}) {
+  if (!isPdf(bytes)) throw fail('This file is not a real .pdf document', 415);
+  let doc;
+  try {
+    doc = open(bytes);
+  } catch (err) {
+    if (err.status) throw err;
+    return { pages: 0, pictures: [], more: false, unread: 0 };
+  }
+  doc.fonts = new Map();
+  doc.drawing = new Set();
+  const shown = doc.pages.map((page) => {
+    doc.shown = [];
+    const contents = doc.get(page.dict.Contents);
+    const streams = (Array.isArray(contents) ? contents : [page.dict.Contents]).map((c) => doc.data(c)?.toString('latin1')).filter(Boolean);
+    try {
+      draw(doc, streams.join('\n'), page.resources, []);
+    } catch {}
+    return [...new Map(doc.shown.map((ref) => [ref.num, ref])).values()];
+  });
+  const uses = new Map();
+  for (const refs of shown) for (const ref of refs) uses.set(ref.num, (uses.get(ref.num) || 0) + 1);
+  const size = (ref) => num(doc.get(doc.entry(ref)?.value?.Width)) * num(doc.get(doc.entry(ref)?.value?.Height));
+  const pictures = [];
+  let taken = 0;
+  let more = false;
+  let unread = 0;
+  for (const refs of shown) {
+    const own = refs.filter((ref) => uses.get(ref.num) <= 2 && size(ref) >= 90_000);
+    const largest = Math.max(0, ...own.map(size));
+    const page = [];
+    if (taken >= maxPages) more ||= own.length > 0;
+    else for (const ref of own.filter((r) => size(r) >= 0.2 * largest).slice(0, 4)) {
+      const picture = pictureOf(doc, ref);
+      if (picture && picture.bytes.length <= maxBytes) page.push(picture);
+      else unread++;
+    }
+    if (page.length) taken++;
+    pictures.push(page);
+  }
+  return { pages: doc.pages.length, pictures, more, unread };
+}
+
 /** True when the bytes are a PDF. Some writers put a few bytes before the header. */
 export const isPdf = (bytes) => bytes.subarray(0, 1024).includes('%PDF-');
 
@@ -1029,7 +1185,7 @@ export function pdfText(bytes, { maxChars = 400_000 } = {}) {
   const missing = [...doc.fonts.values()].reduce((n, f) => n + f.missing, 0);
   const letters = text.replace(/\s/g, '').length;
   if (missing > letters) throw fail('The text of this PDF cannot be read: its fonts do not say which characters they draw. Paste its text instead.');
-  if (letters < 2) throw fail(doc.pages.length ? 'This PDF has no text to read: it is a scan or a set of pictures. Paste its text instead, or add its pages as pictures.' : 'This PDF could not be read. Paste its text instead.');
+  if (letters < 2) throw doc.pages.length ? Object.assign(fail(NO_TEXT), { scan: true }) : fail('This PDF could not be read. Paste its text instead.');
   // `partial`: a real share of the letters were drawn in a font this reader cannot name the characters of.
   return { text, pages: doc.pages.length, cut, partial: missing > 0.05 * (missing + letters) };
 }

@@ -106,6 +106,7 @@ export const ACTIVITY = {
   'style.suggest': 'Had the model pick a visual style',
   'video.generate': 'Started a video',
   'asset.add': 'Added a file to the library',
+  'asset.describe': 'Had the note for a picture written',
   'asset.delete': 'Deleted a file from the library',
   'asset.use': 'Placed a library file in a scene',
   'gateway.create': 'Added a gateway',
@@ -120,7 +121,7 @@ export const ACTIVITY = {
   'admin.user_logout': 'Logged a user out everywhere',
   'admin.user_delete': 'Deleted a user',
 };
-const KIND = { script: 'Scripts', narration: 'Narration', style: 'Style picks', image: 'Images', video: 'Videos', test: 'Connection tests' };
+const KIND = { script: 'Scripts', narration: 'Narration', style: 'Style picks', read: 'Reading pictures and scans', image: 'Images', video: 'Videos', test: 'Connection tests' };
 
 export function activityDetail(a) {
   const d = a.detail || {};

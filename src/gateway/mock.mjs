@@ -140,7 +140,12 @@ function demoScript(plan) {
 
 export async function* mockStream({ signal, meta, partial = '' }) {
   const kinds = { narration: () => demoNarration(meta.plan, meta.planFirst), refine: () => demoRefined(meta), edit: () => demoEdit(meta) };
-  const reply = !meta?.plan ? null : (kinds[meta.kind] || (() => demoScript(meta.plan)))();
+  // Looking at a picture (src/vision.mjs): the demo sees nothing, and says so in the place the answer goes.
+  const looks = {
+    note: () => ({ note: meta.lang === 'zh' ? `【演示】图片“${meta.name}”的说明：接入真实模型后，这里会写出画面里是什么。` : `[Demo] A note for “${meta.name}”: with a real model connected, this says what the picture shows.` }),
+    page: () => ({ text: `[Demo] The text of page ${meta.page} of “${meta.name}”: with a real model connected, this is what the scan says.` }),
+  };
+  const reply = looks[meta?.kind] ? looks[meta.kind]() : !meta?.plan ? null : (kinds[meta.kind] || (() => demoScript(meta.plan)))();
   const text = reply ? JSON.stringify(reply, null, 2) : 'OK';
   // The rest of a reply an earlier request began: the demo writes the same text every time.
   for (let i = partial && text.startsWith(partial) ? partial.length : 0; i < text.length; i += 90) {

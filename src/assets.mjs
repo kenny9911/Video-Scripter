@@ -1,6 +1,7 @@
 // The asset library (素材库): files a creator uploads once and uses in any script.
 //
 //   document   .txt .md .csv .tsv .json .srt .vtt .docx .pdf   read when it is uploaded: its text is kept, the file is not.
+//                                                              (A scanned PDF has no text: a model reads its pages, src/vision.mjs.)
 //                                                              A brief that uses it gives that text to the model as source material.
 //   image      .png .jpg .webp .gif                            kept as a file. A scene can show it as it is, or have its image drawn from it.
 //                                                              (The page turns other pictures, .heic .avif .bmp .tiff .svg, into one of these first.)
@@ -16,7 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { inflateRawSync } from 'node:zlib';
 import { db } from './db.mjs';
 import { MAX_MATERIALS } from './materials.mjs';
-import { pdfText, isPdf } from './pdf.mjs';
+import { pdfText, pdfPictures, isPdf } from './pdf.mjs';
 
 const MB = 1024 * 1024;
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -158,7 +159,7 @@ export function publicAsset(a) {
     size: a.size,
     note: a.note || '',
     ...(a.file && { url: `/media/${a.file}` }),
-    ...(a.kind === 'document' && { chars: a.chars || 0, excerpt: String(a.text || '').slice(0, 200), ...(a.pages && { pages: a.pages }), ...(a.cut && { cut: true }), ...(a.partial && { partial: true }) }),
+    ...(a.kind === 'document' && { chars: a.chars || 0, excerpt: String(a.text || '').slice(0, 200), ...(a.pages && { pages: a.pages }), ...(a.cut && { cut: true }), ...(a.partial && { partial: true }), ...(a.scanned && { scanned: true }) }),
   };
 }
 
@@ -175,7 +176,7 @@ async function room(userId) {
   if ((await db.list('assets', { userId })).length >= MAX_ASSETS) throw fail(`Your library is full (${MAX_ASSETS} files). Delete some to add more.`);
 }
 
-function textAsset({ userId, name, type, size, text, note, pages, cut, partial }) {
+function textAsset({ userId, name, type, size, text, note, pages, cut, partial, scanned }) {
   const whole = tidy(String(text || '').replace(/\u0000/g, ''));
   if (!whole) throw fail('No text could be read from this file');
   return {
@@ -191,12 +192,50 @@ function textAsset({ userId, name, type, size, text, note, pages, cut, partial }
     chars: Math.min(whole.length, MAX_ASSET_TEXT),
     ...(pages && { pages }),
     ...((cut || whole.length > MAX_ASSET_TEXT) && { cut: true }),
-    ...(partial && { partial: true }), // some of a PDF's text was in fonts that could not be read
+    ...(partial && { partial: true }), // some of a PDF's text was in fonts that could not be read, or a page of a scan was not read
+    ...(scanned && { scanned: true }), // its text was read off pictures of the pages by a model: likely right, not certain
   };
 }
 
-/** Add an uploaded file. `bytes` is the file as it was sent; its name says what it is, and its content has to agree. */
-export async function addAsset({ userId, name, bytes, note }) {
+/**
+ * The text of a PDF: its own when it has any, and for a scan what `readScan` reads off the pictures of its pages.
+ * `readScan({ pictures, name })` looks at them with a model and returns { text, cut, partial } (src/vision.mjs);
+ * without it a scan is refused, as a PDF that cannot be read at all always is. `lookBytes` is the largest picture
+ * that model takes.
+ */
+async function readPdf(bytes, { name, readScan, lookBytes }) {
+  let read = null;
+  let refused = null;
+  try {
+    read = pdfText(bytes, { maxChars: MAX_ASSET_TEXT });
+  } catch (err) {
+    if (!err.scan || !readScan) throw err;
+    refused = err;
+  }
+  // A scan often carries a line of text all the same (the scanning app's name at the foot of every page).
+  const thin = read && read.text.replace(/\s/g, '').length < 40 * read.pages;
+  if (!readScan || (read && !thin)) return read;
+  const { pages, pictures, more, unread } = pdfPictures(bytes, { maxBytes: lookBytes });
+  if (pictures.filter((p) => p.length).length < pages / 2) {
+    if (read) return read;
+    throw unread ? fail('This PDF is a scan whose pages are stored in a way that cannot be read here. Paste its text instead, or add its pages as pictures.') : refused;
+  }
+  try {
+    const seen = await readScan({ pictures, name });
+    if (seen.text.replace(/\s/g, '').length < 2) throw fail('No text was found on the pages of this scan.');
+    return { text: seen.text, pages, cut: seen.cut || more, partial: seen.partial, scanned: true };
+  } catch (err) {
+    if (read) return read; // the little text it has is still its text
+    if (!/^No text was found/.test(err.message)) err.message = `This PDF is a scan, and the model could not read its pages. ${err.message}`;
+    throw err;
+  }
+}
+
+/**
+ * Add an uploaded file. `bytes` is the file as it was sent; its name says what it is, and its content has to agree.
+ * `readScan` reads a scanned PDF with a model (see readPdf); the caller passes it when there is a model to read with.
+ */
+export async function addAsset({ userId, name, bytes, note, readScan, lookBytes }) {
   const clean = cleanName(name);
   const format = FORMATS[extOf(clean)];
   if (!clean || !format) throw fail(`This kind of file cannot be added. The library takes ${ASSET_EXTENSIONS.filter((e) => !['markdown', 'jpeg', 'jfif'].includes(e)).map((e) => `.${e}`).join(' ')}.`, 415);
@@ -208,7 +247,7 @@ export async function addAsset({ userId, name, bytes, note }) {
 
   if (type === 'application/pdf') {
     if (!isPdf(bytes)) throw fail('This file is not a real .pdf document', 415);
-    const read = pdfText(bytes, { maxChars: MAX_ASSET_TEXT });
+    const read = await readPdf(bytes, { name: clean, readScan, lookBytes });
     return publicAsset(await db.put('assets', textAsset({ userId, name: clean, type, size: bytes.length, note, ...read })));
   }
   if (kind === 'document') {
