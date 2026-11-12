@@ -67,7 +67,9 @@ const fault = (data, status) => new Error(explain(data.error || t('Request faile
 const DROPPED = { side: 'app', code: 'dropped' };
 const UNREADABLE = { side: 'provider', code: 'reply' };
 /** What to show for a caught error: a request the browser could not finish is our end, and says so. */
-const shown = (err) => (err instanceof TypeError && /fetch|network|load failed/i.test(err.message) ? explain(err.message, DROPPED) : err.message);
+// A request that never reached the server, or a reply that broke off on the way: the browser reports both as a TypeError.
+const offline = (err) => err instanceof TypeError && /fetch|network|load failed|input stream/i.test(err.message);
+const shown = (err) => (offline(err) ? explain(err.message, DROPPED) : err.message);
 
 function toast(msg) {
   const el = $('toast');
@@ -692,6 +694,18 @@ function noteRetry(platformId, run, info) {
   if (state.active === platformId && state.runs[platformId] === run) updateStream(run);
 }
 
+const MAX_PARTS = 8; // requests one script may take (the server's limit: src/limits.mjs)
+const MIN_PROGRESS = 16; // characters a request must add for the next one to be worth making
+const RECONNECT_MS = 1500;
+
+/** Wait, unless the run is stopped first. */
+const pause = (ms, signal) =>
+  new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(new DOMException('Stopped', 'AbortError'));
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => (clearTimeout(timer), reject(new DOMException('Stopped', 'AbortError'))), { once: true });
+  });
+
 async function runPlatform(platformId, brief) {
   const abort = new AbortController();
   // A script built around a narration keeps the editor's copy, so it can be opened and changed again.
@@ -702,41 +716,62 @@ async function runPlatform(platformId, brief) {
   const run = (state.runs[platformId] = { status: 'running', raw: '', brief, abort, styleIds: brief.styleIds, ...(narration && { narration }), ...chained });
   runChanged(platformId);
   try {
-    const res = await fetch('/api/generate', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ...brief, platformId }),
-      signal: abort.signal,
-    });
-    if (!res.ok) throw fault(await res.json().catch(() => ({})), res.status);
-    for await (const { event, data } of sse(res)) {
-      if (event === 'plan') {
-        run.plan = data;
-        if (state.active === platformId) render(); // the line under the progress bar now says which model is writing
-      } else if (event === 'retry') noteRetry(platformId, run, data);
-      else if (event === 'delta') {
-        run.raw += data.text;
-        run.notice = '';
-        if (state.active === platformId) updateStream(run);
-      } else if (event === 'error') throw fault(data);
-      else if (event === 'done') {
-        if (data.script) {
-          run.script = data.script;
-          run.status = 'done';
-          run.historyId = data.historyId;
-          if (run.narration) run.narration.dirty = false; // it is a script now, and in the history
-          if (data.entry) {
-            state.history.unshift(data.entry);
-            run.plan = { ...run.plan, ...data.entry.plan }; // says whether a locked narration had to be put back
+    // One request writes most scripts. A long one from a slow provider may take more: a host that limits how
+    // long a request runs ends it with `handover`, and the next request carries the reply on from what is
+    // on screen. A connection that drops in the middle of a reply is picked up the same way.
+    for (let part = 1; run.status === 'running'; part++) {
+      const had = run.raw.length;
+      let handed = false;
+      let dropped = null;
+      try {
+        const res = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...brief, platformId, ...(part > 1 && { resume: { text: run.raw, part } }) }),
+          signal: abort.signal,
+        });
+        if (!res.ok) throw fault(await res.json().catch(() => ({})), res.status);
+        for await (const { event, data } of sse(res)) {
+          if (event === 'plan') {
+            run.plan = data;
+            if (state.active === platformId) render(); // the line under the progress bar now says which model is writing
+          } else if (event === 'retry') noteRetry(platformId, run, data);
+          else if (event === 'delta') {
+            run.raw += data.text;
+            run.notice = '';
+            if (state.active === platformId) updateStream(run);
+          } else if (event === 'error') throw fault(data);
+          else if (event === 'handover') handed = true;
+          else if (event === 'done') {
+            if (data.script) {
+              run.script = data.script;
+              run.status = 'done';
+              run.historyId = data.historyId;
+              if (run.narration) run.narration.dirty = false; // it is a script now, and in the history
+              if (data.entry) {
+                state.history.unshift(data.entry);
+                run.plan = { ...run.plan, ...data.entry.plan }; // says whether a locked narration had to be put back
+              }
+              renderHistory();
+            } else {
+              run.raw = data.raw || run.raw;
+              throw new Error(explain(t("The model's reply could not be read as a script ({reason}). The raw reply is shown below.", { reason: data.parseError }), UNREADABLE));
+            }
           }
-          renderHistory();
-        } else {
-          run.raw = data.raw || run.raw;
-          throw new Error(explain(t("The model's reply could not be read as a script ({reason}). The raw reply is shown below.", { reason: data.parseError }), UNREADABLE));
         }
+      } catch (err) {
+        if (!offline(err)) throw err;
+        dropped = err;
       }
+      if (run.status !== 'running') break;
+      // The request is over and the script is not. It is carried on only while each request adds to it.
+      if (run.raw.length - had < MIN_PROGRESS || part >= MAX_PARTS) throw dropped || new Error(explain(t('The connection closed before the script was finished.'), DROPPED));
+      run.notice = handed
+        ? t('This script is taking longer than one request may run. Carrying on where it stopped: part {n}.', { n: part + 1 })
+        : t('The connection closed in the middle of the script. Picking it up where it stopped: part {n}.', { n: part + 1 });
+      if (state.active === platformId) updateStream(run);
+      if (!handed) await pause(RECONNECT_MS, abort.signal); // give a server that is restarting a moment
     }
-    if (run.status === 'running') throw new Error(explain(t('The connection closed before the script was finished.'), DROPPED));
   } catch (err) {
     run.status = err.name === 'AbortError' ? 'stopped' : 'error';
     run.error = err.name === 'AbortError' ? t('Stopped.') : shown(err);

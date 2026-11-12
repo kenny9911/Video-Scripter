@@ -501,6 +501,8 @@ const ZH = {
   '{host} is not answering ({status}). Trying again: attempt {n} of {of}.': '{host} 暂时没有响应（{status}），正在自动重试：第 {n} 次，最多 {of} 次。',
   '{host} broke off before it started writing. Trying again: attempt {n} of {of}.': '{host} 还没开始写就断开了，正在自动重试：第 {n} 次，最多 {of} 次。',
   '{host} broke off in the middle of its reply. Picking it up where it stopped: attempt {n} of {of}.': '{host} 写到一半断开了，正在从断点接着写：第 {n} 次，最多 {of} 次。',
+  'This script is taking longer than one request may run. Carrying on where it stopped: part {n}.': '这个脚本的生成时间超过了单次请求的时限，正在从断点接着写：第 {n} 段。',
+  'The connection closed in the middle of the script. Picking it up where it stopped: part {n}.': '脚本写到一半时连接断开了，正在从断点接着写：第 {n} 段。',
   'The model answered, but not in the format it was asked for. Try again, or pick another model.': '模型有答复，但没有按要求的格式返回。请重试，或换一个模型。',
   'The provider rejected the API key. Check the key of this gateway.': '服务商拒绝了 API 密钥。请检查这个网关的密钥。',
   'The provider account is out of credit or quota. Top it up, or use another key.': '服务商账户的余额或配额已用完。请充值，或换一个密钥。',

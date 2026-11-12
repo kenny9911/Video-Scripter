@@ -51,7 +51,7 @@ function caller({ config, signal, emit, onCall, chat }) {
       await onCall?.({ step, prompts, raw, usage, ms: Date.now() - started, ok: true });
       return raw;
     } catch (err) {
-      await onCall?.({ step, prompts, raw, usage, ms: Date.now() - started, ok: false, error: isAbort(err) ? 'Stopped by the user' : err.message });
+      await onCall?.({ step, prompts, raw, usage, ms: Date.now() - started, ok: false, error: err?.name === 'AbortError' ? 'Stopped by the user' : err.message });
       throw err;
     }
   };

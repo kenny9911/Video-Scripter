@@ -307,6 +307,18 @@ Providers, and the gateways in front of them, fail in passing: no capacity for a
 While this goes on the page says so ("gw.example is not answering (503). Trying again: attempt 2 of 3."), and what has been written stays on screen. If it still fails, the error says how often it was tried and whose end the failure is on. The tokens of every attempt are counted in the usage of that one call.
 
 ## Accounts, usage and activity
+### When a script outlasts one request
+
+A host such as Vercel stops a request after a fixed time (800 seconds as this repository is set up), and it does so without a word: the reply just ends. A long script from a slow or unsteady provider can take longer than that, so the server keeps its own clock and stops a little earlier, while it can still say what happened.
+
+| What happens | What the app does |
+| --- | --- |
+| The time is nearly up and the script is not finished | The request ends with a `handover` event, and the page asks for the rest in a new request. The model is shown what it had written and carries on from there, so the script on screen keeps growing. Eight requests at most |
+| The connection drops in the middle of a script | The page picks it up the same way, from what it has |
+| The time is nearly up on anything else (a narration draft, a review) | The request ends with an error that names the limit |
+
+With `npm start` there is no limit, so none of this happens unless you set `REQUEST_TIME_LIMIT_S`. Each request of a script that was carried over is one call in the usage record.
+
 
 ### Accounts
 
@@ -409,7 +421,7 @@ The repository deploys as is: `vercel.json` selects the "Other" framework preset
 
 Without `DATABASE_URL` the site still runs, but on temporary storage: accounts, scripts and settings disappear when the function restarts. The Account dialog shows a warning to administrators while that is the case.
 
-Limits worth knowing on Vercel: a request can run for up to 300 seconds (`maxDuration` in `vercel.json`), and large downloads such as a `.zip` with many images or a long video may exceed the platform's response size limit. Images and clips are stored in Postgres, which suits a small team; for heavy use, move media to object storage.
+Limits worth knowing on Vercel: a request can run for up to 800 seconds (`maxDuration` in `vercel.json`, the most the Pro plan allows; on the Hobby plan lower it to `300` and set `REQUEST_TIME_LIMIT_S=300`). A script that needs longer is [written across several requests](#when-a-script-outlasts-one-request). Large downloads such as a `.zip` with many images or a long video may exceed the platform's response size limit. Images and clips are stored in Postgres, which suits a small team; for heavy use, move media to object storage.
 
 ## Home page and search
 
@@ -456,6 +468,7 @@ Everything below is optional. Settings saved in the app take precedence over the
 | `VIDEO_BASE_URL_API`, `VIDEO_MODEL`, `VIDEO_API_KEY` | Video generation defaults | Off |
 | `GATEWAY_RETRY_BASE_MS` | The first pause, in milliseconds, before a failed provider request is tried again; later pauses grow from it | `900` |
 
+| `REQUEST_TIME_LIMIT_S` | How many seconds the host lets one request run. The server winds a request up shortly before, and a script that is not finished is carried on in the next request | `800` on Vercel, otherwise no limit |
 ## For developers
 
 Video Scripter is plain Node.js with no build step. Its one dependency is `pg`, loaded only when `DATABASE_URL` is set.
@@ -485,6 +498,7 @@ src/shots.mjs           how several images of one scene relate (multi-image mode
 src/prompt.mjs          brief -> timeline + prompts; model reply -> script, narration or refinement
 src/json.mjs            reads the JSON in a model reply and mends its small slips
 src/agent/              the narration agent: narrator.mjs (the steps), review.mjs (the measured checks),
+src/limits.mjs          how long one request may run, and how many requests one script may take
                         card.mjs (the viewpoint card), prompts.mjs (the editor step), skills.mjs (loads skills/)
 skills/                 the agent's playbooks, one folder with a SKILL.md each
 src/db.mjs              storage: JSON documents and blobs, on disk or in Postgres
@@ -574,4 +588,4 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `POST` | `/api/narration/review` | `{ ...brief, narration, card? }` The agent's review step. Server-sent events: `plan`, `step`, `delta`, `done` (`{ beats, report }`) or `error` |
 | `POST` | `/api/narration/check` | `{ ...brief, narration, card? }` The measured checks alone: `{ findings, errors, warns, stats }`. No model call |
 | `POST` | `/api/narration/refine` | `{ ...brief, narration, index?, preset?, instruction?, target? }` Rewrites one beat (`{ text }`) or the whole narration (`{ beats }`); `preset: "review"` runs the agent's review and answers `{ beats, report }` |
-| `POST` | `/api/generate` | Writes a script, saves it and records the call. With `narration: [{ stage, text }]` the script is built around those words as they are, and a `card` sent with it is kept on the script. Server-sent events: `plan`, `delta`, `done` or `error` |
+| `POST` | `/api/generate` | Writes a script, saves it and records the call. With `narration: [{ stage, text }]` the script is built around those words as they are, and a `card` sent with it is kept on the script. With `resume: { text, part }` it carries on a reply an earlier request began. Server-sent events: `plan`, `delta`, `retry`, then `done`, `error` or `handover` (out of time: ask again with `resume`) |

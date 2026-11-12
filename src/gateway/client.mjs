@@ -339,7 +339,13 @@ async function* streamOnce(protocol, url, config, { system, user, maxTokens, sig
         }
       }
     } catch (err) {
-      if (isAbort(err)) throw err;
+      if (isAbort(err)) {
+        // Out of time (src/limits.mjs): what a continuation was still holding back is written all the same,
+        // so the request that carries the reply on starts from everything the model has said.
+        const kept = err.name === 'TimeoutError' ? join?.flush() : '';
+        if (kept) yield kept;
+        throw err;
+      }
       // With an error of its own, or by dropping the connection (which the body stream reports as a TypeError).
       broke = err instanceof GatewayError ? Object.assign(err, { host, upstream: true, midstream: true }) : Object.assign(new GatewayError(`${host} dropped the connection in the middle of its reply`), { host, upstream: true, midstream: true, cause: err });
     }
@@ -367,20 +373,22 @@ async function* streamOnce(protocol, url, config, { system, user, maxTokens, sig
  * A reply that breaks off is picked up where it stopped, for as long as each attempt adds to it (see
  * retryPolicy): what is yielded is always one continuous reply. `onRetry(info)` hears of every new attempt: `info.resumed` says whether a
  * reply was under way (true) or had not begun (false).
+ * `partial` is the start of this reply as an earlier request left it (one that ran out of time: src/limits.mjs).
+ * The model is asked for the rest, and only the rest is yielded.
  */
-export async function* streamChat(config, { system, user, signal, maxTokens, meta, onUsage, onRetry }) {
+export async function* streamChat(config, { system, user, signal, maxTokens, meta, onUsage, onRetry, partial = '' }) {
   const invalid = validateConfig(config);
   if (invalid) throw new GatewayError(invalid, 400);
   const { protocol } = getProvider(config.provider);
 
   if (protocol === 'mock') {
-    yield* mockStream({ signal, meta });
+    yield* mockStream({ signal, meta, partial });
     return;
   }
 
   const url = endpointFor(protocol, config.baseUrl);
   const usage = {};
-  let said = '';
+  let said = String(partial || '');
   let idle = 0; // attempts in a row that added nothing
   for (let resumes = 0; ; resumes++) {
     const had = said.length;

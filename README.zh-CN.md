@@ -304,6 +304,18 @@ OpenAI、Anthropic (Claude)、DeepSeek、通义千问、豆包、Moonshot Kimi�
 重试期间页面上会有提示（“gw.example 暂时没有响应（503），正在自动重试：第 2 次，最多 3 次。”），已经写出的内容保留在屏幕上。如果最终还是失败，错误信息会说明一共试了几次，以及问题出在哪一端。每一次尝试的 token 都计入这一次调用的用量。
 
 ## 你的内容
+### 脚本写得比单次请求的时限还久
+
+Vercel 这类平台会在固定时间后掐断请求（按本仓库的配置是 800 秒），而且不打招呼：答复直接中断。服务商慢或者不稳定时，一份长脚本可能写得比这还久。所以服务端自己计时，比平台早一点停下来，趁还来得及把情况告诉页面。
+
+| 发生了什么 | 应用怎么做 |
+| --- | --- |
+| 时间快到了，脚本还没写完 | 请求以 `handover` 事件结束，页面再发一个请求要剩下的部分。模型拿到已经写出的内容，从断点接着写，屏幕上的脚本继续往下长。最多八个请求 |
+| 脚本写到一半连接断了 | 页面用同样的办法，从已有的内容接着写 |
+| 其他请求（旁白草稿、审校）时间快到了 | 请求以一条说明时限的错误结束 |
+
+用 `npm start` 运行时没有时限，除非设置了 `REQUEST_TIME_LIMIT_S`，否则不会出现上面的情况。接力写完的脚本，每个请求在用量记录里各算一次调用。
+
 
 所有内容都保存在服务端，并按用户隔离。
 
@@ -360,6 +372,8 @@ videos/scene-01_00m00s-00m04s.mp4      每个场景最新的视频片段
 没有 `DATABASE_URL` 时网站仍可运行，但使用的是临时存储，函数重启后账号、脚本和设置都会丢失；此时管理员在账号面板中会看到提示。
 
 ## 隐私与安全
+Vercel 上的限制：单次请求最长运行 800 秒（`vercel.json` 里的 `maxDuration`，Pro 套餐的上限；Hobby 套餐请改成 `300`，并设置 `REQUEST_TIME_LIMIT_S=300`）。需要更久的脚本会[分成几个请求接力写完](#脚本写得比单次请求的时限还久)。
+
 
 - **需要登录。** 除注册和登录外，所有接口都需要会话，并拒绝跨站请求。
 - **不保存密码原文。** 只保存加盐的 scrypt 哈希；连续 5 次输错密码会锁定账号 15 分钟。
@@ -428,6 +442,7 @@ videos/scene-01_00m00s-00m04s.mp4      每个场景最新的视频片段
 | `VIDEO_BASE_URL_API`、`VIDEO_MODEL`、`VIDEO_API_KEY` | 视频生成的默认设置 | 关闭 |
 | `GATEWAY_RETRY_BASE_MS` | 服务商请求失败后第一次重试前等待的毫秒数，之后的等待在此基础上加长 | `900` |
 
+| `REQUEST_TIME_LIMIT_S` | 平台允许单次请求运行的秒数。服务端会在这之前收尾，没写完的脚本由下一个请求接着写 | Vercel 上为 `800`，其他环境不限 |
 ## 开发者
 
 Video Scripter 是纯 Node.js 项目，没有依赖，也没有构建步骤。
@@ -457,6 +472,7 @@ src/shots.mjs           同一场景多张图片之间的关系（多图模式�
 src/prompt.mjs          需求 -> 时间线和提示词；模型回复 -> 脚本、旁白或润色结果
 src/json.mjs            读取模型回复里的 JSON，并修补其中的小毛病
 src/agent/              旁白智能体：narrator.mjs（各个步骤）、review.mjs（量化检查）、
+src/limits.mjs          单次请求能运行多久，一份脚本最多用几个请求
                         card.mjs（三维观点卡）、prompts.mjs（审稿步骤）、skills.mjs（加载 skills/）
 skills/                 智能体的技能，每个技能一个文件夹，里面是一份 SKILL.md
 src/store.mjs           保存的历史记录和生成的媒体文件（data/）
@@ -526,4 +542,4 @@ test/                   node --test
 | `POST` | `/api/narration/review` | `{ ...需求, narration, card? }` 智能体的审稿步骤。服务器发送事件（SSE）：`plan`、`step`、`delta`、`done`（`{ beats, report }`）或 `error` |
 | `POST` | `/api/narration/check` | `{ ...需求, narration, card? }` 只做量化检查，返回 `{ findings, errors, warns, stats }`，不调用模型 |
 | `POST` | `/api/narration/refine` | `{ ...需求, narration, index?, preset?, instruction?, target? }` 改写某一段（返回 `{ text }`）或全文（返回 `{ beats }`）；`preset: "review"` 执行智能体审稿，返回 `{ beats, report }` |
-| `POST` | `/api/generate` | 带 `narration: [{ stage, text }]` 时，脚本围绕这些话原样生成，随它一起发来的 `card` 会保存在脚本上。服务器发送事件（SSE）：`plan`、`delta`、`done` 或 `error` |
+| `POST` | `/api/generate` | 带 `narration: [{ stage, text }]` 时，脚本围绕这些话原样生成，随它一起发来的 `card` 会保存在脚本上。带 `resume: { text, part }` 时，接着写之前某个请求没写完的答复。服务器发送事件（SSE）：`plan`、`delta`、`retry`，最后是 `done`、`error` 或 `handover`（时间到了：带上 `resume` 再请求一次） |

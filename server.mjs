@@ -18,7 +18,7 @@ import { suggestStyles, buildStylePrompts, parseStylePick } from './src/suggest.
 import { IMAGE_MODES, SHOT_LABELS, MAX_IMAGES, planShots } from './src/shots.mjs';
 import { ASPECTS } from './src/aspects.mjs';
 import { loadStore, loadConfig, saveStore, mergeConfig, publicStore, validateConfig, enabledModels, mediaTarget } from './src/gateway/config.mjs';
-import { streamChat, completeChat, listModels, request } from './src/gateway/client.mjs';
+import { streamChat, completeChat, listModels, request, cutShort } from './src/gateway/client.mjs';
 import { generateImage, createVideo, videoStatus, videoContent, clipSeconds } from './src/gateway/media.mjs';
 import { listHistory, getHistory, addHistory, newHistoryId, saveMedia, linkMedia, serveMedia, mediaOwner, readMedia, deleteUserHistory, transferHistory } from './src/store.mjs';
 import { buildPackage } from './src/package.mjs';
@@ -28,6 +28,7 @@ import { writeNarration, reviseNarration, checkNarration, AGENT_STEPS } from './
 import { normalizeCard } from './src/agent/card.mjs';
 import { SKILLS, publicSkill } from './src/agent/skills.mjs';
 import { errorBody, causeLine } from './src/errors.mjs';
+import { workBudgetMs, outOfTime, MAX_PARTS } from './src/limits.mjs';
 import { db, storage } from './src/db.mjs';
 import { AuthError, authenticate, checkLogin, createUser, startSession, endSession, endAllSessions, ensureAdmin, publicUser, signupOpen, verifyPassword, setPassword, updateProfile, countSessions, activeAdmins, deleteUser } from './src/auth.mjs';
 import { recordUsage, logActivity, summarizeUsage, listActivity, estimateTokens } from './src/audit.mjs';
@@ -141,12 +142,33 @@ async function hostPortraits(entry, scene) {
   return found;
 }
 
-/** Start a Server-Sent Events reply: `send(event, data)` writes one event, `signal` fires when the browser goes away. */
-function eventStream(res) {
+/**
+ * Start a Server-Sent Events reply: `send(event, data)` writes one event. `signal` fires when the browser goes
+ * away (an AbortError), and when the time the host gives one request is nearly up (a TimeoutError, see
+ * src/limits.mjs): whatever is running then stops while there is still time to tell the page what happened.
+ */
+function eventStream(req, res) {
   res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no' });
   const abort = new AbortController();
-  res.on('close', () => abort.abort());
+  const budget = workBudgetMs();
+  const timer = budget ? setTimeout(() => abort.abort(outOfTime()), Math.max(0, (req.started || Date.now()) + budget - Date.now())) : null;
+  res.on('close', () => {
+    clearTimeout(timer);
+    abort.abort();
+  });
   return { send: (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`), signal: abort.signal };
+}
+
+// The least a request must have added to a script for the rest to be worth asking for in another one.
+const HANDOVER_MIN = 16;
+
+/** What an earlier request wrote of the reply this one is to finish: { text, part }. `part` counts requests, from 1. */
+function resumeOf(input) {
+  const text = typeof input?.text === 'string' ? input.text : '';
+  if (!text) return { text: '', part: 1 };
+  const part = Math.max(2, Math.floor(Number(input.part)) || 2);
+  if (part > MAX_PARTS) throw fail(`This script was carried over ${MAX_PARTS} times and is still not finished. Start it again.`);
+  return { text, part };
 }
 
 // A review takes a second, narrower pass when measured errors are left, but only while the request is still young:
@@ -614,7 +636,7 @@ const routes = {
     const invalid = validateConfig(config);
     if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
 
-    const { send, signal } = eventStream(res);
+    const { send, signal } = eventStream(req, res);
     const model = config.model || config.name;
     const useAgent = agent !== false;
     const about = { platform: plan.brief.platform.id, topic: plan.brief.topic.slice(0, 120), model };
@@ -685,7 +707,7 @@ const routes = {
     const invalid = validateConfig(config);
     if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
 
-    const { send, signal } = eventStream(res);
+    const { send, signal } = eventStream(req, res);
     const model = config.model || config.name;
     const about = { platform: plan.brief.platform.id, topic: plan.brief.topic.slice(0, 120), model };
     send('plan', { ...planSummary(plan), model, provider: config.provider, agent: true });
@@ -748,27 +770,38 @@ const routes = {
   // video runs as long as they take, and the scenes carry them word for word. The narration comes from the
   // editor, or straight from the narration agent when the page chains a draft into a script (`narrationBy:
   // "agent"`); its viewpoint `card`, when there is one, is kept with the script.
+  // A script that takes longer than the host lets one request run is written in parts (src/limits.mjs): the
+  // reply ends with a `handover` event instead of `done`, and the page asks again with the same brief and
+  // `resume: { text, part }`, the reply so far. The model then carries on from the last character of it.
   'POST /api/generate': route('user', async (req, res, user) => {
-    const { agent, narrationBy, ...brief } = await readJson(req);
+    const { agent, narrationBy, resume, ...brief } = await readJson(req);
     const plan = buildPlan(brief); // throws on a bad brief -> 400 below
+    const given = resumeOf(resume);
     const config = await loadConfig();
     const invalid = validateConfig(config);
     if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
 
-    const { send, signal } = eventStream(res);
+    const { send, signal } = eventStream(req, res);
     const taskId = newHistoryId();
     const planInfo = { ...planSummary(plan), model: config.model || config.name, provider: config.provider };
     const about = { taskId, platform: plan.brief.platform.id, topic: plan.brief.topic.slice(0, 120), model: planInfo.model };
-    send('plan', { ...planInfo, taskId });
+    send('plan', { ...planInfo, taskId, ...(given.part > 1 && { part: given.part }) });
     const started = Date.now();
     const prompts = buildPrompts(plan);
-    let raw = '';
+    let raw = given.text;
     let usage = null;
-    const record = (extra) => recordUsage({ user, taskId, kind: 'script', config, ...tokens(usage, prompts, raw), ms: Date.now() - started, ...extra });
+    let asked = false; // whether the model was called in this request
+    const fresh = () => raw.slice(given.text.length); // what this request added
+    // A request that carries a reply on also sends what was written so far: that is input the model reads again.
+    const record = (extra) => (asked ? recordUsage({ user, taskId, kind: 'script', config, ...tokens(usage, { ...prompts, user: prompts.user + given.text }, fresh()), ms: Date.now() - started, ...extra }) : null);
     try {
-      for await (const text of streamChat(config, { ...prompts, signal, meta: { plan }, onUsage: (u) => (usage = u), onRetry: (info) => send('retry', info) })) {
-        raw += text;
-        send('delta', { text });
+      // A reply that is already whole only needs reading: the page lost the connection before it heard so.
+      if (!given.text || cutShort(given.text)) {
+        asked = true;
+        for await (const text of streamChat(config, { ...prompts, signal, partial: given.text, meta: { plan }, onUsage: (u) => (usage = u), onRetry: (info) => send('retry', info) })) {
+          raw += text;
+          send('delta', { text });
+        }
       }
       let script = null;
       let parseError = '';
@@ -805,6 +838,12 @@ const routes = {
         send('done', { script: null, raw, parseError });
       }
     } catch (err) {
+      // Out of time with the reply under way: its words are kept, and the page asks for the rest.
+      if (err.name === 'TimeoutError' && fresh().length >= HANDOVER_MIN && given.part < MAX_PARTS) {
+        await record({});
+        send('handover', { part: given.part, written: raw.length });
+        return res.end();
+      }
       const stopped = err.name === 'AbortError';
       await record({ ok: false, error: stopped ? 'Stopped by the user' : err.message });
       await logActivity(req, user, stopped ? 'script.stopped' : 'script.failed', { ...about, ...(!stopped && { error: err.message.slice(0, 200) }) });
@@ -847,6 +886,7 @@ async function serveStatic(req, res, pathname) {
 
 /** The whole application as one request handler. */
 export async function handler(req, res) {
+  req.started = Date.now(); // the host's clock for this request starts here (src/limits.mjs)
   const { pathname, searchParams } = new URL(req.url, 'http://localhost');
   try {
     if (pathname.startsWith('/api/')) {

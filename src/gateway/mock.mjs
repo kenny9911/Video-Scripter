@@ -6,7 +6,8 @@ const sleep = (ms, signal) =>
     const t = setTimeout(resolve, ms);
     signal?.addEventListener('abort', () => {
       clearTimeout(t);
-      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+      // Out of time (src/limits.mjs) is not the same as a visitor who left: pass that on as it is.
+      reject(signal.reason?.name === 'TimeoutError' ? signal.reason : Object.assign(new Error('aborted'), { name: 'AbortError' }));
     });
   });
 
@@ -134,11 +135,12 @@ function demoScript(plan) {
   };
 }
 
-export async function* mockStream({ signal, meta }) {
+export async function* mockStream({ signal, meta, partial = '' }) {
   const kinds = { narration: () => demoNarration(meta.plan, meta.planFirst), refine: () => demoRefined(meta), edit: () => demoEdit(meta) };
   const reply = !meta?.plan ? null : (kinds[meta.kind] || (() => demoScript(meta.plan)))();
   const text = reply ? JSON.stringify(reply, null, 2) : 'OK';
-  for (let i = 0; i < text.length; i += 90) {
+  // The rest of a reply an earlier request began: the demo writes the same text every time.
+  for (let i = partial && text.startsWith(partial) ? partial.length : 0; i < text.length; i += 90) {
     await sleep(25, signal);
     yield text.slice(i, i + 90);
   }
