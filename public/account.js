@@ -17,6 +17,10 @@ export const el = (tag, attrs = {}, ...children) => {
   return node;
 };
 export const fmt = (n) => Number(n || 0).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US');
+const SIGN = { USD: '$', CNY: '¥' };
+const amount = (v) => (v > 0 && v < 0.0001 ? '<0.0001' : Number(v || 0).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: v >= 100 ? 2 : 4 }));
+/** A cost as people read it: { USD: 1.5, CNY: 3 } -> "$1.50 + ¥3.00"; nothing priced -> "—". */
+export const money = (cost) => Object.entries(cost || {}).map(([currency, v]) => `${SIGN[currency] || `${currency} `}${amount(v)}`).join(' + ') || '—';
 export const when = (ts) => (ts ? new Date(ts).toLocaleString(lang === 'zh' ? 'zh-CN' : [], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
 
 export async function call(path, options = {}) {
@@ -150,18 +154,22 @@ export const table = (head, rows) =>
   );
 export const block = (title, node) => el('section', {}, el('h3', { class: 'block-title' }, title), node);
 export const empty = (text) => el('p', { class: 'hint' }, text);
-const numbers = (g) => [fmt(g.calls), fmt(g.inputTokens), fmt(g.outputTokens), fmt(g.images), fmt(g.videos)];
-const NUM_HEAD = () => [[t('Calls'), 'num'], [t('Tokens in'), 'num'], [t('Tokens out'), 'num'], [t('Images'), 'num'], [t('Videos'), 'num']];
+// Cost is there for administrators only: the server leaves it out for everyone else.
+const numbers = (g) => [fmt(g.calls), fmt(g.inputTokens), fmt(g.outputTokens), fmt(g.images), fmt(g.videos), ...(g.cost ? [money(g.cost)] : [])];
+const NUM_HEAD_FOR = (costs) => [[t('Calls'), 'num'], [t('Tokens in'), 'num'], [t('Tokens out'), 'num'], [t('Images'), 'num'], [t('Videos'), 'num'], ...(costs ? [[t('Cost'), 'num']] : [])];
 
 function usageView(u, platformName) {
   const all = u.scope === 'all';
   const T = u.total;
+  const costs = Boolean(T.cost);
+  const NUM_HEAD = () => NUM_HEAD_FOR(costs);
   return [
     el(
       'div',
       { class: 'stats' },
-      [[T.calls, 'Model calls'], [T.inputTokens, 'Tokens in'], [T.outputTokens, 'Tokens out'], [T.images, 'Images'], [T.videos, 'Videos'], [T.failed, 'Failed calls']].map(([n, label]) => el('div', { class: 'stat' }, el('b', {}, fmt(n)), el('span', {}, t(label)))),
+      [...(costs ? [[money(T.cost), 'Cost']] : []), [T.calls, 'Model calls'], [T.inputTokens, 'Tokens in'], [T.outputTokens, 'Tokens out'], [T.images, 'Images'], [T.videos, 'Videos'], [T.failed, 'Failed calls']].map(([n, label]) => el('div', { class: 'stat' }, el('b', {}, typeof n === 'string' ? n : fmt(n)), el('span', {}, t(label)))),
     ),
+    costs && T.unpriced > 0 && empty(t('{n} of these calls are not in the cost: their model had no price in LLM settings when they were made.', { n: fmt(T.unpriced) })),
     T.estimated > 0 && empty(t('{n} of these calls had no token count from the provider, so their tokens are estimated from the text.', { n: fmt(T.estimated) })),
     all && block(t('By user'), u.byUser.length ? table([[t('User'), 'wrap'], ...NUM_HEAD()], u.byUser.map((g) => [el('span', {}, g.name || t('Deleted user'), el('span', { class: 'sub' }, g.email)), ...numbers(g)])) : empty(t('No usage in this period.'))),
     block(
@@ -178,9 +186,9 @@ function usageView(u, platformName) {
       t('Latest calls'),
       u.recent.length
         ? table(
-            [[t('When'), ''], all && [t('User'), ''], [t('Kind'), ''], [t('Model'), ''], [t('Tokens in'), 'num'], [t('Tokens out'), 'num'], [t('Images'), 'num'], [t('Result'), 'wrap']].filter(Boolean),
+            [[t('When'), ''], all && [t('User'), ''], [t('Kind'), ''], [t('Model'), ''], [t('Tokens in'), 'num'], [t('Tokens out'), 'num'], [t('Images'), 'num'], costs && [t('Cost'), 'num'], [t('Result'), 'wrap']].filter(Boolean),
             u.recent.slice(0, 50).map((r) =>
-              [when(r.ts), all && r.email, t(KIND[r.kind] || r.kind), r.model, `${fmt(r.inputTokens)}${r.estimated ? ' ≈' : ''}`, `${fmt(r.outputTokens)}${r.estimated ? ' ≈' : ''}`, fmt(r.images), r.ok ? t('OK') : el('span', { class: 'log-what bad' }, r.error || t('Failed'))].filter((c) => c !== false),
+              [when(r.ts), all && r.email, t(KIND[r.kind] || r.kind), r.model, `${fmt(r.inputTokens)}${r.estimated ? ' ≈' : ''}`, `${fmt(r.outputTokens)}${r.estimated ? ' ≈' : ''}`, fmt(r.images), costs && (r.priced ? money({ [r.currency]: r.cost }) : '—'), r.ok ? t('OK') : el('span', { class: 'log-what bad' }, r.error || t('Failed'))].filter((c) => c !== false),
             ),
           )
         : empty(t('No usage in this period.')),

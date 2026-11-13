@@ -2,7 +2,7 @@
 
 import { t, lang, applyI18n, explain } from './i18n.js';
 import { icon, hydrateIcons } from './icons.js';
-import { showAuth, wireAccount, fmt } from './account.js';
+import { showAuth, wireAccount, fmt, money } from './account.js';
 import { wireTheme, wireLang, enhancePasswords } from './shell.js';
 import { countSpoken, fitDuration, splitNarration, spokenText, MIN_DURATION, MAX_DURATION } from './narration.js';
 import { wireLibrary } from './library.js';
@@ -2236,7 +2236,7 @@ const presetOf = (id) => state.meta.providers.find((p) => p.id === id);
 const activeGw = () => state.gateway.profiles.find((p) => p.id === state.gateway.activeId) || state.gateway.profiles[0];
 
 // Settings dialog state: the saved gateway being edited (null = a new one) and its model list.
-const ui = { editId: null, provider: null, available: [], enabled: new Set() };
+const ui = { editId: null, provider: null, available: [], enabled: new Set(), prices: new Map(), priceSource: '', priceGroups: [] };
 const editing = () => state.gateway.profiles.find((p) => p.id === ui.editId) || null;
 
 /** Top-bar chip and the "Written by" picker in the brief. */
@@ -2384,13 +2384,91 @@ function editProfile(id) {
     renderMediaModels(kind, null);
   }
   $('mediaSettings').open = false;
+  ui.prices = new Map(Object.entries(p?.pricing?.models || {}).map(([model, row]) => [model, { ...row }]));
+  ui.priceSource = p?.pricing?.source || '';
+  ui.priceGroups = [];
+  $('priceCurrency').value = p?.pricing?.currency || 'USD';
+  $('priceGroup').hidden = true;
+  $('priceNote').textContent = ui.priceSource ? t('Prices from {source}.', { source: ui.priceSource }) : '';
+  $('pricing').open = false;
   setSettingsStatus('');
   showTest('');
   syncSettingsFields(false);
   syncMediaFields();
   renderProfileList();
   renderModelList();
+  renderPrices();
 }
+
+// ---------- Pricing: what this gateway's provider charges, per model ----------
+
+const PRICE_FIELDS = ['input', 'output', 'image', 'second'];
+/** The models this gateway calls: the default, the ones in the picker, and the image and video models. */
+const modelsInUse = () => [...new Set([$('model').value.trim(), ...ui.enabled, $('imageModel').value.trim(), $('videoModel').value.trim()].filter(Boolean))];
+
+/** One row per model in use, priced or not; prices kept for other models are counted under the table. */
+function renderPrices() {
+  const used = modelsInUse();
+  const sign = $('priceCurrency').value === 'CNY' ? '¥' : '$';
+  $('priceRows').replaceChildren(
+    ...used.map((model) => {
+      const row = ui.prices.get(model) || {};
+      const tr = document.createElement('tr');
+      const name = document.createElement('td');
+      name.textContent = model;
+      if (row.longAbove) {
+        const sub = document.createElement('span');
+        sub.className = 'sub';
+        sub.textContent = t('Over {n} tokens in: {input} in, {output} out', { n: fmt(row.longAbove), input: `${sign}${row.longInput ?? row.input ?? 0}`, output: `${sign}${row.longOutput ?? row.output ?? 0}` });
+        name.append(sub);
+      }
+      tr.append(name);
+      for (const field of PRICE_FIELDS) {
+        const td = document.createElement('td');
+        td.className = 'num';
+        const input = Object.assign(document.createElement('input'), { type: 'number', min: '0', step: 'any', inputMode: 'decimal', placeholder: '—', value: row[field] ?? '' });
+        input.setAttribute('aria-label', `${model}: ${t({ input: 'Input / 1M tokens', output: 'Output / 1M tokens', image: 'Per image', second: 'Per video second' }[field])}`);
+        input.addEventListener('input', () => {
+          const next = { ...ui.prices.get(model) };
+          if (input.value === '' || !(Number(input.value) >= 0)) delete next[field];
+          else next[field] = Number(input.value);
+          if (PRICE_FIELDS.some((f) => next[f] !== undefined)) ui.prices.set(model, next);
+          else ui.prices.delete(model);
+          ui.priceSource = '';
+          syncPriceSummary();
+        });
+        td.append(input);
+        tr.append(td);
+      }
+      return tr;
+    }),
+  );
+  syncPriceSummary();
+}
+
+function syncPriceSummary() {
+  const used = modelsInUse();
+  const priced = used.filter((m) => ui.prices.has(m)).length;
+  const others = [...ui.prices.keys()].filter((m) => !used.includes(m)).length;
+  $('pricingSummary').textContent = used.length ? `· ${t('{on} of {n} models priced', { on: priced, n: used.length })}` : '';
+  $('priceMore').textContent = others ? t('Prices for {n} other models are kept, for when you switch to one of them.', { n: others }) : '';
+}
+
+/** Take a key group's prices from the provider's list: they are added to the sheet, over any price already there. */
+function applyPriceGroup(group, host) {
+  for (const [model, row] of Object.entries(group.models)) ui.prices.set(model, { ...row });
+  const names = ui.priceSource.startsWith(`${host} · `) ? ui.priceSource.slice(host.length + 3).split(', ') : [];
+  ui.priceSource = `${host} · ${[...new Set([...names, group.name])].join(', ')}`;
+  $('priceCurrency').value = 'USD';
+  const missing = modelsInUse().filter((m) => !ui.prices.has(m));
+  $('priceNote').textContent = [
+    t('Added {n} prices from “{group}” ({rate}× the official price). Save to keep them.', { n: Object.keys(group.models).length, group: group.name, rate: group.rate }),
+    missing.length ? t('No price in this group for: {models}. Type one in, or pick the group their key belongs to.', { models: missing.join(', ') }) : '',
+  ].filter(Boolean).join(' ');
+  renderPrices();
+}
+
+const pricingPayload = () => ({ currency: $('priceCurrency').value, source: ui.priceSource, models: Object.fromEntries(ui.prices) });
 
 /** Key placeholders and the one-line summary for the "Images and videos" section. */
 function syncMediaFields() {
@@ -2476,6 +2554,7 @@ function settingsPayload() {
     apiKey: $('apiKey').value.trim(),
     model: $('model').value.trim(),
     models: [...ui.enabled],
+    pricing: pricingPayload(),
     activate: $('useGateway').checked,
   };
 }
@@ -2543,12 +2622,37 @@ function wireSettings() {
     showTest('', '', t('Waiting for the model…'));
     try {
       const r = await api('/api/gateway/test', { method: 'POST', body: { ...settingsPayload(), prompt } });
-      if (r.ok) showTest(r.reply, 'ok', t('{model} replied in {ms} ms · {input} tokens in, {output} out', { model: r.model, ms: fmt(r.ms), input: fmt(r.inputTokens), output: fmt(r.outputTokens) }) + (r.truncated ? ` · ${t('reply cut short here')}` : ''));
+      if (r.ok) showTest(r.reply, 'ok', t('{model} replied in {ms} ms · {input} tokens in, {output} out', { model: r.model, ms: fmt(r.ms), input: fmt(r.inputTokens), output: fmt(r.outputTokens) }) + (r.currency ? ` · ${money({ [r.currency]: r.cost })}` : '') + (r.truncated ? ` · ${t('reply cut short here')}` : ''));
       else showTest([explain(r.error, r.cause), exactAnswer(r.endpoint)].filter(Boolean).join('\n\n'), 'bad', t('No reply after {ms} ms', { ms: fmt(r.ms) }));
     } catch (err) {
       showTest(shown(err), 'bad');
     }
     $('sendTest').disabled = false;
+  });
+
+  // Pricing: the table follows the models chosen elsewhere in the form; the provider's own list fills it in.
+  $('settingsForm').addEventListener('input', (e) => !e.target.closest('#pricing') && renderPrices());
+  $('settingsForm').addEventListener('change', (e) => !e.target.closest('#pricing') && renderPrices());
+  $('priceCurrency').addEventListener('change', renderPrices);
+  $('loadPrices').addEventListener('click', async () => {
+    $('loadPrices').disabled = true;
+    $('priceNote').textContent = t('Asking the provider for its prices…');
+    try {
+      const r = await api('/api/gateway/prices', { method: 'POST', body: { baseUrl: $('baseUrl').value.trim() } });
+      if (!r.ok) throw new Error(t(r.error));
+      ui.priceGroups = r.groups.map((g) => ({ ...g, host: r.host }));
+      const pick = $('priceGroup');
+      pick.replaceChildren(new Option(t('Choose the group your key is in…'), ''), ...ui.priceGroups.map((g) => new Option(`${g.name} · ${g.rate}× · ${t('{n} models', { n: Object.keys(g.models).length })}`, g.id)));
+      pick.hidden = false;
+      $('priceNote').textContent = t('{host} has {n} key groups, each with its own rate. Choose the one this gateway’s key belongs to; choose another to add its prices too.', { host: r.host, n: ui.priceGroups.length });
+    } catch (err) {
+      $('priceNote').textContent = err.message;
+    }
+    $('loadPrices').disabled = false;
+  });
+  $('priceGroup').addEventListener('change', () => {
+    const g = ui.priceGroups.find((x) => x.id === $('priceGroup').value);
+    if (g) applyPriceGroup(g, g.host);
   });
 
   $('listModels').addEventListener('click', async () => {

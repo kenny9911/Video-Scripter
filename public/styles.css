@@ -542,6 +542,12 @@ details.media-settings > summary { cursor: pointer; font-size: 14px; font-weight
 .api-test .inline { margin-top: 10px; align-items: center; }
 .test-reply { margin: 12px 0 0; padding: 10px 12px; border-radius: var(--r-sm); background: var(--panel-2); font: inherit; font-size: 14px; white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow: auto; }
 .test-reply.ok { border-left: 3px solid var(--ok); }
+.pricing .inline { align-items: center; flex-wrap: wrap; }
+.pricing #priceGroup { flex: 1; min-width: 180px; }
+.price-table th, .price-table td { padding: 6px 8px; }
+.price-table thead th { white-space: normal; letter-spacing: 0.03em; }
+.price-table td:first-child { white-space: normal; min-width: 130px; word-break: break-word; }
+.price-table input { width: 78px; min-height: 36px; padding: 4px 8px; text-align: right; font-variant-numeric: tabular-nums; }
 .test-reply.bad { color: var(--bad); background: var(--bad-soft); }
 .media-group { display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px 14px 14px; margin: 0 0 12px; min-width: 0; }
 .media-group legend { font-size: 13px; font-weight: 650; padding: 0 6px; }

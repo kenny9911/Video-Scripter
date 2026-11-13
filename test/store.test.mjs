@@ -338,6 +338,21 @@ test('accounts, access rules, gateways, scripts, media, usage and activity', asy
   r = await admin.call('GET', '/api/usage?scope=all&days=0');
   assert.deepEqual(r.body.byKind.find((k) => k.key === 'test').calls, 4, 'each test is on the usage record, failed ones too');
 
+  // Pricing: a call is costed with the gateway's own prices when it is made; only administrators see the cost.
+  r = await admin.call('POST', '/api/gateway/test', { provider: 'mock', model: 'demo', prompt: 'hi', pricing: { currency: 'CNY', models: { demo: { input: 1_000_000, output: 2_000_000 } } } });
+  assert.deepEqual([r.body.currency, r.body.cost], ['CNY', r.body.inputTokens + 2 * r.body.outputTokens], JSON.stringify(r.body));
+  const spent = r.body.cost;
+  r = await admin.call('GET', '/api/usage?scope=all&days=0');
+  assert.deepEqual(r.body.total.cost, { CNY: spent });
+  assert.deepEqual([r.body.recent[0].priced, r.body.recent[0].cost, r.body.recent.at(-1).priced], [true, spent, false]);
+  const member = client();
+  await admin.call('POST', '/api/admin/users/create', { email: 'costs@example.test', name: 'Costs', password: 'correct-horse-battery' });
+  await member.call('POST', '/api/auth/login', { email: 'costs@example.test', password: 'correct-horse-battery' });
+  r = await member.call('GET', '/api/usage?scope=all&days=0');
+  assert.deepEqual([r.status, 'cost' in r.body.total, 'unpriced' in r.body.total], [200, false, false]);
+  r = await admin.call('POST', '/api/gateway/prices', { baseUrl: 'http://127.0.0.1:9' });
+  assert.ok(!r.body.ok && /no price list this app can read/.test(r.body.error), JSON.stringify(r.body));
+
   // Five wrong passwords lock an account for a while, even for the right password.
   for (let i = 0; i < 5; i++) await client().call('POST', '/api/auth/login', { email: 'bob@example.test', password: 'guess-number-' + i });
   assert.equal((await client().call('POST', '/api/auth/login', { email: 'bob@example.test', password: 'bob-password-1' })).status, 429);

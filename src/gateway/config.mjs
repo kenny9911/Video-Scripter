@@ -1,22 +1,24 @@
 // Gateway configuration store.
 // The `config` collection holds any number of saved gateways ("profiles") and which one is in use:
-//   { activeId, profiles: [{ id, name, provider, baseUrl, apiKey, model, models, image, video }] }
+//   { activeId, profiles: [{ id, name, provider, baseUrl, apiKey, model, models, image, video, pricing }] }
 // `image` and `video` are optional { baseUrl, apiKey, model, size } targets for media generation;
 // a blank baseUrl or apiKey there means "same as the gateway".
+// `pricing` is what this provider charges per model (prices.mjs): every provider has its own sheet.
 // Until something is saved, a single profile is built from environment variables (demo mode by default).
 // API keys never leave the server: the UI only ever receives a masked preview.
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { getProvider } from './providers.mjs';
+import { cleanPricing, PRICING_BLANK } from './prices.mjs';
 import { db, DATA_DIR } from '../db.mjs';
 
 // Gateways saved before the database existed lived in this file; it is still read until the first save.
 const LEGACY_FILE = process.env.GATEWAY_CONFIG_FILE || path.join(DATA_DIR, 'gateway.json');
 const MEDIA_BLANK = { baseUrl: '', apiKey: '', model: '', size: '' };
-const BLANK = { id: '', name: '', provider: '', baseUrl: '', apiKey: '', model: '', models: [], image: MEDIA_BLANK, video: MEDIA_BLANK };
+const BLANK = { id: '', name: '', provider: '', baseUrl: '', apiKey: '', model: '', models: [], image: MEDIA_BLANK, video: MEDIA_BLANK, pricing: PRICING_BLANK };
 export const MEDIA_KINDS = ['image', 'video'];
-const withMedia = (p) => ({ ...p, image: { ...MEDIA_BLANK, ...p.image }, video: { ...MEDIA_BLANK, ...p.video } });
+const withMedia = (p) => ({ ...p, image: { ...MEDIA_BLANK, ...p.image }, video: { ...MEDIA_BLANK, ...p.video }, pricing: cleanPricing(p.pricing) });
 
 function envProfile() {
   const env = process.env;
@@ -85,7 +87,8 @@ export function mergeConfig(patch, current) {
   const models = [...new Set(picked.map((m) => String(m).trim()).filter(Boolean))].slice(0, 200);
   const model = String(patch.model ?? cur.model ?? '').trim() || models[0] || '';
   const name = String(patch.name ?? cur.name ?? '').trim().slice(0, 60) || getProvider(provider)?.label || 'Gateway';
-  return { id: cur.id, name, provider, baseUrl, apiKey, model, models, image: mergeMedia(patch.image, cur.image), video: mergeMedia(patch.video, cur.video) };
+  const pricing = cleanPricing(patch.pricing && typeof patch.pricing === 'object' ? patch.pricing : cur.pricing);
+  return { id: cur.id, name, provider, baseUrl, apiKey, model, models, image: mergeMedia(patch.image, cur.image), video: mergeMedia(patch.video, cur.video), pricing };
 }
 
 /** Same key rule as the gateway itself: a media key is kept only while its base URL is unchanged. */
@@ -128,6 +131,7 @@ export function publicConfig(config) {
     models: enabledModels(config),
     hasKey: Boolean(config.apiKey),
     keyPreview: maskKey(config.apiKey),
+    pricing: cleanPricing(config.pricing),
     ...Object.fromEntries(
       MEDIA_KINDS.map((kind) => {
         const m = { ...MEDIA_BLANK, ...config[kind] };

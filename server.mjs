@@ -18,6 +18,7 @@ import { suggestStyles, buildStylePrompts, parseStylePick } from './src/suggest.
 import { IMAGE_MODES, SHOT_LABELS, MAX_IMAGES, planShots } from './src/shots.mjs';
 import { ASPECTS } from './src/aspects.mjs';
 import { loadStore, loadConfig, saveStore, mergeConfig, publicStore, validateConfig, enabledModels, mediaTarget } from './src/gateway/config.mjs';
+import { fetchPriceList } from './src/gateway/prices.mjs';
 import { streamChat, completeChat, listModels, request, cutShort, GatewayError } from './src/gateway/client.mjs';
 import { generateImage, createVideo, videoStatus, videoContent, clipSeconds } from './src/gateway/media.mjs';
 import { listHistory, getHistory, addHistory, newHistoryId, saveMedia, linkMedia, serveMedia, mediaOwner, readMedia, deleteUserHistory, transferHistory } from './src/store.mjs';
@@ -322,7 +323,7 @@ const routes = {
   // scope=all (administrators only) covers every user; otherwise the caller's own.
   'GET /api/usage': route('user', async (req, res, user, query) => {
     const all = query.get('scope') === 'all' && isAdmin(user);
-    json(res, 200, { scope: all ? 'all' : 'me', ...(await summarizeUsage({ userId: all ? undefined : user.id, days: Number(query.get('days') ?? 30) })) });
+    json(res, 200, { scope: all ? 'all' : 'me', ...(await summarizeUsage({ userId: all ? undefined : user.id, days: Number(query.get('days') ?? 30), costs: isAdmin(user) })) });
   }),
 
   'GET /api/activity': route('user', async (req, res, user, query) => {
@@ -517,13 +518,24 @@ const routes = {
       const reply = (await completeChat(config, { ...prompts, maxTokens: asked ? 1024 : 256, signal: AbortSignal.timeout(seconds * 1000), onUsage: (u) => (usage = u) })).trim();
       if (asked && !reply) throw Object.assign(new GatewayError('The model answered with an empty reply', 502), { host: hostOf(config.baseUrl) });
       const spent = tokens(usage, prompts, reply);
-      await recordUsage({ user, kind: 'test', config, ...spent, ms: Date.now() - started });
+      const used = await recordUsage({ user, kind: 'test', config, ...spent, ms: Date.now() - started });
       const shownReply = reply.slice(0, asked ? TEST_REPLY_MAX : 120);
-      json(res, 200, { ok: true, ms: Date.now() - started, model: config.model, reply: shownReply, ...(asked && { ...spent, truncated: shownReply.length < reply.length }) });
+      json(res, 200, { ok: true, ms: Date.now() - started, model: config.model, reply: shownReply, ...(asked && { ...spent, truncated: shownReply.length < reply.length, ...(used.priced && { cost: used.cost, currency: used.currency }) }) });
     } catch (err) {
       const error = err.name === 'TimeoutError' ? `Timed out after ${seconds}s` : err.message;
       await recordUsage({ user, kind: 'test', config, ok: false, error, ms: Date.now() - started });
       json(res, 200, { ok: false, ms: Date.now() - started, ...failure(req, err, error), ...(err.endpoint && { endpoint: err.endpoint }) }); // what the endpoint itself said, unedited
+    }
+  }),
+
+  // The provider's own published prices for the address in the form, by key group, when it has a list this
+  // app can read. No key is sent: the list is public.
+  'POST /api/gateway/prices': route('admin', async (req, res) => {
+    const body = await readJson(req);
+    try {
+      json(res, 200, { ok: true, ...(await fetchPriceList(body.baseUrl, { signal: AbortSignal.timeout(20_000) })) });
+    } catch (err) {
+      json(res, 200, { ok: false, error: err.name === 'TimeoutError' ? 'Timed out after 20s' : err.message });
     }
   }),
 

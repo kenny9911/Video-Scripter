@@ -5,7 +5,7 @@
 import { t, applyI18n } from './i18n.js';
 import { hydrateIcons, icon } from './icons.js';
 import { wireTheme, wireLang, enhancePasswords, revealPassword } from './shell.js';
-import { el, call, fmt, when, table, block, empty, field, statusLine, activityView } from './account.js';
+import { el, call, fmt, money, when, table, block, empty, field, statusLine, activityView } from './account.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { me: null, users: [] };
@@ -154,7 +154,7 @@ async function openUser(id) {
 
   // Usage and activity
   const T = d.usage.total;
-  const usage = el('div', { class: 'stats' }, [[d.scripts, 'Scripts'], [T.calls, 'Model calls'], [T.inputTokens, 'Tokens in'], [T.outputTokens, 'Tokens out'], [T.images, 'Images'], [T.videos, 'Videos']].map(([n, label]) => el('div', { class: 'stat' }, el('b', {}, fmt(n)), el('span', {}, t(label)))));
+  const usage = el('div', { class: 'stats' }, [[d.scripts, 'Scripts'], [money(T.cost), 'Cost'], [T.calls, 'Model calls'], [T.inputTokens, 'Tokens in'], [T.outputTokens, 'Tokens out'], [T.images, 'Images'], [T.videos, 'Videos']].map(([n, label]) => el('div', { class: 'stat' }, el('b', {}, typeof n === 'string' ? n : fmt(n)), el('span', {}, t(label)))));
 
   // Delete
   const keep = el('select', {}, el('option', { value: 'delete' }, t('Delete their {n} scripts and all media', { n: d.scripts })), el('option', { value: 'transfer' }, t('Move their {n} scripts to my account', { n: d.scripts })));

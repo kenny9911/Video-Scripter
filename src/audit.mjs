@@ -1,11 +1,13 @@
 // Two append-only records:
 //   usage     one document per call to a model (script, image, video, connection test): who, for which
-//             task (the script's id), which gateway and model, tokens in and out, images, video seconds.
+//             task (the script's id), which gateway and model, tokens in and out, images, video seconds,
+//             and what it cost at that gateway's prices on the day (`priced` is false when it had none).
 //   activity  one document per thing a person did (signed in, generated a script, changed a gateway ...).
 // Recording must never break the request it describes, so failures here are logged and swallowed.
 
 import { randomUUID } from 'node:crypto';
 import { db } from './db.mjs';
+import { costOf } from './gateway/prices.mjs';
 
 const id = () => randomUUID().slice(0, 16);
 const num = (v) => (Number.isFinite(Number(v)) ? Math.max(0, Math.round(Number(v))) : 0);
@@ -18,6 +20,9 @@ export function estimateTokens(text) {
 }
 
 export async function recordUsage({ user, taskId = '', kind, config, model, inputTokens, outputTokens, images, videoSeconds, estimated = false, ok = true, error = '', ms = 0 }) {
+  const name = String(model || config?.model || '');
+  // A call that failed is not billed; one that worked costs what this gateway's price sheet says, if it says.
+  const cost = ok ? costOf(config?.pricing, { model: name, inputTokens: num(inputTokens), outputTokens: num(outputTokens), images: num(images), videoSeconds: num(videoSeconds) }) : null;
   const doc = {
     id: id(),
     ts: Date.now(),
@@ -27,12 +32,15 @@ export async function recordUsage({ user, taskId = '', kind, config, model, inpu
     gatewayId: config?.id || '',
     gateway: config?.name || '',
     provider: config?.provider || '',
-    model: String(model || config?.model || ''),
+    model: name,
     inputTokens: num(inputTokens),
     outputTokens: num(outputTokens),
     images: num(images),
     videoSeconds: num(videoSeconds),
     estimated: Boolean(estimated),
+    cost: cost ?? 0,
+    currency: cost === null ? '' : config.pricing.currency || 'USD',
+    priced: cost !== null,
     ok: Boolean(ok),
     error: String(error || '').slice(0, 300),
     ms: num(ms),
@@ -61,7 +69,7 @@ export async function logActivity(req, user, type, detail = {}) {
   }
 }
 
-const blank = () => ({ calls: 0, failed: 0, inputTokens: 0, outputTokens: 0, images: 0, videos: 0, videoSeconds: 0, estimated: 0 });
+const blank = () => ({ calls: 0, failed: 0, inputTokens: 0, outputTokens: 0, images: 0, videos: 0, videoSeconds: 0, estimated: 0, cost: {}, unpriced: 0 });
 function add(total, u) {
   total.calls += 1;
   if (!u.ok) total.failed += 1;
@@ -71,6 +79,8 @@ function add(total, u) {
   total.videoSeconds += u.videoSeconds;
   if (u.kind === 'video' && u.ok) total.videos += 1;
   if (u.estimated) total.estimated += 1;
+  if (u.priced) total.cost[u.currency] = Math.round(((total.cost[u.currency] || 0) + u.cost) * 1e8) / 1e8;
+  else if (u.ok && u.provider !== 'mock') total.unpriced += 1; // it worked and nobody said what it costs
   return total;
 }
 const group = (rows, keyOf, extra) => {
@@ -87,15 +97,22 @@ const group = (rows, keyOf, extra) => {
 /**
  * Totals for one user (userId) or everyone (userId undefined), over the last `days` (0 = all time):
  * overall, by kind of call, by model, by task (script), by user, and the latest calls.
+ * `costs: false` leaves out what the calls cost: that is the administrators' business.
  */
-export async function summarizeUsage({ userId, days = 30 } = {}) {
+export async function summarizeUsage({ userId, days = 30, costs = true } = {}) {
   const since = days > 0 ? Date.now() - days * 86_400_000 : undefined;
   const rows = await db.list('usage', { userId, since, limit: 20_000 });
   const history = new Map((await db.list('history', { userId })).map((e) => [e.id, e]));
   const users = userId === undefined ? new Map((await db.list('users')).map((u) => [u.id, u])) : new Map();
   const tokens = (g) => g.inputTokens + g.outputTokens;
+  const shown = (g) => {
+    if (costs) return g;
+    const { cost, unpriced, currency, priced, ...rest } = g;
+    return rest;
+  };
+  const groups = (list) => list.map(shown);
 
-  return {
+  const summary = {
     days,
     total: rows.reduce(add, blank()),
     byKind: group(rows, (u) => u.kind),
@@ -109,6 +126,7 @@ export async function summarizeUsage({ userId, days = 30 } = {}) {
     byUser: userId === undefined ? group(rows, (u) => u.userId, (u) => ({ email: users.get(u.userId)?.email || '', name: users.get(u.userId)?.name || '' })).sort((a, b) => tokens(b) - tokens(a) || b.calls - a.calls) : [],
     recent: rows.slice(0, 100).map((u) => ({ ...u, email: users.get(u.userId)?.email || '' })),
   };
+  return { ...summary, total: shown(summary.total), byKind: groups(summary.byKind), byModel: groups(summary.byModel), byTask: groups(summary.byTask), byUser: groups(summary.byUser), recent: groups(summary.recent) };
 }
 
 export const listActivity = ({ userId, limit = 200 } = {}) => db.list('activity', { userId, limit: Math.min(1000, Math.max(1, Number(limit) || 200)) });
