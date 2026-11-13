@@ -24,6 +24,7 @@ import { generateImage, createVideo, videoStatus, videoContent, clipSeconds } fr
 import { listHistory, getHistory, addHistory, newHistoryId, saveMedia, linkMedia, serveMedia, mediaOwner, readMedia, deleteUserHistory, transferHistory } from './src/store.mjs';
 import { buildPackage } from './src/package.mjs';
 import { postFormat, publicFormat, buildPostPrompts, parsePost, postFromScript, normalizePost } from './src/post.mjs';
+import { loadSpeech, saveSpeech, mergeSpeech, validateSpeech, publicSpeech, getSpeechProvider, voiceScene, synthesize, wavOf } from './src/speech.mjs';
 import { buildPlan, planSummary, buildPrompts, parseScript, settleScript, buildVisualPrompt, buildHostPrompt, showsHost, buildNarrationPrompts, parseNarration, buildRefinePrompts, parseRefined, REFINE_PRESETS } from './src/prompt.mjs';
 import { PACE, MIN_DURATION, MAX_DURATION, normalizeNarration, lockNarration } from './src/narration.mjs';
 import { writeNarration, reviseNarration, checkNarration, AGENT_STEPS } from './src/agent/narrator.mjs';
@@ -747,6 +748,86 @@ const routes = {
     const saved = { ...normalizePost(post, format), ts: Date.now(), by: entry.post?.by || '' };
     await db.update('history', entry.id, (e) => Object.assign(e, { post: saved }));
     json(res, 200, { post: saved });
+  }),
+
+  // ---------- The voice of a video (src/speech.mjs) ----------
+
+  // The voice provider in use. Everyone learns whether there is one and which voices it offers; an
+  // administrator also sees its address and a masked key.
+  'GET /api/speech/config': route('user', async (req, res, user) => {
+    const demo = getProvider((await loadConfig()).provider)?.protocol === 'mock';
+    json(res, 200, publicSpeech(await loadSpeech(), { admin: isAdmin(user), demo }));
+  }),
+
+  // Connect, change or (with an empty `provider`) disconnect the voice provider.
+  'PUT /api/speech/config': route('admin', async (req, res, user) => {
+    const merged = mergeSpeech(await readJson(req), await loadSpeech());
+    const invalid = merged.provider && validateSpeech(merged);
+    if (invalid) return json(res, 400, { error: invalid });
+    await saveSpeech(merged);
+    await logActivity(req, user, 'speech.update', { gateway: getSpeechProvider(merged.provider)?.label || 'off', model: merged.model });
+    json(res, 200, publicSpeech(merged, { admin: true }));
+  }),
+
+  // Hear the settings in the form before saving them: one short sentence, as a WAV in a data: URI.
+  'POST /api/speech/test': route('admin', async (req, res) => {
+    const body = await readJson(req);
+    const merged = mergeSpeech(body, await loadSpeech());
+    const invalid = validateSpeech(merged);
+    if (invalid) return json(res, 400, { error: invalid });
+    const zh = body.lang !== 'en';
+    try {
+      const { pcm } = await synthesize(merged, { text: String(body.text || '').trim().slice(0, 80) || (zh ? '你好，这是这个声音的试听。' : 'Hello, this is how this voice sounds.'), voice: String(body.voice || '').trim() || merged.voice, lang: zh ? 'zh' : 'en', signal: AbortSignal.timeout(60_000) });
+      json(res, 200, { seconds: pcm.length / 2 / 24000, audio: `data:audio/wav;base64,${wavOf(pcm).toString('base64')}` });
+    } catch (err) {
+      json(res, 502, failure(req, err, err.name === 'TimeoutError' ? 'Timed out after 60s' : err.message));
+    }
+  }),
+
+  // Speaks one scene of a script and keeps the sound with the script. The page asks scene by scene, so a long
+  // script never outlasts a request and a failed scene is asked again by itself. `done` marks the last one.
+  'POST /api/voice/scene': route('user', async (req, res, user) => {
+    const { historyId, sceneId, voice, voiceB, speed, done } = await readJson(req);
+    const entry = await ownedHistory(user, historyId);
+    const scene = entry.script.scenes.find((sc) => String(sc.id) === String(sceneId));
+    if (!scene) throw fail('That scene is not in the script', 404);
+    const speech = await loadSpeech();
+    const ready = !validateSpeech(speech);
+    const demo = !ready && getProvider((await loadConfig()).provider)?.protocol === 'mock';
+    if (!ready && !demo) throw fail('No voice provider is connected yet. An administrator connects one under Voice settings.');
+    const lang = entry.plan?.lang || entry.plan?.brief?.lang || PLATFORMS.find((p) => p.id === entry.platformId)?.lang || 'zh';
+    const voices = { A: String(voice || '').trim().slice(0, 120), B: String(voiceB || '').trim().slice(0, 120) };
+    const pace = Math.min(1.6, Math.max(0.7, Number(speed) || 1));
+    const model = demo ? 'demo' : speech.model;
+    const about = { id: 'speech', name: demo ? 'Demo voice' : getSpeechProvider(speech.provider).label, provider: demo ? 'mock' : speech.provider };
+    const started = Date.now();
+    try {
+      const made = await voiceScene(speech, scene.voiceover, { voices, speed: pace, lang, demo, signal: AbortSignal.timeout(120_000) });
+      const name = `${entry.id}-s${String(scene.id).replace(/[^\w-]/g, '')}-voice-${Date.now().toString(36)}.wav`;
+      await db.putBlob(name, { userId: entry.userId, type: 'audio/wav', bytes: made.wav });
+      const seconds = Math.round(made.seconds * 1000) / 1000;
+      await db.update('history', entry.id, (e) => {
+        e.voice = { ...e.voice, provider: about.provider, voice: voices.A || speech.voice, voiceB: voices.B || speech.voiceB, speed: pace, ts: Date.now(), scenes: { ...e.voice?.scenes, [scene.id]: { name, seconds } } };
+      });
+      await recordUsage({ user, taskId: entry.id, kind: 'voice', config: about, model, ms: Date.now() - started });
+      if (done) await logActivity(req, user, 'voice.generate', { taskId: entry.id, title: entry.script.title, model, seconds: Math.round(Object.values({ ...entry.voice?.scenes, [scene.id]: { seconds } }).reduce((n, v) => n + v.seconds, 0)) });
+      json(res, 200, { sceneId: scene.id, url: `/api/voice/file?id=${entry.id}&name=${name}`, seconds, demo });
+    } catch (err) {
+      const error = err.name === 'TimeoutError' ? 'Timed out after 120s' : err.message;
+      await recordUsage({ user, taskId: entry.id, kind: 'voice', config: about, model, ms: Date.now() - started, ok: false, error });
+      json(res, 502, failure(req, err, error));
+    }
+  }),
+
+  // The sound of one scene, for its owner.
+  'GET /api/voice/file': route('user', async (req, res, user, query) => {
+    const entry = await ownedHistory(user, query.get('id'));
+    const name = String(query.get('name') || '');
+    const blob = name.startsWith(`${entry.id}-s`) && /^[\w-]+-voice-\w+\.wav$/.test(name) ? await db.getBlob(name) : null;
+    if (!blob) throw fail('That recording is no longer stored', 404);
+    const bytes = await blob.bytes();
+    res.writeHead(200, { 'content-type': 'audio/wav', 'content-length': bytes.length, 'cache-control': 'private, max-age=31536000, immutable', vary: 'cookie', 'x-content-type-options': 'nosniff' });
+    res.end(bytes);
   }),
 
   // Media for one scene, made with the image / video settings of the user's gateway,

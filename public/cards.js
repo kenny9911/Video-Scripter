@@ -8,8 +8,8 @@
 // A card is { kind, kicker, title, body, bullets, image }. Its text is fitted: type shrinks until the card
 // holds it, down to a floor below which a phone could not read it.
 
-const SANS = '"PingFang SC","Hiragino Sans GB","Noto Sans SC","Source Han Sans SC","Microsoft YaHei","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif';
-const SERIF = '"Songti SC","Noto Serif SC","Source Han Serif SC",STSong,SimSun,Georgia,"Times New Roman",serif';
+export const SANS = '"PingFang SC","Hiragino Sans GB","Noto Sans SC","Source Han Sans SC","Microsoft YaHei","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif';
+export const SERIF = '"Songti SC","Noto Serif SC","Source Han Serif SC",STSong,SimSun,Georgia,"Times New Roman",serif';
 
 export const THEMES = [
   { id: 'paper', name: { en: 'Cream paper', zh: '奶油纸' }, bg: '#F5EFE3', ink: '#221D16', sub: '#7C7061', accent: '#C8432B', onAccent: '#FFFFFF', rule: 'rgba(34,29,22,0.16)', mark: { type: 'under', color: 'rgba(200,67,43,0.24)' }, title: SERIF, deco: 'frame' },
@@ -117,8 +117,12 @@ const rounded = (ctx, x, y, w, h, r) => {
   ctx.closePath();
 };
 
-/** Text set in a box `maxW` wide: the largest size from `max` down to `min` at which it takes `maxLines` or fewer. */
-function textBlock(ctx, text, o) {
+/**
+ * Text set in a box `maxW` wide: the largest size from `max` down to `min` at which it takes `maxLines` or fewer.
+ * `align: 'center'` centres each line in the box; `stroke: { color, width }` outlines the letters, for text over a picture.
+ * Returns { h, lines, draw(x, y) }.
+ */
+export function textBlock(ctx, text, o) {
   if (!String(text || '').trim()) return null;
   const font = (size) => `${o.weight || 400} ${size}px ${o.family}`;
   let size = o.max;
@@ -154,6 +158,7 @@ function textBlock(ctx, text, o) {
   const step = size * (o.lh || 1.4);
   return {
     h: lines.length * step,
+    lines: lines.length,
     draw(x, y) {
       ctx.font = font(size);
       ctx.textBaseline = 'alphabetic';
@@ -163,8 +168,9 @@ function textBlock(ctx, text, o) {
         const parts = line.atoms.flatMap((atom) => atom.parts);
         const widths = parts.map((p) => ctx.measureText(p.text).width);
         // The highlight goes down first, one stroke under each marked run, so its pieces never overlap.
+        const left = x + (o.align === 'center' ? (o.maxW - line.w) / 2 : 0);
         if (o.mark?.type === 'under') {
-          let at = x;
+          let at = left;
           let from = null;
           parts.forEach((part, j) => {
             if (part.mark && from == null) from = at;
@@ -175,7 +181,14 @@ function textBlock(ctx, text, o) {
             from = null;
           });
         }
-        let at = x;
+        if (o.stroke) {
+          ctx.strokeStyle = o.stroke.color;
+          ctx.lineWidth = o.stroke.width;
+          ctx.lineJoin = 'round';
+          let at = left;
+          parts.forEach((part, j) => (ctx.strokeText(part.text, at, base), (at += widths[j])));
+        }
+        let at = left;
         parts.forEach((part, j) => {
           ctx.fillStyle = part.mark && o.mark?.type === 'color' ? o.accent : o.color;
           ctx.fillText(part.text, at, base);
@@ -204,7 +217,7 @@ function bulletList(ctx, items, o) {
   };
 }
 
-function background(ctx, look, w, h, u, cover) {
+export function background(ctx, look, w, h, u, cover) {
   if (Array.isArray(look.bg)) {
     const g = ctx.createLinearGradient(0, 0, w, h);
     look.bg.forEach((c, i) => g.addColorStop(i / (look.bg.length - 1), c));

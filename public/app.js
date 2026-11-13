@@ -7,6 +7,7 @@ import { wireTheme, wireLang, enhancePasswords } from './shell.js';
 import { countSpoken, fitDuration, splitNarration, spokenText, MIN_DURATION, MAX_DURATION } from './narration.js';
 import { wireLibrary } from './library.js';
 import { wirePost } from './post.js';
+import { wireVideo } from './video.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -53,6 +54,8 @@ let library = { selected: () => [], setSelected() {}, has: () => false, open() {
 
 // The image post of a script (图文, post.js): set once the page knows the platforms. A run shows its script or its post (`run.view`).
 let imagePost = { has: () => false, view: () => null };
+// The video of a script (video.js): its voiceover spoken, then the file made in the browser.
+let film = null;
 
 const HISTORY_KEY = 'video-scripter.history';
 const FORM_KEY = 'video-scripter.brief';
@@ -879,6 +882,12 @@ function savedMedia(entry) {
   return media;
 }
 
+/** The voice saved with a script, as a run keeps it: each scene's recording by its address. */
+function savedVoice(entry) {
+  if (!entry.voice?.scenes) return null;
+  return { ...entry.voice, scenes: Object.fromEntries(Object.entries(entry.voice.scenes).map(([id, v]) => [id, { url: `/api/voice/file?id=${entry.id}&name=${v.name}`, seconds: v.seconds }])) };
+}
+
 /**
  * Show a saved script and put the brief it was written from back into the form, so it can be edited and
  * generated again. Generating always saves a new history entry: the one opened here is never changed.
@@ -893,7 +902,7 @@ function openHistory(entry) {
     saveForm();
     toast(t('Brief restored from this script'));
   }
-  state.runs = { [entry.platformId]: { status: 'done', raw: '', brief, plan: entry.plan, script: entry.script, historyId: entry.id, media, styleIds: entry.brief?.styleIds || [], post: entry.post || null } };
+  state.runs = { [entry.platformId]: { status: 'done', raw: '', brief, plan: entry.plan, script: entry.script, historyId: entry.id, media, styleIds: entry.brief?.styleIds || [], post: entry.post || null, voice: savedVoice(entry) } };
   state.teleprompter = {};
   state.active = entry.platformId;
   setView('script');
@@ -2168,12 +2177,25 @@ function renderScript(platformId, run) {
   );
 }
 
-/** Script or image post: the two things one script can be published as, where its platform has both. */
+/** Script, image post or video: what one script can be published as. The image post is there where the platform has one. */
 function formatSwitch(platformId, run) {
-  if (!run.historyId || !imagePost.has(platformId)) return null;
+  if (!run.historyId || !(imagePost.has(platformId) || film)) return null;
   const format = platformOf(platformId).post;
   const tab = (id, label) => h('button', { class: 'seg-btn', type: 'button', role: 'tab', 'aria-selected': String((run.view || 'script') === id), onclick: () => ((run.view = id), render()) }, label);
-  return h('div', { class: 'seg format-switch', role: 'tablist', 'aria-label': t('Video script or image post') }, tab('script', t('Video script')), tab('post', `${t('Image post')}${lang === 'zh' ? (format.name === '图文' ? '' : ` · ${format.name}`) : /^Image (post|note)$/.test(format.nameEn) ? '' : ` · ${format.nameEn}`}`));
+  return h(
+    'div',
+    { class: 'seg format-switch', role: 'tablist', 'aria-label': t('Script, image post or video') },
+    tab('script', t('Video script')),
+    imagePost.has(platformId) && tab('post', `${t('Image post')}${lang === 'zh' ? (format.name === '图文' ? '' : ` · ${format.name}`) : /^Image (post|note)$/.test(format.nameEn) ? '' : ` · ${format.nameEn}`}`),
+    film && tab('video', t('Video')),
+  );
+}
+
+/** What a finished run shows: its script, its image post or its video. */
+function finishedView(platformId, run) {
+  if (run.historyId && run.view === 'post' && imagePost.has(platformId)) return imagePost.view(platformId, run);
+  if (run.historyId && run.view === 'video' && film) return film.view(platformId, run, { aspect: runAspect(run).id, lang: scriptLang(platformId, run) });
+  return renderScript(platformId, run);
 }
 
 function render() {
@@ -2190,7 +2212,7 @@ function render() {
     return saveDrafts();
   }
   saveDrafts();
-  if (run.status === 'done') return box.replaceChildren(...[formatSwitch(state.active, run), run.view === 'post' && imagePost.has(state.active) && run.historyId ? imagePost.view(state.active, run) : renderScript(state.active, run)].filter(Boolean));
+  if (run.status === 'done') return box.replaceChildren(...[formatSwitch(state.active, run), finishedView(state.active, run)].filter(Boolean));
   if (isWriting(run)) {
     const about = { platform: platformOf(state.active).name, model: run.plan?.model, budget: run.plan?.budget, unit: run.plan?.unit };
     const note = !run.plan
@@ -2762,6 +2784,8 @@ async function boot() {
         if (entry) entry.post = run.post;
       },
     });
+  // The voice was made: the history learns of it from the server, which keeps the recordings.
+  film = wireVideo({ toast, platformOf, isAdmin: () => state.user.role === 'admin', changed: () => loadHistory().catch(() => {}) });
   buildForm();
   library.load();
   wireSettings();

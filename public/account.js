@@ -107,6 +107,8 @@ export const ACTIVITY = {
   'script.stopped': 'Stopped a script',
   'script.download': 'Downloaded a package',
   'post.write': 'Wrote an image post',
+  'voice.generate': 'Voiced a script',
+  'speech.update': 'Changed the voice provider',
   'narration.draft': 'Drafted a narration',
   'narration.refine': 'Refined a narration',
   'narration.failed': 'Narration failed',
@@ -135,7 +137,7 @@ export const ACTIVITY = {
   'skill.update': 'Changed a skill',
   'skill.delete': 'Deleted a skill',
 };
-const KIND = { script: 'Scripts', chat: 'Chat', narration: 'Narration', post: 'Image posts', style: 'Style picks', read: 'Reading pictures and scans', image: 'Images', video: 'Videos', test: 'Connection tests' };
+const KIND = { script: 'Scripts', chat: 'Chat', narration: 'Narration', post: 'Image posts', voice: 'Voice', style: 'Style picks', read: 'Reading pictures and scans', image: 'Images', video: 'Videos', test: 'Connection tests' };
 
 export function activityDetail(a) {
   const d = a.detail || {};

@@ -15,6 +15,7 @@ It works with the model provider you already use, runs on your own machine or on
 - **Ready to publish.** Titles, cover text, description, hashtags and a pinned comment come with every script.
 - **A narration agent, not a one-shot prompt.** The spoken words are planned on a viewpoint card, written with the skills that fit the brief, then measured, reviewed and corrected before a script is built around them.
 - **Your words, if you want.** Have the narration drafted first, paste your own, or rewrite any beat in the narration editor. The script is then built around it word for word.
+- **A finished video.** The script is voiced scene by scene and made into a captioned MP4 in your browser, cut to the voice.
 - **Video or image post.** The same script becomes a set of picture cards with the text to post under them, for 小红书 图文, 抖音图文, TikTok Photo Mode and Instagram carousels, counted against each platform's limits.
 - **Storyboards included.** Turn any scene into an image or clip in the video's aspect ratio (9:16, 16:9, 1:1, 3:4 or 4:3), in one of 74 visual styles.
 - **The look picked for you.** Type a topic and the visual style is chosen from it, with the reason and a few alternatives. One click has the model choose instead.
@@ -151,6 +152,29 @@ The cards are set in the fonts of the device, so no font is downloaded; a card d
 Conversations are private: nobody else can open one, an administrator included. Usage is recorded like every other model call.
 
 The assistant makes pictures and clips by writing a small fenced block in its reply, which the app reads once the reply is whole. That needs nothing from the provider beyond text in and text out, so it works with every model the gateway reaches.
+
+## Video
+
+A finished script also has a **Video** tab. It turns the script into a finished MP4: the voiceover spoken by a text-to-speech voice, every scene on screen with its on-screen text, and the voiceover as captions in time with the voice.
+
+1. **Voice.** Pick a voice and a speed, then **Voice the script**. Each scene is spoken on its own, so the video is cut to the voice: a scene lasts exactly as long as its sound, with a breath after it. In a two-host script every line is said in its speaker's voice. The recordings are kept with the script.
+2. **Look.** A scene that has a generated or library picture shows it, drifting slowly closer; a scene without one shows its on-screen text on the theme you pick. The slider under the preview scrubs through the whole video before anything is encoded. Captions and the "AI-generated" corner label can be switched off.
+3. **Video.** **Make the video** draws every frame and encodes the file in your browser: H.264 with AAC sound, 30 frames a second, in the script's aspect ratio (1080×1920 for 9:16, 1920×1080 for 16:9, 1080×1080, 1080×1440 or 1440×1080). An 80-second video takes about 12 seconds on a recent laptop. **Download .mp4** saves it; on a phone, **Share to an app** hands it to a platform's app.
+
+The file is made on your device and is not uploaded or kept on the server, so download it before you leave the page; the voice is kept, so making it again is quick. It needs a browser with WebCodecs: a current Chrome, Edge or Safari.
+
+### Connect a voice
+
+An administrator connects one voice provider for everyone under **Video → Voice settings**. **Hear it** plays a sentence with the settings in the form before they are saved.
+
+| Provider | What to enter |
+| --- | --- |
+| 火山引擎 豆包语音 (Seed-TTS) | APP ID and Access Token from the 豆包语音 console, a resource id (`seed-tts-2.0`) and a speaker id as the voice |
+| OpenAI-compatible | The base URL and key of any service with a `/audio/speech` endpoint that can answer with WAV, a model and a voice name |
+
+The key stays on the server, and members only see which voices they can pick. With no provider connected, demo mode stands a placeholder tone in for the voice so the rest can be tried.
+
+What this first version does not do: music and sound effects, moving clips inside the video (a scene's generated clip is not used yet), lip-synced hosts, and posting to a platform for you.
 
 ## The narration agent
 
@@ -546,6 +570,8 @@ Everything below is optional. Settings saved in the app take precedence over the
 | `VIDEO_BASE_URL_API`, `VIDEO_MODEL`, `VIDEO_API_KEY` | Video generation defaults | Off |
 | `GATEWAY_RETRY_BASE_MS` | The first pause, in milliseconds, before a failed provider request is tried again; later pauses grow from it | `900` |
 | `REQUEST_TIME_LIMIT_S` | How many seconds the host lets one request run. The server winds a request up shortly before, and a script that is not finished is carried on in the next request | `800` on Vercel, otherwise no limit |
+| `SPEECH_PROVIDER`, `SPEECH_API_KEY`, `SPEECH_APP_ID` | The voice provider until one is saved in the app: `volc` (豆包语音 Seed-TTS, which also needs the APP ID) or `openai` (an OpenAI-compatible `/audio/speech`) | None |
+| `SPEECH_BASE_URL_API`, `SPEECH_MODEL`, `SPEECH_VOICE`, `SPEECH_VOICE_B` | Its address, model or resource id, and the voices scripts are read in | The provider's |
 | `ASSET_MAX_MB` | The largest file the library takes, in megabytes | `25`; for pictures and clips on Vercel `4` |
 | `ASSET_BODY_MB` | The largest upload one request may carry, for a host or a proxy that caps it. A larger file is sent in parts | no cap; on Vercel `4` |
 
@@ -592,6 +618,7 @@ src/materials.mjs       the library files one brief uses: what the prompts say a
 api/index.mjs           serverless entry point (Vercel); vercel.json routes requests to it
 src/package.mjs         the downloadable .zip for one script (src/zip.mjs writes the archive)
 src/post.mjs            the image post of a script: what each platform takes, the prompt, reading the reply
+src/speech.mjs          the voice of a video: the voice provider, the two protocols, a scene's voiceover as one WAV
 src/chat/               the chat: store.mjs (conversations and their files), skills.mjs (skills people write),
                         prompt.mjs (what the model is told), routes.mjs (the API)
 public/                 the web UI: index.html and zh.html are the home page (English, 中文), app.html the app,
@@ -668,6 +695,10 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `POST` | `/api/history` | Import a script |
 | `POST` | `/api/history/package` | `{ id, markdown }` Returns the script's `.zip` |
 | `POST` | `/api/post/generate` | `{ historyId, instruction? }` Writes the image post of a script and keeps it on the script: `{ post }` with `title`, `titles`, `body`, `hashtags` and `cards` |
+| `GET`, `PUT` | `/api/speech/config` | The voice provider in use: everyone learns whether there is one and its voices; an administrator sees its address and a masked key, and changes it with `{ provider, baseUrl, apiKey, appId, model, voice, voiceB }` |
+| `POST` | `/api/speech/test` | Administrators: one sentence spoken with the settings in the body, as `{ seconds, audio }` (a WAV in a `data:` URI) |
+| `POST` | `/api/voice/scene` | `{ historyId, sceneId, voice?, voiceB?, speed?, done? }` Speaks one scene of a script and keeps the sound with the script: `{ sceneId, url, seconds }` |
+| `GET` | `/api/voice/file?id=&name=` | The recording of one scene (WAV), for the script's owner |
 | `POST` | `/api/post/save` | `{ historyId, post }` Keeps the creator's edits to a post: its text, its cards, and their theme, shape and footer |
 | `GET` | `/api/chat/meta` | What a conversation can be sent to: the gateways and their enabled models (names only), and the models that draw and film |
 | `GET` | `/api/chats?q=` | Your conversations, the latest first; `q` searches titles and messages. `GET /api/chats/get?id=` is one in full |
