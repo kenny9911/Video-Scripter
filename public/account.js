@@ -1,6 +1,7 @@
 // Signed-out screen, and the Account dialog: usage, activity log and your own profile.
 // The helpers exported here are shared with the admin page (admin.js).
 
+import './chat.zh.js'; // the chat's words, some of which the usage and activity lists show
 import { t, lang, explain } from './i18n.js';
 import { wireLang, enhancePasswords, concealPassword } from './shell.js';
 
@@ -81,7 +82,9 @@ export function showAuth({ signupOpen }) {
     try {
       await call(mode === 'signup' ? '/api/auth/signup' : '/api/auth/login', { method: 'POST', body: { email, password, name: $('authName').value.trim() } });
       await offerToSave(email, password);
-      location.reload();
+      // Someone who was sent here from the chat to sign in goes back to it.
+      if (new URLSearchParams(location.search).get('next') === 'chat') location.replace('chat.html');
+      else location.reload();
     } catch (ex) {
       fail(ex.message, $('authPassword'));
       $('authSubmit').disabled = false;
@@ -125,8 +128,14 @@ export const ACTIVITY = {
   'admin.user_password': "Reset a user's password",
   'admin.user_logout': 'Logged a user out everywhere',
   'admin.user_delete': 'Deleted a user',
+  'chat.send': 'Sent a prompt in the chat',
+  'chat.failed': 'A chat reply failed',
+  'chat.delete': 'Deleted a conversation',
+  'skill.create': 'Wrote a skill',
+  'skill.update': 'Changed a skill',
+  'skill.delete': 'Deleted a skill',
 };
-const KIND = { script: 'Scripts', narration: 'Narration', post: 'Image posts', style: 'Style picks', read: 'Reading pictures and scans', image: 'Images', video: 'Videos', test: 'Connection tests' };
+const KIND = { script: 'Scripts', chat: 'Chat', narration: 'Narration', post: 'Image posts', style: 'Style picks', read: 'Reading pictures and scans', image: 'Images', video: 'Videos', test: 'Connection tests' };
 
 export function activityDetail(a) {
   const d = a.detail || {};

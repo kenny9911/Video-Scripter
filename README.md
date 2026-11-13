@@ -136,6 +136,22 @@ YouTube Shorts has no such format. The 小红书, TikTok and Instagram limits ar
 
 The cards are set in the fonts of the device, so no font is downloaded; a card drawn on a Mac and on a Windows PC uses each one's own Chinese typeface. Nothing is posted for you: the app has no access to your accounts on these platforms.
 
+## Chat
+
+**Chat** in the top bar opens a page of its own (`chat.html`): a conversation with the model, like the chat apps you know, for everything around a script. Ideas, hooks, titles, a post from your notes, a translation, a piece of code.
+
+- **Who answers.** A prompt goes to one of four places, picked under the box. **Assistant** is the model, with the skills you chose; ask it for a picture or a clip and it makes one in the middle of its reply. **Narration agent** is the agent described below, asked from the conversation: give it the topic (and the platform and the length if you like, "90 秒的视频号视频：…") and it plans the viewpoint card, writes the narration and reviews it, showing each step. **Image** and **Video** send the prompt straight to the image or the video model, in the shape and length you pick.
+- **Pick the model.** The chip at the top lists every model that is enabled on every saved gateway. The choice is yours and is kept with the conversation, so one chat can run on a fast model and another on a strong one. It also says which models draw the pictures and make the clips.
+- **Replies are rendered.** Headings, lists, tables, quotes, links, task lists and code blocks with colouring and a copy button. A picture opens large when clicked; a clip plays in place and takes a few minutes, during which you can keep working. A picture or a clip that failed can be made again on its own.
+- **History.** Every conversation is saved as it is written and listed in the sidebar by day. Search looks through titles and messages. Rename one, download it as Markdown, or delete it with the pictures and clips made in it. A reply that was stopped, or that failed half-way, keeps what was written.
+- **Edit and answer again.** Change a prompt you sent and everything after it is replaced; or have the last prompt answered again, by another model if you switch first.
+- **Canvas.** **Canvas** under a reply opens it beside the conversation as a document: a page with its title, laid out to be read. Switch to **Markdown** to edit the text and save it back to the conversation, copy it, download it as a `.md` file, or print it (which is also how it becomes a PDF). The canvas follows a reply while it is being written, and can take the full width.
+- **Skills.** A skill is a set of instructions you write once: your house style, how a product page is laid out, what a weekly report has to cover. Create them under **Skills**, with a name, when to use it, and the instructions in Markdown (a whole `SKILL.md` file can be pasted). Pick up to eight for a conversation, from the **Skills** button or by typing `/` in the box; the assistant follows them, the narration agent reads them at every step, and each reply says which skills it was written with. The app's built-in playbooks can be picked the same way.
+
+Conversations are private: nobody else can open one, an administrator included. Usage is recorded like every other model call.
+
+The assistant makes pictures and clips by writing a small fenced block in its reply, which the app reads once the reply is whole. That needs nothing from the provider beyond text in and text out, so it works with every model the gateway reaches.
+
 ## The narration agent
 
 A single prompt writes a narration that reads like any other. The agent writes one the way a writing team does, in steps, each with the playbooks that apply:
@@ -576,8 +592,11 @@ src/materials.mjs       the library files one brief uses: what the prompts say a
 api/index.mjs           serverless entry point (Vercel); vercel.json routes requests to it
 src/package.mjs         the downloadable .zip for one script (src/zip.mjs writes the archive)
 src/post.mjs            the image post of a script: what each platform takes, the prompt, reading the reply
+src/chat/               the chat: store.mjs (conversations and their files), skills.mjs (skills people write),
+                        prompt.mjs (what the model is told), routes.mjs (the API)
 public/                 the web UI: index.html and zh.html are the home page (English, 中文), app.html the app,
-                        admin.html the user administration page
+                        chat.html the chat (markdown.js reads and draws its replies), admin.html the user
+                        administration page
 src/site.mjs            the site's public address, for canonical links, the sitemap and robots.txt
 src/visitors.mjs        visitors and the sign-up funnel (the Visitors tab on the admin page)
 scripts/                stamp-site-url.mjs, the build step that writes that address into public/ on a static host
@@ -650,6 +669,14 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `POST` | `/api/history/package` | `{ id, markdown }` Returns the script's `.zip` |
 | `POST` | `/api/post/generate` | `{ historyId, instruction? }` Writes the image post of a script and keeps it on the script: `{ post }` with `title`, `titles`, `body`, `hashtags` and `cards` |
 | `POST` | `/api/post/save` | `{ historyId, post }` Keeps the creator's edits to a post: its text, its cards, and their theme, shape and footer |
+| `GET` | `/api/chat/meta` | What a conversation can be sent to: the gateways and their enabled models (names only), and the models that draw and film |
+| `GET` | `/api/chats?q=` | Your conversations, the latest first; `q` searches titles and messages. `GET /api/chats/get?id=` is one in full |
+| `POST` | `/api/chats/rename`, `/api/chats/delete` | `{ id, title }`; `{ id }` deletes a conversation with its pictures and clips |
+| `POST` | `/api/chat/send` | `{ chatId?, text, target?, model?, skillIds?, aspect?, seconds? }` Sends a prompt to `assistant`, `narrator`, `image` or `video`. `regenerate: true` answers the last prompt again; `editId` replaces a prompt and what follows it. Server-sent events: `chat`, `delta`, `step`, `trace`, `retry`, `media`, `done` (`{ message, chat }`) |
+| `POST` | `/api/chat/message/update` | `{ chatId, messageId, content }` Keeps a reply as it was edited in the canvas |
+| `POST` | `/api/chat/media/make`, `/api/chat/media/status` | `{ chatId, messageId, index }` Makes a picture or a clip of a reply again; asks how a clip is coming on and stores it when ready |
+| `GET` | `/api/skills` | Your skills, then the built-in ones (name and purpose only) |
+| `POST` | `/api/skills`, `/api/skills/delete` | `{ id?, name, description?, body }` Creates or changes a skill; `{ id }` deletes it |
 | `POST` | `/api/media/image` | `{ visual, camera, historyId, sceneId }` Makes and stores an image, returns `{ url }`. `referenced: true` when a host portrait was used as the reference |
 | `POST` | `/api/media/host` | `{ historyId, hostId, aspectRatio, styleIds }` Makes and stores the reference portrait of host `A` or `B` of a script, returns `{ url }` |
 | `POST` | `/api/styles/suggest` | `{ ...brief, lang }` The visual style for a brief: `{ styleIds, alternatives, reason, by }`. By rule, with no model call; `by: "model"` has the model in use choose |

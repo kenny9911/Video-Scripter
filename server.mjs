@@ -39,6 +39,9 @@ import { trackVisit, markSignup, markLogin, markFirstScript, summarizeVisitors }
 import { listAssets, addAsset, addTextAsset, addPart, takeParts, updateAsset, deleteAsset, deleteUserAssets, ownedAsset, materialsFor, assetBytes, assetFileOwner, isAssetFile, keepInLibrary, maxAssetBytes, maxDocumentBytes, maxBodyBytes, partBytes, MAX_ASSETS, ASSET_EXTENSIONS, ASSET_KINDS } from './src/assets.mjs';
 import { MAX_MATERIALS } from './src/materials.mjs';
 import { describePicture, readScan, lookLimit } from './src/vision.mjs';
+import { chatRoutes } from './src/chat/routes.mjs';
+import { isChatFile, chatFileOwner, deleteUserChats } from './src/chat/store.mjs';
+import { deleteUserSkills } from './src/chat/skills.mjs';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const PORT = Number(process.env.PORT) || 3789;
@@ -424,6 +427,8 @@ const routes = {
     const moved = scripts === 'transfer';
     const count = moved ? await transferHistory(target.id, user.id) : await deleteUserHistory(target.id);
     const files = await deleteUserAssets(target.id); // the library is theirs alone: it goes with the account
+    await deleteUserChats(target.id); // and so do their conversations and the skills they wrote
+    await deleteUserSkills(target.id);
     await deleteUser(target.id);
     await logActivity(req, user, 'admin.user_delete', { target: target.email, scripts: count, kept: moved, files });
     json(res, 200, { ok: true, scripts: count, transferred: moved });
@@ -1123,6 +1128,9 @@ const routes = {
   }),
 };
 
+// The chat (conversations, their pictures and clips, and skills) has its routes in a file of its own.
+Object.assign(routes, chatRoutes({ route, json, readJson, eventStream, fail, failure, tokens }));
+
 /** A recorder for work that makes several model calls: one usage record per call, as "narration" (the narration agent) or "read" (looking at pictures). */
 function usageRecorder(user, config, kind = 'narration') {
   return ({ prompts, raw, usage, ms, ok, error }) => recordUsage({ user, kind, config, ...tokens(usage, prompts, raw), ms, ...(!ok && { ok: false, error }) });
@@ -1187,6 +1195,9 @@ export async function handler(req, res) {
       if (isAssetFile(name)) {
         // A file in someone's library is theirs alone.
         if ((await assetFileOwner(name)) !== user.id) return json(res, 404, { error: 'Not found' });
+      } else if (isChatFile(name)) {
+        // So is a picture or a clip made in a conversation.
+        if ((await chatFileOwner(name)) !== user.id) return json(res, 404, { error: 'Not found' });
       } else {
         const owner = mediaOwner(name);
         if (owner) await ownedHistory(user, owner);

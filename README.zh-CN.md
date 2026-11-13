@@ -133,6 +133,22 @@ YouTube Shorts 没有这种形式。小红书、TikTok 和 Instagram 的限制�
 
 卡片使用设备自带的字体，不下载任何字体；在 Mac 和 Windows 上会各用各的中文字体。应用不会替你发布：它没有你在这些平台上的账号权限。
 
+## 对话
+
+顶栏的**对话**会打开单独的一页（`chat.html`）：像常见的聊天应用那样和模型对话，处理脚本之外的一切。找选题、写钩子和标题、把笔记写成帖子、翻译、写代码。
+
+- **由谁回答。** 提示词可以发给四个对象，在输入框下面选。**助手**就是模型，并遵循你选的技能；让它画图或做一段视频，它会在回复中间直接生成。**旁白智能体**就是下文介绍的智能体，在对话里调用：给它选题（也可以写上平台和时长，如“90 秒的视频号视频：……”），它会先规划观点卡，再写旁白并审稿，每一步都能看到。**图片**和**视频**则把提示词直接交给图片或视频模型，比例和时长由你选。
+- **选择模型。** 顶部的模型按钮列出每个已保存网关上启用的所有模型。选择归你自己，并跟着对话保存，所以一个对话可以用快的模型，另一个用强的模型。这里也会显示图片和视频分别由哪个模型生成。
+- **回复会被渲染。** 标题、列表、表格、引用、链接、任务清单，以及带高亮和复制按钮的代码块。图片点击后放大；视频在原地播放，生成需要几分钟，期间可以继续做别的。生成失败的图片或视频可以单独重试。
+- **历史记录。** 每个对话边写边保存，按日期列在侧栏。搜索会查找标题和消息内容。可以重命名、下载为 Markdown，或者连同其中生成的图片和视频一起删除。被停止或中途失败的回复会保留已经写出的部分。
+- **修改与重答。** 修改一条已发送的提示词，它之后的内容会被替换；也可以让最后一条提示词重新回答，先换模型再重答也行。
+- **画布。** 点击回复下方的**画布**，回复会在对话旁边以文档的形式打开：带标题、适合阅读的一页。切到 **Markdown** 可以编辑文本并保存回对话，也可以复制、下载为 `.md` 文件，或者打印（存为 PDF 也是这样做）。回复还在生成时画布会跟着更新，也可以铺满整个宽度。
+- **技能。** 技能是一套只需写一次的指令：你的文风、产品页的结构、周报必须包含的内容。在**技能**里创建，填上名称、什么时候用，以及 Markdown 写的指令（也可以直接粘贴整份 `SKILL.md`）。一个对话最多选 8 个，用**技能**按钮选，或者在输入框里输入 `/`；助手会照着做，旁白智能体的每一步都会读它们，每条回复也会标出用了哪些技能。应用内置的技能也可以同样选用。
+
+对话是私密的：别人打不开，管理员也不行。用量和其他模型调用一样会被记录。
+
+助手是通过在回复里写一个小的围栏代码块来生成图片和视频的，应用在回复写完后读取它。这只需要模型能输入文本、输出文本，所以网关能连上的每个模型都可以用。
+
 ## 旁白智能体
 
 一条提示词写出来的旁白，读起来和别的旁白没有区别。智能体像一个写作团队那样分步骤来写，每一步都带着适用的技能：
@@ -546,7 +562,10 @@ src/vision.mjs          让当前模型看图：写图片说明、读扫描件�
 src/materials.mjs       一份需求用到的素材：提示词怎么写它们，以及哪个场景用哪个素材
 src/package.mjs         单份脚本的 .zip 下载包（由 src/zip.mjs 写出压缩包）
 src/post.mjs            脚本的图文：各平台的规格、提示词、读取模型的回复
-public/                 网页界面：index.html 和 zh.html 是首页（英文、中文），app.html 是应用
+src/chat/               对话：store.mjs（对话及其文件）、skills.mjs（用户写的技能）、
+                        prompt.mjs（告诉模型什么）、routes.mjs（接口）
+public/                 网页界面：index.html 和 zh.html 是首页（英文、中文），app.html 是应用，
+                        chat.html 是对话页（markdown.js 负责读取和渲染回复）
 src/site.mjs            站点的公开地址，用于 canonical 链接、sitemap 和 robots.txt
 src/visitors.mjs        访客与注册转化漏斗（管理页的访客标签）
 scripts/                stamp-site-url.mjs：在静态托管平台构建时把该地址写入 public/
@@ -604,6 +623,14 @@ test/                   node --test
 | `POST` | `/api/history/package` | `{ id, markdown }` 返回该脚本的 `.zip` |
 | `POST` | `/api/post/generate` | `{ historyId, instruction? }` 为脚本生成图文并保存在脚本上：`{ post }`，含 `title`、`titles`、`body`、`hashtags` 和 `cards` |
 | `POST` | `/api/post/save` | `{ historyId, post }` 保存对图文的修改：文案、卡片，以及主题、比例和署名 |
+| `GET` | `/api/chat/meta` | 对话可以发给谁：各网关及其启用的模型（只有名称），以及负责画图和做视频的模型 |
+| `GET` | `/api/chats?q=` | 你的对话，最新的在前；`q` 搜索标题和消息。`GET /api/chats/get?id=` 返回一个完整的对话 |
+| `POST` | `/api/chats/rename`、`/api/chats/delete` | `{ id, title }`；`{ id }` 删除对话及其中的图片和视频 |
+| `POST` | `/api/chat/send` | `{ chatId?, text, target?, model?, skillIds?, aspect?, seconds? }` 把提示词发给 `assistant`、`narrator`、`image` 或 `video`。`regenerate: true` 重新回答最后一条提示词；`editId` 替换一条提示词及其后的内容。服务器发送事件（SSE）：`chat`、`delta`、`step`、`trace`、`retry`、`media`、`done`（`{ message, chat }`） |
+| `POST` | `/api/chat/message/update` | `{ chatId, messageId, content }` 保存在画布里编辑过的回复 |
+| `POST` | `/api/chat/media/make`、`/api/chat/media/status` | `{ chatId, messageId, index }` 重新生成回复里的一张图片或一段视频；查询视频进度，完成后保存 |
+| `GET` | `/api/skills` | 你的技能，然后是内置技能（只有名称和用途） |
+| `POST` | `/api/skills`、`/api/skills/delete` | `{ id?, name, description?, body }` 创建或修改技能；`{ id }` 删除 |
 | `POST` | `/api/media/image` | `{ visual, camera, historyId, sceneId }` 生成并保存一张图片，返回 `{ url }`。用了主播定妆照作参考时带 `referenced: true` |
 | `POST` | `/api/media/host` | `{ historyId, hostId, aspectRatio, styleIds }` 生成并保存脚本里主播 `A` 或 `B` 的定妆照，返回 `{ url }` |
 | `POST` | `/api/styles/suggest` | `{ ...brief, lang }` 为一份需求选画面风格：`{ styleIds, alternatives, reason, by }`。按规则完成，不调用模型；`by: "model"` 让当前使用的模型来选 |

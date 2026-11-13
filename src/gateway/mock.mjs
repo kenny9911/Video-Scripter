@@ -138,6 +138,19 @@ function demoScript(plan) {
   };
 }
 
+/**
+ * A placeholder reply in a conversation: Markdown that shows what the page renders, and a picture when one is
+ * asked for and the gateway can draw (the demo's own placeholder image), so the whole flow can be tried offline.
+ */
+function demoChat({ prompt = '', tools = {} }) {
+  const zh = /[㐀-鿿]/.test(prompt);
+  const said = prompt.replace(/\s+/g, ' ').trim().slice(0, 80);
+  const draw = tools.image && /画|图片|配图|海报|image|picture|draw|photo|illustrat|poster/i.test(prompt);
+  if (zh)
+    return [`# 【演示】${said}`, '', '这是**离线演示**的回复，用来预览聊天界面。在「模型设置」里接入真实模型后，这里就是模型的回答。', '', '## 界面能渲染什么', '', '- **加粗**、*斜体*、`行内代码` 和[链接](https://example.com)', '- 有序、无序和任务列表', '- 表格、引用和代码块', '', '| 能力 | 状态 |', '| --- | --- |', '| 文本 | 演示占位 |', '| 图片 | 演示占位图 |', '', '```js', "const reply = await ask('你好');", '```', '', ...(draw ? ['```image', 'aspect: 16:9', `Demo picture for: ${said}`, '```', ''] : []), '> 接入模型后，可以在右侧画布里打开、编辑并下载这份回复。'].join('\n');
+  return [`# [Demo] ${said}`, '', 'This is the **offline demo** reply, for trying the chat. Connect a real model in LLM settings and the model answers here.', '', '## What the page renders', '', '- **Bold**, *italic*, `inline code` and [links](https://example.com)', '- Numbered, bulleted and task lists', '- Tables, quotes and code blocks', '', '| Kind | Status |', '| --- | --- |', '| Text | demo placeholder |', '| Pictures | demo placeholder image |', '', '```js', "const reply = await ask('hello');", '```', '', ...(draw ? ['```image', 'aspect: 16:9', `Demo picture for: ${said}`, '```', ''] : []), '> With a model connected, open this reply in the canvas to edit and download it.'].join('\n');
+}
+
 export async function* mockStream({ signal, meta, partial = '' }) {
   const kinds = { narration: () => demoNarration(meta.plan, meta.planFirst), refine: () => demoRefined(meta), edit: () => demoEdit(meta) };
   // Looking at a picture (src/vision.mjs): the demo sees nothing, and says so in the place the answer goes.
@@ -146,7 +159,7 @@ export async function* mockStream({ signal, meta, partial = '' }) {
     page: () => ({ text: `[Demo] The text of page ${meta.page} of “${meta.name}”: with a real model connected, this is what the scan says.` }),
   };
   const reply = looks[meta?.kind] ? looks[meta.kind]() : !meta?.plan ? null : (kinds[meta.kind] || (() => demoScript(meta.plan)))();
-  const text = reply ? JSON.stringify(reply, null, 2) : 'OK';
+  const text = meta?.kind === 'chat' ? demoChat(meta) : reply ? JSON.stringify(reply, null, 2) : 'OK';
   // The rest of a reply an earlier request began: the demo writes the same text every time.
   for (let i = partial && text.startsWith(partial) ? partial.length : 0; i < text.length; i += 90) {
     await sleep(25, signal);

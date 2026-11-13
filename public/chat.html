@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en" data-page="app">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Chat · Video Scripter</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#18181b">
+  <script src="theme.js"></script>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="chat.css">
+</head>
+<body class="chat-page" data-auth="pending" data-side="open" data-canvas="closed">
+  <aside id="side" class="chat-side" aria-label="Conversations">
+    <div class="side-head">
+      <a class="brand" href="app.html" title="Back to scripts">
+        <span class="logo" data-icon="logo" data-icon-size="16" aria-hidden="true"></span>
+        <span class="brand-name">Video Scripter</span>
+      </a>
+      <button id="sideClose" class="icon-btn" type="button" aria-label="Hide the sidebar" title="Hide the sidebar" data-icon="sidebar"></button>
+    </div>
+    <button id="newChat" class="btn side-new" type="button" data-icon="plus"><span>New chat</span></button>
+    <label class="search" data-icon="search">
+      <input id="chatSearch" type="search" placeholder="Search conversations" aria-label="Search conversations">
+    </label>
+    <nav id="chatList" class="chat-list" aria-label="Conversations"></nav>
+    <div class="side-foot">
+      <button id="openSkills" class="side-link" type="button" data-icon="book"><span>Skills</span><span id="skillCount" class="count" hidden></span></button>
+      <a class="side-link" href="app.html" data-icon="script"><span>Scripts</span></a>
+      <div class="side-user">
+        <span id="userAvatar" class="avatar" aria-hidden="true"></span>
+        <span id="userName" class="side-user-name"></span>
+        <button id="themeToggle" class="icon-btn" type="button"></button>
+        <button id="langToggle" class="icon-btn text" type="button" aria-label="Switch language / 切换语言"></button>
+      </div>
+    </div>
+  </aside>
+  <div id="sideScrim" class="side-scrim"></div>
+
+  <main class="chat-main">
+    <header class="chat-head">
+      <button id="sideOpen" class="icon-btn" type="button" aria-label="Show the sidebar" title="Show the sidebar" data-icon="sidebar"></button>
+      <button id="headNew" class="icon-btn" type="button" aria-label="New chat" title="New chat" data-icon="edit"></button>
+      <h1 id="chatTitle" class="chat-title">New chat</h1>
+      <span class="spacer"></span>
+      <details id="modelMenu" class="menu menu-end">
+        <summary id="modelChip" class="chip-btn" title="Model"><span id="modelDot" class="dot"></span><span id="modelLabel">Loading…</span></summary>
+        <div id="modelPanel" class="menu-panel model-panel"></div>
+      </details>
+      <details id="chatMenu" class="menu menu-end">
+        <summary class="icon-btn" aria-label="More" title="More" data-icon="more"></summary>
+        <div class="menu-panel">
+          <button id="renameChat" class="menu-item" type="button" data-icon="edit" data-icon-size="16"><span>Rename</span></button>
+          <button id="exportChat" class="menu-item" type="button" data-icon="download" data-icon-size="16"><span>Download as Markdown</span></button>
+          <button id="deleteChat" class="menu-item danger" type="button" data-icon="trash" data-icon-size="16"><span>Delete conversation</span></button>
+        </div>
+      </details>
+    </header>
+
+    <div id="demoBanner" class="banner" role="status" hidden>
+      <span class="banner-text" data-icon="info">Demo mode: replies are placeholder text until a model is connected.</span>
+      <a class="btn small admin-only" href="app.html">Connect a model</a>
+    </div>
+
+    <div id="thread" class="thread" tabindex="-1">
+      <div id="welcome" class="welcome">
+        <span class="empty-art" data-icon="message" data-icon-size="28" aria-hidden="true"></span>
+        <h2 class="welcome-title">What are we making today?</h2>
+        <p class="hint">Ask the model, hand the job to an agent, or have a picture or a clip made. Open any reply in the canvas to read, edit and download it.</p>
+        <div id="starters" class="starters"></div>
+      </div>
+      <div id="messages" class="messages" aria-live="polite"></div>
+    </div>
+    <button id="toBottom" class="to-bottom" type="button" aria-label="Go to the latest message" title="Go to the latest message" data-icon="arrowDown" hidden></button>
+
+    <form id="composer" class="composer" autocomplete="off">
+      <div class="composer-box">
+        <p id="editNote" class="edit-note" hidden><span data-icon="edit" data-icon-size="14">Editing your prompt. Sending it replaces that message and everything after it.</span> <button id="cancelEdit" class="link-btn" type="button">Cancel</button></p>
+        <div id="skillChips" class="skill-chips" hidden></div>
+        <textarea id="prompt" rows="1" maxlength="24000" placeholder="Ask anything. Type / to use a skill." aria-label="Prompt"></textarea>
+        <div class="composer-bar">
+          <details id="targetMenu" class="menu menu-up">
+            <summary id="targetChip" class="btn small" title="Who answers"></summary>
+            <div id="targetPanel" class="menu-panel target-panel"></div>
+          </details>
+          <details id="skillMenu" class="menu menu-up">
+            <summary id="skillChip" class="btn small" title="Skills for this conversation" data-icon="book" data-icon-size="16"><span id="skillChipLabel">Skills</span></summary>
+            <div class="menu-panel skill-panel">
+              <input id="skillFilter" type="search" placeholder="Find a skill" aria-label="Find a skill">
+              <div id="skillOptions" class="skill-options"></div>
+              <button id="manageSkills" class="menu-item" type="button" data-icon="settings" data-icon-size="16"><span>Create and manage skills</span></button>
+            </div>
+          </details>
+          <select id="aspect" class="compact" aria-label="Aspect ratio" hidden></select>
+          <select id="seconds" class="compact" aria-label="Length of the clip" hidden></select>
+          <span class="spacer"></span>
+          <button id="send" class="send-btn" type="submit" aria-label="Send" title="Send" data-icon="arrowUp"></button>
+          <button id="stop" class="send-btn stop" type="button" aria-label="Stop" title="Stop" data-icon="stop" hidden></button>
+        </div>
+      </div>
+      <p class="composer-note">A model can be wrong. Check facts and figures before you publish them.</p>
+    </form>
+  </main>
+
+  <aside id="canvas" class="canvas" aria-label="Canvas">
+    <header class="canvas-head">
+      <span class="canvas-mark" data-icon="script" data-icon-size="16" aria-hidden="true"></span>
+      <h2 id="canvasTitle" class="canvas-title"></h2>
+      <span class="spacer"></span>
+      <div id="canvasMode" class="seg" role="tablist" aria-label="View">
+        <button class="seg-btn" type="button" role="tab" data-mode="preview" aria-selected="true">Preview</button>
+        <button class="seg-btn" type="button" role="tab" data-mode="source" aria-selected="false">Markdown</button>
+      </div>
+      <button id="canvasCopy" class="icon-btn" type="button" aria-label="Copy" title="Copy" data-icon="copy"></button>
+      <button id="canvasDownload" class="icon-btn" type="button" aria-label="Download as Markdown" title="Download as Markdown" data-icon="download"></button>
+      <button id="canvasPrint" class="icon-btn" type="button" aria-label="Print or save as PDF" title="Print or save as PDF" data-icon="printer"></button>
+      <button id="canvasWide" class="icon-btn desktop-only" type="button" aria-label="Use the full width" title="Use the full width" data-icon="maximize"></button>
+      <button id="canvasClose" class="icon-btn" type="button" aria-label="Close the canvas" title="Close the canvas" data-icon="x"></button>
+    </header>
+    <div id="canvasBody" class="canvas-body">
+      <article id="canvasDoc" class="md doc"></article>
+      <textarea id="canvasSource" class="canvas-source" spellcheck="false" aria-label="Markdown" hidden></textarea>
+    </div>
+    <footer id="canvasFoot" class="canvas-foot" hidden>
+      <span id="canvasNote" class="hint">Unsaved changes</span>
+      <span class="spacer"></span>
+      <button id="canvasDiscard" class="btn small" type="button">Discard</button>
+      <button id="canvasSave" class="btn small primary" type="button">Save</button>
+    </footer>
+  </aside>
+
+  <dialog id="skillsDialog" class="dialog wide" aria-labelledby="skillsTitle">
+    <form id="skillForm" novalidate autocomplete="off">
+      <header class="dialog-head">
+        <h2 id="skillsTitle">Skills</h2>
+        <button id="closeSkills" class="icon-btn" type="button" aria-label="Close" data-icon="x"></button>
+      </header>
+      <div class="dialog-body">
+        <p class="hint">A skill is a set of instructions you write once: your house style, how a product page is laid out, what a weekly report has to cover. Pick skills for a conversation and the model and the agents follow them.</p>
+        <div class="gw-layout">
+          <aside class="gw-side">
+            <div id="skillList" class="gw-list"></div>
+            <button id="newSkill" class="btn" type="button" data-icon="plus"><span>New skill</span></button>
+          </aside>
+          <div class="gw-form">
+            <h3 id="skillFormTitle" class="gw-title"></h3>
+            <div id="skillBuiltin" class="status" hidden></div>
+            <div id="skillFields" class="skill-fields">
+              <label class="field">
+                <span>Name</span>
+                <input id="skillName" type="text" maxlength="60" placeholder="e.g. Product page copy">
+              </label>
+              <label class="field">
+                <span>When to use it <em>optional</em></span>
+                <input id="skillDescription" type="text" maxlength="300" placeholder="e.g. Whenever I ask for copy for a product page">
+              </label>
+              <label class="field">
+                <span>Instructions</span>
+                <textarea id="skillBody" rows="12" maxlength="20000" spellcheck="false" placeholder="Write them the way you would brief a colleague: what the result is for, the steps to take, the format to give it, and what to avoid. Markdown works. You can also paste a whole SKILL.md file."></textarea>
+              </label>
+              <p id="skillBodyCount" class="hint"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer class="dialog-foot">
+        <p id="skillStatus" class="status bad" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button id="deleteSkill" class="btn danger" type="button">Delete</button>
+          <span class="spacer"></span>
+          <button id="useSkill" class="btn" type="button">Use in this chat</button>
+          <button id="saveSkill" class="btn primary" type="submit">Save</button>
+        </div>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="askDialog" class="dialog" aria-labelledby="askTitle">
+    <form id="askForm" method="dialog" novalidate>
+      <header class="dialog-head">
+        <h2 id="askTitle"></h2>
+      </header>
+      <div class="dialog-body">
+        <p id="askText" class="hint"></p>
+        <input id="askInput" type="text" maxlength="80" aria-labelledby="askTitle" hidden>
+      </div>
+      <footer class="dialog-foot">
+        <div class="dialog-actions">
+          <span class="spacer"></span>
+          <button id="askCancel" class="btn" type="button">Cancel</button>
+          <button id="askOk" class="btn primary" type="submit"></button>
+        </div>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="viewer" class="dialog viewer" aria-label="Picture">
+    <button id="viewerClose" class="icon-btn viewer-close" type="button" aria-label="Close" data-icon="x"></button>
+    <img id="viewerImage" alt="">
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script type="module" src="chat.js"></script>
+</body>
+</html>

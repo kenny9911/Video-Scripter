@@ -104,6 +104,8 @@ export async function summarizeUsage({ userId, days = 30, costs = true } = {}) {
   const rows = await db.list('usage', { userId, since, limit: 20_000 });
   const history = new Map((await db.list('history', { userId })).map((e) => [e.id, e]));
   const users = userId === undefined ? new Map((await db.list('users')).map((u) => [u.id, u])) : new Map();
+  // A conversation is a task too. Its title is its owner's to see: in the totals for everyone it is only "a conversation".
+  const chats = new Map((await db.list('chats', { userId })).map((c) => [c.id, userId === undefined ? 'Conversation' : c.title]));
   const tokens = (g) => g.inputTokens + g.outputTokens;
   const shown = (g) => {
     if (costs) return g;
@@ -119,7 +121,7 @@ export async function summarizeUsage({ userId, days = 30, costs = true } = {}) {
     byModel: group(rows, (u) => `${u.gateway} · ${u.model}`, (u) => ({ gateway: u.gateway, model: u.model })).sort((a, b) => tokens(b) - tokens(a) || b.calls - a.calls),
     byTask: group(rows.filter((u) => u.taskId), (u) => u.taskId, (u) => {
       const e = history.get(u.taskId);
-      return { title: e?.script?.title || e?.brief?.topic || '', platformId: e?.platformId || '', userId: u.userId, email: users.get(u.userId)?.email || '' };
+      return { title: e?.script?.title || e?.brief?.topic || chats.get(u.taskId) || '', platformId: e?.platformId || (chats.has(u.taskId) ? 'chat' : ''), userId: u.userId, email: users.get(u.userId)?.email || '' };
     })
       .sort((a, b) => b.lastTs - a.lastTs)
       .slice(0, 200),

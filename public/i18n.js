@@ -958,6 +958,11 @@ const ZH = {
   '“{word}” gets a post throttled on {platform}: take it out.': '“{word}”会让{platform}的内容被限流，请删掉。',
 };
 
+/** More translations, from a page that keeps its own (chat.zh.js): { 'English text': '中文' }. */
+export function addTranslations(map) {
+  for (const [text, zh] of Object.entries(map)) ZH[text] ??= zh; // the wording this file already has stays
+}
+
 export function t(text, vars) {
   let out = (lang === 'zh' && ZH[text]) || text;
   if (vars) for (const [k, v] of Object.entries(vars)) out = out.replaceAll(`{${k}}`, v);

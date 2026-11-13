@@ -104,10 +104,10 @@ function withImages(protocol, user, images) {
   return [{ type: 'text', text: user }, ...images.map((img) => ({ type: 'image_url', image_url: { url: `data:${img.type};base64,${data(img)}` } }))];
 }
 
-function buildRequest(protocol, config, { system, user, images, maxTokens, partial = '' }, withUsage = true) {
+function buildRequest(protocol, config, { system, user, images, maxTokens, partial = '', history = [] }, withUsage = true) {
   const headers = { 'content-type': 'application/json', accept: 'text/event-stream' };
-  // A reply that is being picked up: the model's own unfinished turn, then the request for the rest.
-  const turns = [{ role: 'user', content: withImages(protocol, user, images) }, ...(partial ? [{ role: 'assistant', content: partial }, { role: 'user', content: continueFrom(partial) }] : [])];
+  // The turns of a conversation so far, then this one. A reply that is being picked up: the model's own unfinished turn, then the request for the rest.
+  const turns = [...history, { role: 'user', content: withImages(protocol, user, images) }, ...(partial ? [{ role: 'assistant', content: partial }, { role: 'user', content: continueFrom(partial) }] : [])];
   if (protocol === 'anthropic') {
     if (config.apiKey) headers['x-api-key'] = config.apiKey;
     headers['anthropic-version'] = '2023-06-01';
@@ -346,10 +346,10 @@ export async function listModels(config, { signal } = {}) {
  * throws a GatewayError marked `midstream` when the stream breaks or ends before the reply is finished.
  * Token counts of the attempt are added to `usage` whichever way it ends.
  */
-async function* streamOnce(protocol, url, config, { system, user, images, maxTokens, signal, onRetry, partial, usage }) {
+async function* streamOnce(protocol, url, config, { system, user, images, maxTokens, signal, onRetry, partial, usage, history, json }) {
   const host = new URL(url).host;
   const send = (withUsage) => {
-    const { headers, body } = buildRequest(protocol, config, { system, user, images, maxTokens, partial }, withUsage);
+    const { headers, body } = buildRequest(protocol, config, { system, user, images, maxTokens, partial, history }, withUsage);
     return request(url, { method: 'POST', headers, body: JSON.stringify(body), signal }, { onRetry });
   };
   let res;
@@ -412,8 +412,9 @@ async function* streamOnce(protocol, url, config, { system, user, images, maxTok
   if (broke) throw broke;
   // The stream is over. A JSON reply that is still open was cut short, whatever the provider says about how it
   // ended: a gateway that stops a long reply (after a minute, say) closes the stream as if the model had finished.
-  // Only a reply the provider withheld on purpose is left as it is.
-  if (cutShort(written) && !/filter|refus|safety|block/i.test(ended)) {
+  // Only a reply the provider withheld on purpose is left as it is. A reply in prose (a conversation) has no
+  // such mark: a bracket left open in it is just text.
+  if (json && cutShort(written) && !/filter|refus|safety|block/i.test(ended)) {
     throw Object.assign(new GatewayError(`${host} ended its reply before it was finished`), { host, upstream: true, midstream: true, cut: true, ended });
   }
 }
@@ -427,8 +428,10 @@ async function* streamOnce(protocol, url, config, { system, user, images, maxTok
  * `partial` is the start of this reply as an earlier request left it (one that ran out of time: src/limits.mjs).
  * The model is asked for the rest, and only the rest is yielded.
  * `images` ([{ type, bytes }]) are pictures the model is to look at with the user's turn (src/vision.mjs).
+ * `history` ([{ role: 'user' | 'assistant', content }]) are the turns of a conversation before this one, and
+ * `json: false` says the reply is prose, not one JSON object (src/chat).
  */
-export async function* streamChat(config, { system, user, images, signal, maxTokens, meta, onUsage, onRetry, partial = '' }) {
+export async function* streamChat(config, { system, user, images, signal, maxTokens, meta, onUsage, onRetry, partial = '', history = [], json = true }) {
   const invalid = validateConfig(config);
   if (invalid) throw new GatewayError(invalid, 400);
   const { protocol } = getProvider(config.provider);
@@ -445,7 +448,7 @@ export async function* streamChat(config, { system, user, images, signal, maxTok
   for (let resumes = 0; ; resumes++) {
     const had = said.length;
     try {
-      for await (const text of streamOnce(protocol, url, config, { system, user, images, maxTokens, signal, onRetry, partial: said, usage })) {
+      for await (const text of streamOnce(protocol, url, config, { system, user, images, maxTokens, signal, onRetry, partial: said, usage, history, json })) {
         said += text;
         yield text;
       }

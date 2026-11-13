@@ -21,11 +21,10 @@ export async function addHistory({ id, userId, platformId, brief, plan, script, 
 }
 
 /**
- * Store generated media and link it from its history entry (when there is one).
+ * A generated file as it can be stored: { ext, type, bytes }, or null when it is not a type we keep.
  * `source` is a data: URI, or a fetch Response for a file the provider hosts.
- * Returns { url } pointing at this server, or null when the content is not a type we keep.
  */
-export async function saveMedia({ historyId, sceneId, kind, source, demo = false, link = true, userId }) {
+export async function mediaFile(source, { kind, demo = false } = {}) {
   let type;
   let bytes;
   if (typeof source === 'string') {
@@ -40,6 +39,18 @@ export async function saveMedia({ historyId, sceneId, kind, source, demo = false
   // Providers do not always label files; fall back on what was asked for. SVG is only kept for our own placeholder.
   const ext = EXT[type] || (demo && type === 'image/svg+xml' ? 'svg' : kind === 'video' ? 'mp4' : type.startsWith('image/') || !type ? 'png' : null);
   if (!ext || !bytes.length) return null;
+  return { ext, type: TYPES[ext], bytes };
+}
+
+/**
+ * Store generated media and link it from its history entry (when there is one).
+ * `source` is a data: URI, or a fetch Response for a file the provider hosts.
+ * Returns { url } pointing at this server, or null when the content is not a type we keep.
+ */
+export async function saveMedia({ historyId, sceneId, kind, source, demo = false, link = true, userId }) {
+  const file = await mediaFile(source, { kind, demo });
+  if (!file) return null;
+  const { ext, bytes } = file;
 
   const safe = (v) => String(v ?? '').replace(/[^\w-]/g, '').slice(0, 24) || 'x';
   const name = `${safe(historyId || 'unsaved')}-s${safe(sceneId)}-${kind}-${Date.now().toString(36)}${randomBytes(2).toString('hex')}.${ext}`;
