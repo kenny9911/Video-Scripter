@@ -70,10 +70,11 @@ export function postFindings(post, platform, fits = []) {
 
 /**
  * `toast(message)` and `copy(text, label)` are the app's own; `platformOf(id)` gives a platform with its
- * `post` format; `changed(run)` hears when a run's post was written or edited.
+ * `post` format; `publish` is the panel that sends a post out (publish.js), where there is one; `changed(run)`
+ * hears when a run's post was written or edited.
  * Returns { has(platformId), view(platformId, run) }.
  */
-export function wirePost({ toast, copy, platformOf, changed = () => {} }) {
+export function wirePost({ toast, copy, platformOf, publish = null, changed = () => {} }) {
   const has = (platformId) => Boolean(platformOf(platformId)?.post);
 
   function view(platformId, run) {
@@ -186,7 +187,7 @@ export function wirePost({ toast, copy, platformOf, changed = () => {} }) {
 
       // ---- Files ----
       const fileName = (i) => `${String(i + 1).padStart(2, '0')}${post.cards[i].kind === 'cover' ? '-cover' : ''}.${format.fileType}`;
-      const blobs = () => Promise.all(tiles.map((tile) => canvasBlob(tile.canvas, format.fileType)));
+      const blobs = (type = format.fileType) => Promise.all(tiles.map((tile) => canvasBlob(tile.canvas, type)));
       const saveFile = (name, blob) => {
         const url = URL.createObjectURL(blob);
         el('a', { href: url, download: name }).click();
@@ -391,6 +392,21 @@ export function wirePost({ toast, copy, platformOf, changed = () => {} }) {
             el('li', {}, t('If a picture in the post was made by AI, tick the platform’s own “AI-generated” declaration when you post.')),
           ),
         ),
+        // Straight to the channels the person connected, as JPEG: the one picture format every platform takes.
+        ...(publish
+          ? [
+              publish.panel({
+                run,
+                platformId,
+                kind: 'images',
+                files: async () => (await blobs('jpg')).map((blob, i) => ({ name: `${String(i + 1).padStart(2, '0')}.jpg`, blob })),
+                text: () => [post.title, noteText(post)].filter(Boolean).join('\n\n'),
+                title: () => post.title || run.script.title,
+                hashtags: post.hashtags,
+                ai: Boolean(post.cards[0].image),
+              }),
+            ]
+          : []),
       );
       drawAll();
     }

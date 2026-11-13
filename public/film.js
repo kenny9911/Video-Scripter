@@ -3,7 +3,9 @@
 //
 //   captionsOf(voiceover, lang)           a voiceover as the short lines a viewer reads, weighted by how long each takes to say
 //   buildTimeline(scenes, voice, lang)    when every scene, caption and piece of sound happens: the video is cut to the voice
+//   cue(film, t)                          brings the scene's clip, if it has one, to the frame second `t` shows
 //   drawFrame(ctx, t, film)               the picture at second `t`
+//   mixTrack / withMusic                  the voice laid along the timeline, and a music bed that steps back under it
 //   renderFilm(film, clips, options)      every frame and the sound, encoded (WebCodecs) and written as an MP4 (mp4.js)
 //
 // Drawing is the same code for the preview and the file, so the preview is the video.
@@ -106,16 +108,31 @@ export function buildTimeline(scenes, voice = {}, lang = 'zh') {
   return { duration: out.at(-1).end, scenes: out };
 }
 
+/** The captions of a timeline as a SubRip (.srt) file, for a platform's own subtitles or an editor. */
+export function srtOf(timeline) {
+  const stamp = (s) => {
+    const ms = Math.round(s * 1000);
+    const two = (n) => String(n).padStart(2, '0');
+    return `${two(Math.floor(ms / 3600000))}:${two(Math.floor(ms / 60000) % 60)}:${two(Math.floor(ms / 1000) % 60)},${String(ms % 1000).padStart(3, '0')}`;
+  };
+  return timeline.scenes
+    .flatMap((sc) => sc.captions)
+    .map((c, i) => `${i + 1}\n${stamp(c.start)} --> ${stamp(c.end)}\n${bare(c.text)}\n`)
+    .join('\n');
+}
+
 // ---------- Drawing ----------
 
 const clamp = (v) => Math.min(1, Math.max(0, v));
 const ease = (v) => 1 - (1 - clamp(v)) ** 3;
 
-/** A picture filling the frame, drifting slowly closer over the scene, darkened where text sits on it. */
-function picture(ctx, image, w, h, progress) {
-  const k = Math.max(w / image.naturalWidth, h / image.naturalHeight) * (1.03 + 0.07 * progress);
-  const [iw, ih] = [image.naturalWidth * k, image.naturalHeight * k];
-  ctx.drawImage(image, (w - iw) / 2, (h - ih) / 2 - (ih - h) * 0.15 * (progress - 0.5), iw, ih);
+/** A picture or a clip's current frame filling the frame, darkened where text sits on it. A still drifts slowly closer over the scene. */
+function picture(ctx, media, w, h, progress) {
+  const moving = 'videoWidth' in media;
+  const [mw, mh] = moving ? [media.videoWidth, media.videoHeight] : [media.naturalWidth, media.naturalHeight];
+  const k = Math.max(w / mw, h / mh) * (moving ? 1 : 1.03 + 0.07 * progress);
+  const [iw, ih] = [mw * k, mh * k];
+  ctx.drawImage(media, (w - iw) / 2, (h - ih) / 2 - (moving ? 0 : (ih - h) * 0.15 * (progress - 0.5)), iw, ih);
   const g = ctx.createLinearGradient(0, 0, 0, h);
   g.addColorStop(0, 'rgba(0,0,0,0.42)');
   g.addColorStop(0.3, 'rgba(0,0,0,0.08)');
@@ -125,9 +142,32 @@ function picture(ctx, image, w, h, progress) {
   ctx.fillRect(0, 0, w, h);
 }
 
+/** What a scene shows behind its words: its clip, else its picture, else nothing (the theme). */
+const mediaOf = (film, scene) => film.clips?.get(scene.id) || film.images.get(scene.id) || null;
+
+/**
+ * Bring the clip of the scene at second `t` to the frame that second shows, so drawFrame can draw it. A clip
+ * plays at its own speed from the start of its scene and holds its last frame if the scene outlasts it.
+ * Resolves at once for a scene without a clip.
+ */
+export function cue(film, t) {
+  const scene = film.timeline.scenes.findLast((sc) => t >= sc.start) || film.timeline.scenes[0];
+  const clip = scene && film.clips?.get(scene.id);
+  if (!clip || !(clip.duration > 0)) return Promise.resolve();
+  const at = Math.min(Math.max(0, t - scene.start), clip.duration - 0.04);
+  if (Math.abs(clip.currentTime - at) < 0.004 && !clip.seeking) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => (clearTimeout(timer), clip.removeEventListener('seeked', done), resolve());
+    const timer = setTimeout(done, 2000); // a clip that will not seek does not hold the whole video up
+    clip.addEventListener('seeked', done);
+    clip.currentTime = at;
+  });
+}
+
 /**
  * The frame at second `t`. `film` is
- *   { size: { w, h }, theme, timeline, images: Map(sceneId -> <img>), captions: true, label: 'AI生成', layouts: Map }
+ *   { size: { w, h }, theme, timeline, images: Map(sceneId -> <img>), clips: Map(sceneId -> <video>), captions: true, label: 'AI生成', layouts: Map }
+ * A scene with a clip shows the frame the clip is on: call cue(film, t) first.
  * `layouts` keeps the text that was already set, so a line is measured once and drawn many times.
  */
 export function drawFrame(ctx, t, film) {
@@ -142,16 +182,16 @@ export function drawFrame(ctx, t, film) {
   if (!sc) return;
   const local = t - sc.start;
   const theme = film.theme;
-  const image = film.images.get(sc.id);
+  const image = mediaOf(film, sc);
   const paint = (scene, progress) => {
-    const img = film.images.get(scene.id);
-    if (img) picture(ctx, img, w, h, progress);
+    const media = mediaOf(film, scene);
+    if (media) picture(ctx, media, w, h, progress);
     else background(ctx, theme, w, h, u, false);
   };
 
   // The scene before fades into this one where either has a picture.
   const before = scenes[i - 1];
-  const fading = before && local < 0.3 && (image || film.images.get(before.id));
+  const fading = before && local < 0.3 && (image || mediaOf(film, before));
   ctx.globalAlpha = 1;
   if (fading) paint(before, 1);
   ctx.globalAlpha = fading ? clamp(local / 0.3) : 1;
@@ -240,6 +280,41 @@ export function mixTrack(timeline, clips, rate = AUDIO_RATE) {
   return out;
 }
 
+/**
+ * The voice with a music bed under it: { left, right }. `music` is { left, right } at the track's rate; it
+ * loops if the video outlasts it, fades in and out, and steps back whenever someone is speaking.
+ * `level` (0..1) is how loud the music is between the words; under the voice it is at 40% of that.
+ */
+export function withMusic(voice, music, { level = 0.5, rate = AUDIO_RATE } = {}) {
+  const n = voice.length;
+  const left = new Float32Array(n);
+  const right = new Float32Array(n);
+  if (!music?.left?.length || level <= 0) return left.set(voice), right.set(voice), { left, right };
+  // How loud the voice is around each moment: the largest sample in 50 ms, held, so the gaps between words do not pump.
+  const hop = Math.round(rate * 0.05);
+  const loud = new Float32Array(Math.ceil(n / hop));
+  for (let i = 0; i < n; i++) {
+    const v = Math.abs(voice[i]);
+    if (v > loud[(i / hop) | 0]) loud[(i / hop) | 0] = v;
+  }
+  let peak = 0;
+  for (let i = 0; i < music.left.length; i++) peak = Math.max(peak, Math.abs(music.left[i]), Math.abs(music.right[i]));
+  const full = (0.32 * level) / (peak || 1);
+  const fall = 1 - Math.exp(-1 / (rate * 0.12)); // the music gets out of the way quickly
+  const rise = 1 - Math.exp(-1 / (rate * 0.6)); // and comes back slowly
+  let gain = full;
+  for (let i = 0; i < n; i++) {
+    const speaking = loud[(i / hop) | 0] > 0.02 || loud[Math.min(loud.length - 1, ((i / hop) | 0) + 4)] > 0.02; // a little ahead of the word
+    const target = speaking ? full * 0.4 : full;
+    gain += (target - gain) * (target < gain ? fall : rise);
+    const edge = Math.min(1, i / (rate * 0.8), (n - i) / (rate * 1.6));
+    const m = i % music.left.length;
+    left[i] = Math.max(-1, Math.min(1, voice[i] + music.left[m] * gain * edge));
+    right[i] = Math.max(-1, Math.min(1, voice[i] + music.right[m] * gain * edge));
+  }
+  return { left, right };
+}
+
 // ---------- Encoding ----------
 
 const VIDEO_CODECS = ['avc1.640028', 'avc1.4d0028', 'avc1.42e028']; // H.264 High, Main, Baseline at level 4: what every platform takes
@@ -268,10 +343,11 @@ export async function encoderFor(size) {
 }
 
 /**
- * The film as an MP4: Blob. `clips` is Map(sceneId -> { samples, rate }). `onProgress(0..1)` is called as it
- * goes; aborting `signal` stops it.
+ * The film as an MP4: Blob. `sounds` is Map(sceneId -> { samples, rate }), every scene's recording; `music` is
+ * { left, right, level } for a bed under the voice, or nothing. `onProgress(0..1)` is called as it goes;
+ * aborting `signal` stops it.
  */
-export async function renderFilm(film, clips, { onProgress = () => {}, signal } = {}) {
+export async function renderFilm(film, sounds, { onProgress = () => {}, signal, music = null } = {}) {
   const { w, h } = film.size;
   const encoder = await encoderFor(film.size);
   if (encoder.reason) throw Object.assign(new Error(`This browser cannot encode the video (${encoder.reason})`), { reason: encoder.reason });
@@ -296,6 +372,7 @@ export async function renderFilm(film, clips, { onProgress = () => {}, signal } 
   const frames = Math.max(1, Math.ceil(film.timeline.duration * FPS));
   for (let f = 0; f < frames; f++) {
     if (stopped() || failure) break;
+    if (film.clips?.size) await cue(film, f / FPS);
     drawFrame(ctx, f / FPS, film);
     const frame = new VideoFrame(canvas, { timestamp: Math.round((f * 1e6) / FPS), duration: Math.round(1e6 / FPS) });
     pictures.encode(frame, { keyFrame: f % (FPS * 2) === 0 });
@@ -323,17 +400,18 @@ export async function renderFilm(film, clips, { onProgress = () => {}, signal } 
     error: (err) => (failure = err),
   });
   sound.configure(encoder.audio);
-  const track = mixTrack(film.timeline, clips);
-  for (let from = 0; from < track.length && !failure; from += AUDIO_RATE) {
-    const part = track.subarray(from, Math.min(track.length, from + AUDIO_RATE));
-    const planes = new Float32Array(part.length * 2); // the same voice on the left and on the right
-    planes.set(part, 0);
-    planes.set(part, part.length);
-    const data = new AudioData({ format: 'f32-planar', sampleRate: AUDIO_RATE, numberOfFrames: part.length, numberOfChannels: 2, timestamp: Math.round((from * 1e6) / AUDIO_RATE), data: planes });
+  const track = withMusic(mixTrack(film.timeline, sounds), music, { level: music?.level });
+  const length = track.left.length;
+  for (let from = 0; from < length && !failure; from += AUDIO_RATE) {
+    const size = Math.min(length, from + AUDIO_RATE) - from;
+    const planes = new Float32Array(size * 2); // the left channel, then the right
+    planes.set(track.left.subarray(from, from + size), 0);
+    planes.set(track.right.subarray(from, from + size), size);
+    const data = new AudioData({ format: 'f32-planar', sampleRate: AUDIO_RATE, numberOfFrames: size, numberOfChannels: 2, timestamp: Math.round((from * 1e6) / AUDIO_RATE), data: planes });
     sound.encode(data);
     data.close();
     if (stopped()) break;
-    onProgress(0.92 + (from / track.length) * 0.07);
+    onProgress(0.92 + (from / length) * 0.07);
     await tick();
   }
   if (stopped() || failure) {

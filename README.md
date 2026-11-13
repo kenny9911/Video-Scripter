@@ -15,6 +15,7 @@ It works with the model provider you already use, runs on your own machine or on
 - **Ready to publish.** Titles, cover text, description, hashtags and a pinned comment come with every script.
 - **A narration agent, not a one-shot prompt.** The spoken words are planned on a viewpoint card, written with the skills that fit the brief, then measured, reviewed and corrected before a script is built around them.
 - **Your words, if you want.** Have the narration drafted first, paste your own, or rewrite any beat in the narration editor. The script is then built around it word for word.
+- **Publish from the app.** Send the image post or the video to your YouTube, Instagram, TikTok, LinkedIn and other channels through your own Postiz account: now, at a set time, or as a draft.
 - **A finished video.** The script is voiced scene by scene and made into a captioned MP4 in your browser, cut to the voice.
 - **Video or image post.** The same script becomes a set of picture cards with the text to post under them, for 小红书 图文, 抖音图文, TikTok Photo Mode and Instagram carousels, counted against each platform's limits.
 - **Storyboards included.** Turn any scene into an image or clip in the video's aspect ratio (9:16, 16:9, 1:1, 3:4 or 4:3), in one of 74 visual styles.
@@ -159,9 +160,9 @@ The assistant makes pictures and clips by writing a small fenced block in its re
 
 A finished script also has a **Video** tab. It turns the script into a finished MP4: the voiceover spoken by a text-to-speech voice, every scene on screen with its on-screen text, and the voiceover as captions in time with the voice.
 
-1. **Voice.** Pick a voice and a speed, then **Voice the script**. Each scene is spoken on its own, so the video is cut to the voice: a scene lasts exactly as long as its sound, with a breath after it. In a two-host script every line is said in its speaker's voice. The recordings are kept with the script.
-2. **Look.** A scene that has a generated or library picture shows it, drifting slowly closer; a scene without one shows its on-screen text on the theme you pick. The slider under the preview scrubs through the whole video before anything is encoded. Captions and the "AI-generated" corner label can be switched off.
-3. **Video.** **Make the video** draws every frame and encodes the file in your browser: H.264 with AAC sound, 30 frames a second, in the script's aspect ratio (1080×1920 for 9:16, 1920×1080 for 16:9, 1080×1080, 1080×1440 or 1440×1080). An 80-second video takes about 12 seconds on a recent laptop. **Download .mp4** saves it; on a phone, **Share to an app** hands it to a platform's app.
+1. **Voice.** Pick a voice and a speed, then **Voice the script**. Each scene is spoken on its own, so the video is cut to the voice: a scene lasts exactly as long as its sound, with a breath after it. In a two-host script every line is said in its speaker's voice. The recordings are kept with the script. Under **Listen scene by scene** you can play each scene and, where a name or a number comes out wrong, write the line the way it should be said and voice that one scene again; the captions keep the script's own words.
+2. **Look and sound.** A scene with a clip (generated, or your own from the library) plays it as moving footage, from the start of the scene, holding its last frame if the voice runs longer. A scene with a picture shows it, drifting slowly closer; a scene with neither shows its on-screen text on the theme you pick. The slider under the preview scrubs through the whole video before anything is encoded. Captions and the "AI-generated" corner label can be switched off. **Music under the voice** adds a bed that steps back while the voice speaks: one of two built-in beds synthesised on your device, which nobody else owns, or an audio file of your own.
+3. **Video.** **Make the video** draws every frame and encodes the file in your browser: H.264 with AAC sound, 30 frames a second, in the script's aspect ratio (1080×1920 for 9:16, 1920×1080 for 16:9, 1080×1080, 1080×1440 or 1440×1080). An 80-second video takes about 12 seconds on a recent laptop. **Download .mp4** saves it; on a phone, **Share to an app** hands it to a platform's app. **Cover (.png)** draws the cover text at the size of the video, and **Subtitles (.srt)** gives the captions with their times for a platform's own subtitles or an editor.
 
 The file is made on your device and is not uploaded or kept on the server, so download it before you leave the page; the voice is kept, so making it again is quick. It needs a browser with WebCodecs: a current Chrome, Edge or Safari.
 
@@ -176,7 +177,23 @@ An administrator connects one voice provider for everyone under **Video → Voic
 
 The key stays on the server, and members only see which voices they can pick. With no provider connected, demo mode stands a placeholder tone in for the voice so the rest can be tried.
 
-What this first version does not do: music and sound effects, moving clips inside the video (a scene's generated clip is not used yet), lip-synced hosts, and posting to a platform for you.
+What it does not do yet: sound effects, lip-synced hosts, and word-exact caption timing (captions are spread across each scene by length).
+
+## Publishing
+
+The **Image post** and **Video** tabs end in a **Publish** section that sends the finished post to your own channels through [Postiz](https://postiz.com), a scheduler that posts to YouTube, Instagram, TikTok, LinkedIn, X and more from one account. Video Scripter needs no developer app at any of those platforms: Postiz has them.
+
+1. **Connect once.** In Postiz, connect the channels you post to and create an API key under Settings. Paste the key into **Publish**. It is checked against Postiz, kept on the server and never shown again; every person connects their own.
+2. **Pick the channels.** The ones your Postiz account has are listed; the one that matches the script's platform is ticked for you. YouTube is offered for videos only.
+3. **Choose when.** Publish now, at a time you choose, or keep it as a draft in Postiz to review there.
+
+An image post goes out as JPEG pictures in card order with its title and text; a video as the MP4 you just made, with the script's description and hashtags. Each platform is told what it needs: a YouTube title, tags and who can see it, a TikTok privacy level and its "made with AI" flag, a LinkedIn carousel for pictures. The files pass from your browser through the server to your Postiz media library, a video in pieces.
+
+Good to know:
+
+- 小红书, 抖音 and 视频号 let no outside service post for a person, so they are not among Postiz's channels. For those, use **Download** and, on a phone, **Share to an app**.
+- What is published counts against your Postiz plan, and each platform's own rules and review still apply. Postiz shows whether each channel took the post.
+- A deployment that hosts its own Postiz points the app at it with `POSTIZ_API_URL`.
 
 ## The narration agent
 
@@ -527,6 +544,7 @@ post.md                                the image post, when one was written: the
 images/host-A.png                      the reference portrait of each on-screen host
 images/scene-01_00m00s-00m04s.png      latest image per scene
 videos/scene-01_00m00s-00m04s.mp4      latest clip per scene
+audio/scene-01_00m00s-00m04s.wav       the voiceover of each scene, once the script was voiced
 ```
 
 When a scene has several images, each file name gains a number, and its role where there is one: `…_1.png`, or `…_1-start.png` and `…_2-end.png`.
@@ -601,6 +619,7 @@ Everything below is optional. Settings saved in the app take precedence over the
 | `GATEWAY_RETRY_BASE_MS` | The first pause, in milliseconds, before a failed provider request is tried again; later pauses grow from it | `900` |
 | `REQUEST_TIME_LIMIT_S` | How many seconds the host lets one request run. The server winds a request up shortly before, and a script that is not finished is carried on in the next request | `800` on Vercel, otherwise no limit |
 | `SPEECH_PROVIDER`, `SPEECH_API_KEY`, `SPEECH_APP_ID` | The voice provider until one is saved in the app: `volc` (豆包语音 Seed-TTS, which also needs the APP ID) or `openai` (an OpenAI-compatible `/audio/speech`) | None |
+| `POSTIZ_API_URL` | Where Postiz is, for a deployment that hosts its own | `https://api.postiz.com` |
 | `SPEECH_BASE_URL_API`, `SPEECH_MODEL`, `SPEECH_VOICE`, `SPEECH_VOICE_B` | Its address, model or resource id, and the voices scripts are read in | The provider's |
 | `TAVILY_API_KEY`, `TAVILY_MCP_URL`, `FIRECRAWL_API_KEY` | The web services until some are saved in the app (LLM settings → Web search) | None |
 | `WEB_SEARCH_WITH`, `WEB_READ_WITH` | Which service is asked first to search and to read: `tavily` or `firecrawl` | `tavily`, `firecrawl` |
@@ -651,6 +670,7 @@ src/materials.mjs       the library files one brief uses: what the prompts say a
 api/index.mjs           serverless entry point (Vercel); vercel.json routes requests to it
 src/package.mjs         the downloadable .zip for one script (src/zip.mjs writes the archive)
 src/post.mjs            the image post of a script: what each platform takes, the prompt, reading the reply
+src/publish.mjs         publishing through Postiz: each person's key, their channels, uploads and the post
 src/speech.mjs          the voice of a video: the voice provider, the two protocols, a scene's voiceover as one WAV
 src/chat/               the chat: store.mjs (conversations and their files), skills.mjs (skills people write),
                         prompt.mjs (what the model is told), routes.mjs (the API)
@@ -733,7 +753,11 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `POST` | `/api/post/generate` | `{ historyId, instruction? }` Writes the image post of a script and keeps it on the script: `{ post }` with `title`, `titles`, `body`, `hashtags` and `cards` |
 | `GET`, `PUT` | `/api/speech/config` | The voice provider in use: everyone learns whether there is one and its voices; an administrator sees its address and a masked key, and changes it with `{ provider, baseUrl, apiKey, appId, model, voice, voiceB }` |
 | `POST` | `/api/speech/test` | Administrators: one sentence spoken with the settings in the body, as `{ seconds, audio }` (a WAV in a `data:` URI) |
-| `POST` | `/api/voice/scene` | `{ historyId, sceneId, voice?, voiceB?, speed?, done? }` Speaks one scene of a script and keeps the sound with the script: `{ sceneId, url, seconds }` |
+| `POST` | `/api/voice/scene` | `{ historyId, sceneId, voice?, voiceB?, speed?, text?, done? }` Speaks one scene (`text` is said in place of its voiceover) of a script and keeps the sound with the script: `{ sceneId, url, seconds }` |
+| `GET` | `/api/publish/status` | Whether the signed-in person has connected Postiz, and the channels their key reaches |
+| `POST` | `/api/publish/connect` | `{ apiKey }` connects (the key is kept once Postiz answers to it); `{ disconnect: true }` forgets it |
+| `POST` | `/api/publish/media` | The body is a picture or a video (name in `x-file-name`), passed on to the person's Postiz library: `{ id, path }`. A large file is sent first in pieces to `/api/publish/part` (`x-upload-id`, `x-part`), then named here with `x-upload-id` and `x-parts` |
+| `POST` | `/api/publish/post` | `{ historyId, kind: "images" \| "video", channelIds, when: "now" \| "draft" \| ISO date, text, title?, hashtags?, visibility?, ai?, media }` Makes the post at Postiz and notes it on the script |
 | `GET` | `/api/voice/file?id=&name=` | The recording of one scene (WAV), for the script's owner |
 | `POST` | `/api/post/save` | `{ historyId, post }` Keeps the creator's edits to a post: its text, its cards, and their theme, shape and footer |
 | `GET` | `/api/chat/meta` | What a conversation can be sent to: the gateways and their enabled models (names only), and the models that draw and film |

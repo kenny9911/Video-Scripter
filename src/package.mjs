@@ -10,9 +10,11 @@
 //      ├─ post.md                       the image post, when one was written: the note to paste and what each card says
 //      ├─ images/scene-01_00m00s-00m04s.png      (…_1.png, …_2-end.png when a scene has several)
 //      ├─ images/host-A.png             the reference portrait of each on-screen host
-//      └─ videos/scene-01_00m00s-00m04s.mp4
+//      ├─ videos/scene-01_00m00s-00m04s.mp4
+//      └─ audio/scene-01_00m00s-00m04s.wav       the voiceover of each scene, once the script was voiced
 
 import { readMedia } from './store.mjs';
+import { db } from './db.mjs';
 import { zip } from './zip.mjs';
 import { scriptHtml } from './html.mjs';
 import { getPlatform } from './platforms.mjs';
@@ -79,10 +81,21 @@ export async function buildPackage(entry, { markdown, lang } = {}) {
     }
   }
 
+  // The voice: one recording a scene, as the Video tab made them (src/speech.mjs).
+  for (const [i, sc] of entry.script.scenes.entries()) {
+    const voiced = entry.voice?.scenes?.[sc.id];
+    const blob = voiced?.name?.startsWith(`${entry.id}-s`) ? await db.getBlob(voiced.name).catch(() => null) : null;
+    if (!blob) continue;
+    const name = `audio/${sceneFile(sc, i, 'wav')}`;
+    files.push({ name: `${root}/${name}`, data: await blob.bytes(), store: false });
+    manifest.push({ scene: sc.id, kind: 'audio', file: name });
+  }
+
   const json = { platform: entry.platformId, created: new Date(entry.ts).toISOString(), brief: entry.brief, plan: entry.plan, ...entry.script, media: manifest };
   const text = [
     markdown && { name: 'script.md', data: String(markdown) },
-    { name: 'script.html', data: scriptHtml(entry, { media: manifest, platformName: getPlatform(entry.platformId)?.name, lang: lang === 'zh' ? 'zh' : 'en' }) },
+    { name: 'script.html', data: scriptHtml(entry, { media: manifest.filter((m) => m.kind !== 'audio'), // the page shows pictures and clips; the recordings are files beside it
+      platformName: getPlatform(entry.platformId)?.name, lang: lang === 'zh' ? 'zh' : 'en' }) },
     { name: 'script.json', data: JSON.stringify(json, null, 2) },
     { name: 'voiceover.txt', data: `${entry.script.scenes.map((sc) => spoken(sc.voiceover)).join('\n\n')}\n` },
     entry.post?.cards?.length && postFormat(entry.platformId) && { name: 'post.md', data: postMarkdown(entry.post, postFormat(entry.platformId)) },

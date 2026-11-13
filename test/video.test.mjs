@@ -8,7 +8,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { speakable, spokenParts, wavOf, pcmOfWav, resample, demoPcm, mergeSpeech, validateSpeech, publicSpeech, synthesize, voiceScene, RATE, SPEECH_PROVIDERS } from '../src/speech.mjs';
-import { captionsOf, buildTimeline, mixTrack, readWav, FRAME_SIZES, FPS } from '../public/film.js';
+import { captionsOf, buildTimeline, mixTrack, withMusic, srtOf, readWav, FRAME_SIZES, FPS } from '../public/film.js';
 import { muxMp4, boxes } from '../public/mp4.js';
 
 test('a voiceover is spoken without its marks, and each speaker says their own lines', () => {
@@ -132,6 +132,25 @@ test('the timeline is cut to the voice: a scene lasts as long as its sound', () 
   const track = mixTrack(tl, new Map([[1, clip]]), 48000);
   assert.equal(track.length, Math.ceil(tl.duration * 48000));
   assert.deepEqual([track[0], track[0.25 * 48000 + 10], track[1.25 * 48000 + 10]], [0, 0.5, 0]);
+
+  // The captions as a subtitle file: numbered, timed, without the stress marks.
+  const srt = srtOf(buildTimeline([{ id: 1, voiceover: '第一句[[重点]]。第二句话更长一些。' }], { 1: { seconds: 3 } }, 'zh'));
+  assert.match(srt, /^1\n00:00:00,250 --> 00:00:0\d,\d{3}\n第一句重点\n\n2\n00:00:0\d,\d{3} --> 00:00:03,250\n第二句话更长一些\n$/);
+
+  // Music goes under the voice: quieter while someone speaks, back up in the gaps, silent at both ends.
+  const rate = 48000;
+  const speech = new Float32Array(rate * 6);
+  speech.fill(0.5, rate * 2, rate * 4); // someone speaks from 2 s to 4 s
+  const bed = { left: new Float32Array(rate).fill(1), right: new Float32Array(rate).fill(-1) }; // one second of music, so it has to loop
+  const mixed = withMusic(speech, bed, { level: 1, rate });
+  const music = (at) => mixed.left[Math.round(at * rate)] - speech[Math.round(at * rate)];
+  assert.ok(Math.abs(music(1.2) - 0.32) < 0.01, `between the words: ${music(1.2)}`);
+  assert.ok(Math.abs(music(3.5) - 0.128) < 0.01, `under the voice: ${music(3.5)}`);
+  assert.ok(music(1.95) < 0.3 && music(4.38) > 0.2 && music(4.38) < 0.3, 'it steps back just before the word and comes back, slowly, after it');
+  assert.ok(music(0.01) < 0.02 && Math.abs(music(5.99)) < 0.02);
+  assert.ok(mixed.right[Math.round(1.2 * rate)] < 0); // left and right stay apart
+  const dry = withMusic(speech, null);
+  assert.deepEqual([dry.left[rate * 3], dry.right[rate * 3], dry.left[rate]], [0.5, 0.5, 0]);
 });
 
 test('the MP4 writer: the index comes first and points at every sample', () => {
@@ -226,8 +245,14 @@ test('voicing over HTTP in demo mode: scene by scene, kept with the script, only
   const wav = Buffer.from(await (await ann.raw('GET', r.body.url)).arrayBuffer());
   const sound = pcmOfWav(wav);
   assert.deepEqual([sound.rate, Math.abs(sound.pcm.length / 2 / RATE - r.body.seconds) < 0.001], [RATE, true]);
-  r = await ann.call('POST', '/api/voice/scene', { historyId: id, sceneId: script.scenes[1].id, done: true });
+  // A line read differently than it is written: what is said is kept with the recording.
+  r = await ann.call('POST', '/api/voice/scene', { historyId: id, sceneId: script.scenes[1].id, text: '一句很长很长很长很长很长很长很长很长很长很长的话', done: true });
+  assert.ok(r.body.seconds > 4);
   const kept = (await ann.call('GET', '/api/history')).body.find((e) => e.id === id).voice;
+  assert.deepEqual([kept.scenes[script.scenes[1].id].say, 'say' in kept.scenes[script.scenes[0].id]], ['一句很长很长很长很长很长很长很长很长很长很长的话', false]);
+  // The recordings go into the download package, beside the script.
+  const zip = Buffer.from(await (await ann.raw('POST', '/api/history/package', { id, markdown: '# x' })).arrayBuffer());
+  assert.ok(zip.includes(Buffer.from('/audio/scene-01_')) && zip.includes(Buffer.from('/audio/scene-02_')) && !zip.includes(Buffer.from('/audio/scene-03_')));
   assert.deepEqual([Object.keys(kept.scenes).length, kept.speed, kept.scenes[script.scenes[0].id].seconds > 0.5, /-voice-\w+\.wav$/.test(kept.scenes[script.scenes[1].id].name)], [2, 1, true, true]);
 
   assert.equal((await ann.call('POST', '/api/voice/scene', { historyId: id, sceneId: 999 })).status, 404);

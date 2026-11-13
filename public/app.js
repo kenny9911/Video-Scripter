@@ -9,6 +9,7 @@ import { wireLibrary } from './library.js';
 import { wirePost } from './post.js';
 import { wireWebSettings, wireBriefWeb, sourcesNode, readingNote } from './web.js';
 import { wireVideo } from './video.js';
+import { wirePublish } from './publish.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -899,7 +900,7 @@ function savedMedia(entry) {
 /** The voice saved with a script, as a run keeps it: each scene's recording by its address. */
 function savedVoice(entry) {
   if (!entry.voice?.scenes) return null;
-  return { ...entry.voice, scenes: Object.fromEntries(Object.entries(entry.voice.scenes).map(([id, v]) => [id, { url: `/api/voice/file?id=${entry.id}&name=${v.name}`, seconds: v.seconds }])) };
+  return { ...entry.voice, scenes: Object.fromEntries(Object.entries(entry.voice.scenes).map(([id, v]) => [id, { url: `/api/voice/file?id=${entry.id}&name=${v.name}`, seconds: v.seconds, say: v.say || '' }])) };
 }
 
 /**
@@ -916,7 +917,7 @@ function openHistory(entry) {
     saveForm();
     toast(t('Brief restored from this script'));
   }
-  state.runs = { [entry.platformId]: { status: 'done', raw: '', brief, plan: entry.plan, script: entry.script, historyId: entry.id, media, styleIds: entry.brief?.styleIds || [], post: entry.post || null, voice: savedVoice(entry) } };
+  state.runs = { [entry.platformId]: { status: 'done', raw: '', brief, plan: entry.plan, script: entry.script, historyId: entry.id, media, styleIds: entry.brief?.styleIds || [], post: entry.post || null, voice: savedVoice(entry), published: entry.published || [] } };
   state.teleprompter = {};
   state.active = entry.platformId;
   setView('script');
@@ -2792,11 +2793,14 @@ async function boot() {
     $('assetChips').closest('.field').hidden = true;
   }
   // A server that has not been restarted since the page was updated knows no image posts yet: the script still shows.
+  // Sending an image post or a video to the person's own channels (publish.js), where the server can.
+  const publish = wirePublish({ toast });
   if (state.meta.platforms.some((p) => p.post))
     imagePost = wirePost({
       toast,
       copy,
       platformOf,
+      publish,
       // The post was written or edited: the history has it too, so reopening the script shows it.
       changed: (run) => {
         const entry = state.history.find((e) => e.id === run.historyId);
@@ -2804,7 +2808,7 @@ async function boot() {
       },
     });
   // The voice was made: the history learns of it from the server, which keeps the recordings.
-  film = wireVideo({ toast, platformOf, isAdmin: () => state.user.role === 'admin', changed: () => loadHistory().catch(() => {}) });
+  film = wireVideo({ toast, platformOf, publish, isAdmin: () => state.user.role === 'admin', changed: () => loadHistory().catch(() => {}) });
   buildForm();
   library.load();
   wireSettings();

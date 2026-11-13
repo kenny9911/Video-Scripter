@@ -25,6 +25,7 @@ import { listHistory, getHistory, addHistory, newHistoryId, saveMedia, linkMedia
 import { buildPackage } from './src/package.mjs';
 import { postFormat, publicFormat, buildPostPrompts, parsePost, postFromScript, normalizePost } from './src/post.mjs';
 import { loadSpeech, saveSpeech, mergeSpeech, validateSpeech, publicSpeech, getSpeechProvider, voiceScene, synthesize, wavOf } from './src/speech.mjs';
+import * as publishing from './src/publish.mjs';
 import { buildPlan, planSummary, buildPrompts, parseScript, settleScript, buildVisualPrompt, buildHostPrompt, showsHost, buildNarrationPrompts, parseNarration, buildRefinePrompts, parseRefined, REFINE_PRESETS } from './src/prompt.mjs';
 import { PACE, MIN_DURATION, MAX_DURATION, normalizeNarration, lockNarration } from './src/narration.mjs';
 import { writeNarration, reviseNarration, checkNarration, AGENT_STEPS } from './src/agent/narrator.mjs';
@@ -798,8 +799,9 @@ const routes = {
 
   // Speaks one scene of a script and keeps the sound with the script. The page asks scene by scene, so a long
   // script never outlasts a request and a failed scene is asked again by itself. `done` marks the last one.
+  // `text` is said in place of the scene's voiceover, for a line that has to be read differently than it is written.
   'POST /api/voice/scene': route('user', async (req, res, user) => {
-    const { historyId, sceneId, voice, voiceB, speed, done } = await readJson(req);
+    const { historyId, sceneId, voice, voiceB, speed, text, done } = await readJson(req);
     const entry = await ownedHistory(user, historyId);
     const scene = entry.script.scenes.find((sc) => String(sc.id) === String(sceneId));
     if (!scene) throw fail('That scene is not in the script', 404);
@@ -810,16 +812,17 @@ const routes = {
     const lang = entry.plan?.lang || entry.plan?.brief?.lang || PLATFORMS.find((p) => p.id === entry.platformId)?.lang || 'zh';
     const voices = { A: String(voice || '').trim().slice(0, 120), B: String(voiceB || '').trim().slice(0, 120) };
     const pace = Math.min(1.6, Math.max(0.7, Number(speed) || 1));
+    const say = String(text || '').trim().slice(0, 600); // how the creator wants this line read, where the script's own words come out wrong
     const model = demo ? 'demo' : speech.model;
     const about = { id: 'speech', name: demo ? 'Demo voice' : getSpeechProvider(speech.provider).label, provider: demo ? 'mock' : speech.provider };
     const started = Date.now();
     try {
-      const made = await voiceScene(speech, scene.voiceover, { voices, speed: pace, lang, demo, signal: AbortSignal.timeout(120_000) });
+      const made = await voiceScene(speech, say || scene.voiceover, { voices, speed: pace, lang, demo, signal: AbortSignal.timeout(120_000) });
       const name = `${entry.id}-s${String(scene.id).replace(/[^\w-]/g, '')}-voice-${Date.now().toString(36)}.wav`;
       await db.putBlob(name, { userId: entry.userId, type: 'audio/wav', bytes: made.wav });
       const seconds = Math.round(made.seconds * 1000) / 1000;
       await db.update('history', entry.id, (e) => {
-        e.voice = { ...e.voice, provider: about.provider, voice: voices.A || speech.voice, voiceB: voices.B || speech.voiceB, speed: pace, ts: Date.now(), scenes: { ...e.voice?.scenes, [scene.id]: { name, seconds } } };
+        e.voice = { ...e.voice, provider: about.provider, voice: voices.A || speech.voice, voiceB: voices.B || speech.voiceB, speed: pace, ts: Date.now(), scenes: { ...e.voice?.scenes, [scene.id]: { name, seconds, ...(say && { say }) } } };
       });
       await recordUsage({ user, taskId: entry.id, kind: 'voice', config: about, model, ms: Date.now() - started });
       if (done) await logActivity(req, user, 'voice.generate', { taskId: entry.id, title: entry.script.title, model, seconds: Math.round(Object.values({ ...entry.voice?.scenes, [scene.id]: { seconds } }).reduce((n, v) => n + v.seconds, 0)) });
@@ -840,6 +843,78 @@ const routes = {
     const bytes = await blob.bytes();
     res.writeHead(200, { 'content-type': 'audio/wav', 'content-length': bytes.length, 'cache-control': 'private, max-age=31536000, immutable', vary: 'cookie', 'x-content-type-options': 'nosniff' });
     res.end(bytes);
+  }),
+
+  // ---------- Publishing through Postiz (src/publish.mjs) ----------
+
+  // Whether the signed-in person has connected Postiz, and the channels their key reaches.
+  'GET /api/publish/status': route('user', async (req, res, user) => {
+    const conn = await publishing.connection(user.id);
+    if (!conn) return json(res, 200, publishing.publicConnection(null));
+    try {
+      json(res, 200, { ...publishing.publicConnection(conn), channels: await publishing.listChannels(conn) });
+    } catch (err) {
+      json(res, 200, { ...publishing.publicConnection(conn), channels: [], error: err.message });
+    }
+  }),
+
+  // Connect with `{ apiKey }` (kept only once Postiz has answered to it), or disconnect with `{ disconnect: true }`.
+  'POST /api/publish/connect': route('user', async (req, res, user) => {
+    const { apiKey, disconnect } = await readJson(req);
+    if (disconnect) {
+      await publishing.disconnect(user.id);
+      await logActivity(req, user, 'publish.disconnect', {});
+      return json(res, 200, publishing.publicConnection(null));
+    }
+    try {
+      const channels = await publishing.connect(user.id, apiKey);
+      await logActivity(req, user, 'publish.connect', { channels: channels.length });
+      json(res, 200, { ...publishing.publicConnection(await publishing.connection(user.id)), channels });
+    } catch (err) {
+      json(res, err.status === 400 || err.status === 429 ? err.status : 502, failure(req, err));
+    }
+  }),
+
+  // One piece of a file too large for a single request (a video): the body is the piece, x-upload-id names
+  // the upload and x-part its place, from 0.
+  'POST /api/publish/part': route('user', async (req, res, user) => {
+    await publishing.addPart({ userId: user.id, upload: req.headers['x-upload-id'], n: Number(req.headers['x-part']), bytes: await readBytes(req, publishing.partBytes()) });
+    json(res, 200, { ok: true });
+  }),
+
+  // Passes one file on to the person's Postiz media library: the body is the file, or `x-upload-id` and
+  // `x-parts` name the pieces sent before. Answers `{ id, path }`, which a post is then made from.
+  'POST /api/publish/media': route('user', async (req, res, user) => {
+    const conn = await publishing.connection(user.id);
+    if (!conn) throw fail('Connect Postiz first');
+    const upload = req.headers['x-upload-id'];
+    const bytes = upload ? await publishing.takeParts({ userId: user.id, upload, count: Number(req.headers['x-parts']) }) : await readBytes(req, publishing.partBytes() + 1024);
+    if (bytes.length > publishing.MAX_MEDIA_BYTES) throw fail('The file is too large to publish', 413);
+    try {
+      json(res, 200, await publishing.uploadMedia(conn, { bytes, name: headerText(req, 'x-file-name') }));
+    } catch (err) {
+      json(res, err.status === 400 || err.status === 429 ? err.status : 502, failure(req, err));
+    }
+  }),
+
+  // Makes the post: the image post or the video of a script, to the channels picked, now, at a time, or as a
+  // draft in Postiz. What was sent is noted on the script.
+  'POST /api/publish/post': route('user', async (req, res, user) => {
+    const { historyId, kind, channelIds, when, text, title, hashtags, visibility, ai, media } = await readJson(req);
+    const entry = await ownedHistory(user, historyId);
+    const conn = await publishing.connection(user.id);
+    if (!conn) throw fail('Connect Postiz first');
+    try {
+      const all = await publishing.listChannels(conn);
+      const channels = all.filter((c) => !c.disabled && (Array.isArray(channelIds) ? channelIds : []).includes(c.id));
+      const made = await publishing.createPost(conn, { when: String(when || 'now'), channels, text: String(text || '').slice(0, 8000), title: String(title || ''), hashtags: Array.isArray(hashtags) ? hashtags.map(String).slice(0, 30) : [], visibility, ai: Boolean(ai), kind: kind === 'video' ? 'video' : 'images', media: Array.isArray(media) ? media.slice(0, 40) : [] });
+      const sent = { ts: Date.now(), kind: kind === 'video' ? 'video' : 'images', when: String(when || 'now'), channels: channels.map((c) => ({ name: c.name, identifier: c.identifier })), posts: made.map((m) => String(m.postId || m.id || '')).filter(Boolean) };
+      await db.update('history', entry.id, (e) => Object.assign(e, { published: [...(e.published || []), sent].slice(-20) }));
+      await logActivity(req, user, 'publish.post', { taskId: entry.id, title: entry.script.title, file: channels.map((c) => `${c.identifier}: ${c.name}`).join(', '), model: sent.when === 'now' ? 'now' : sent.when === 'draft' ? 'draft' : 'scheduled' });
+      json(res, 200, { sent });
+    } catch (err) {
+      json(res, err.status === 400 || err.status === 429 ? err.status : 502, failure(req, err));
+    }
   }),
 
   // Media for one scene, made with the image / video settings of the user's gateway,
