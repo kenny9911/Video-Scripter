@@ -6,7 +6,7 @@
 
 import { getProvider } from './providers.mjs';
 import { mediaTarget } from './config.mjs';
-import { GatewayError, request } from './client.mjs';
+import { GatewayError, request, apiBase } from './client.mjs';
 import { getAspect, sizeFor } from '../aspects.mjs';
 
 /** The demo provider's placeholder picture, in the shape asked for. */
@@ -31,7 +31,7 @@ function target(config, kind) {
   if (!/^https?:\/\/[^\s/]+/.test(t.baseUrl)) throw new GatewayError(`The ${kind} BASE_URL_API is not a valid URL`, 400);
   const headers = { accept: 'application/json' };
   if (t.apiKey) headers.authorization = `Bearer ${t.apiKey}`;
-  return { ...t, base: t.baseUrl.replace(/\/+$/, ''), headers };
+  return { ...t, base: apiBase(t.baseUrl), headers }; // a bare host gets its /v1, as for text
 }
 
 async function json(res, what) {

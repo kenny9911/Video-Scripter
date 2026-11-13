@@ -239,3 +239,38 @@ test('replyJson mends the slips a model makes in otherwise sound JSON', async ()
   assert.deepEqual(replyJson('```json\n{"a":"x\\"y","b":[1,2]}\n```'), { a: 'x"y', b: [1, 2] }, 'sound JSON is left alone');
   assert.throws(() => replyJson('{"a": [1 2 x], "b":1}'), (err) => /after array element/.test(err.message) && err.near.includes('[1 2 x]'));
 });
+
+// ---------- The address, and what an error reply says ----------
+
+test('a gateway set up with its bare host is called under /v1; an address with a path is left alone', async () => {
+  const { apiBase } = await import('../src/gateway/client.mjs');
+  assert.equal(endpointFor('openai', 'https://aigw.example'), 'https://aigw.example/v1/chat/completions');
+  assert.equal(endpointFor('openai', 'https://aigw.example/'), 'https://aigw.example/v1/chat/completions');
+  assert.equal(modelsEndpointFor('openai', 'https://aigw.example'), 'https://aigw.example/v1/models');
+  assert.equal(endpointFor('openai', 'https://ark.example/api/v3'), 'https://ark.example/api/v3/chat/completions');
+  assert.equal(endpointFor('openai', 'https://g.example/v1beta/openai/'), 'https://g.example/v1beta/openai/chat/completions');
+  assert.equal(endpointFor('openai', 'http://localhost:11434/v1'), 'http://localhost:11434/v1/chat/completions');
+  assert.deepEqual([apiBase('https://img.example'), apiBase('https://img.example/v1/images/generations'), apiBase('not a url')], ['https://img.example/v1', 'https://img.example/v1/images/generations', 'not a url']);
+});
+
+test('an error reply is told in one line: the message of a JSON error, the title of an error page', async () => {
+  const { errorDetail, request, isTransient } = await import('../src/gateway/client.mjs');
+  const { causeOf } = await import('../src/errors.mjs');
+  assert.equal(errorDetail(503, '{"error":{"message":"No available accounts","type":"api_error"}}'), 'No available accounts');
+  assert.equal(errorDetail(400, '{"message":"This group does not allow cross-protocol conversion"}'), 'This group does not allow cross-protocol conversion');
+  const page = '<!DOCTYPE html>\n<!--[if lt IE 7]> <html class="no-js ie6 oldie" lang="en-US"> <![endif]-->\n<head>\n\n<title>aigw.example | 525: SSL handshake failed</title>\n<meta charset="UTF-8" />\n</head><body>' + 'x'.repeat(3000) + '</body></html>';
+  assert.equal(errorDetail(525, page), 'aigw.example | 525: SSL handshake failed (the secure connection to the server behind it failed (SSL handshake failed))');
+  assert.equal(errorDetail(502, '<html><body><h1>Bad Gateway</h1></body></html>'), 'an error page instead of an API reply');
+  assert.equal(errorDetail(500, 'upstream exploded'), 'upstream exploded');
+  const real = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response(page, { status: 525, headers: { 'content-type': 'text/html' } });
+    const err = await request('https://aigw.example/v1/chat/completions', {}, { retries: 0 }).catch((e) => e);
+    assert.ok(!err.message.includes('<') && err.message.startsWith('aigw.example responded 525: aigw.example | 525: SSL handshake failed'), err.message);
+    assert.ok(err.endpoint.body.startsWith('<!DOCTYPE html>'), 'the page itself is kept for Test API');
+    assert.ok(isTransient(err), 'a failed handshake at the edge comes and goes: it is asked again');
+    assert.deepEqual([causeOf(err).side, causeOf(err).code], ['provider', 'outage']);
+  } finally {
+    globalThis.fetch = real;
+  }
+});

@@ -34,7 +34,7 @@ const trimSlash = (s) => s.replace(/\/+$/, '');
 export const retryPolicy = { retries: 3, resumes: 3, maxResumes: 8, baseMs: Number(process.env.GATEWAY_RETRY_BASE_MS) || 900, maxWaitMs: 10_000 };
 
 // Statuses that say "not now" rather than "not like this": a gateway without capacity, a timeout, an overloaded model.
-const TRANSIENT = new Set([408, 425, 500, 502, 503, 504, 520, 521, 522, 523, 524, 529]);
+const TRANSIENT = new Set([408, 425, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 529, 530]);
 // Of those, the ones that mean "it took too long": the work may still be going on at the provider.
 const TIMED_OUT = new Set([408, 504, 524]);
 // Network failures that will not get better by asking again: a wrong address, nothing listening, a bad certificate.
@@ -65,12 +65,27 @@ const pause = (ms, signal) =>
     signal?.addEventListener('abort', () => (clearTimeout(timer), reject(signal.reason)), { once: true });
   });
 
+/**
+ * The address an OpenAI-compatible API is called at. A gateway is often set up with its bare host
+ * (https://gateway.example) where its API lives under /v1, as its documentation says: a host with no path
+ * gets the /v1. An address that already has a path is taken as it stands (…/v1, …/api/v3, …/v1beta/openai).
+ */
+export function apiBase(baseUrl) {
+  const base = trimSlash(String(baseUrl || '').trim());
+  try {
+    return new URL(base).pathname === '/' ? `${base}/v1` : base;
+  } catch {
+    return base;
+  }
+}
+
 export function endpointFor(protocol, baseUrl) {
-  const base = trimSlash(baseUrl);
   if (protocol === 'anthropic') {
+    const base = trimSlash(baseUrl);
     if (base.endsWith('/messages')) return base;
     return `${base.replace(/\/v1$/, '')}/v1/messages`;
   }
+  const base = apiBase(baseUrl);
   return base.endsWith('/chat/completions') ? base : `${base}/chat/completions`;
 }
 
@@ -220,6 +235,38 @@ async function* sseData(body) {
   if (rest.startsWith('data:')) yield rest.slice(5).trim();
 }
 
+// What the network in front of a provider (Cloudflare) means by the statuses it makes up itself: the
+// provider's own server never saw the request, or never answered it.
+const EDGE_STATUS = {
+  520: 'the server behind it returned something unreadable',
+  521: 'the server behind it is down',
+  522: 'the server behind it did not accept the connection in time',
+  523: 'the server behind it could not be reached',
+  524: 'the server behind it took too long to answer',
+  525: 'the secure connection to the server behind it failed (SSL handshake failed)',
+  526: 'the server behind it has an invalid SSL certificate',
+  530: 'the server behind it could not be found',
+};
+
+/**
+ * What a provider's error reply says, in one line. An API answers with JSON that carries a message; the
+ * network in front of it answers with a whole web page, of which only the title says anything.
+ */
+export function errorDetail(status, body) {
+  const text = String(body || '').trim();
+  try {
+    const j = JSON.parse(text);
+    const said = j.error?.message || (typeof j.error === 'string' && j.error) || j.message || j.detail || j.title;
+    if (said) return String(said).slice(0, 600);
+  } catch {}
+  if (/^\s*<(!doctype|html|head|body)/i.test(text) || /<\/(html|body|title)>/i.test(text)) {
+    const title = (/<title[^>]*>([\s\S]*?)<\/title>/i.exec(text)?.[1] || '').replace(/\s+/g, ' ').trim();
+    const edge = EDGE_STATUS[status];
+    return [title || 'an error page instead of an API reply', edge && `(${edge})`].filter(Boolean).join(' ').slice(0, 300);
+  }
+  return text.slice(0, 600) || EDGE_STATUS[status] || '';
+}
+
 /** One fetch, with network failures and non-2xx replies turned into readable GatewayErrors that say where they came from. */
 async function requestOnce(url, init) {
   const host = new URL(url).host;
@@ -232,12 +279,7 @@ async function requestOnce(url, init) {
   }
   if (!res.ok) {
     const body = (await res.text().catch(() => '')).slice(0, 4000);
-    const text = body.slice(0, 600);
-    let detail = text;
-    try {
-      const j = JSON.parse(text);
-      detail = j.error?.message || j.message || j.detail || j.title || text;
-    } catch {}
+    const detail = errorDetail(res.status, body);
     const retryAfter = Number(res.headers.get('retry-after')) || 0;
     throw Object.assign(new GatewayError(`${host} responded ${res.status}: ${detail || res.statusText}`, res.status), { host, upstream: true, ...(retryAfter && { retryAfter }), endpoint: { url: url.split('?')[0], status: res.status, statusText: res.statusText, body } }); // `endpoint`: its answer word for word, for Test API
   }
@@ -271,7 +313,7 @@ export async function request(url, init = {}, { retries = retryPolicy.retries, t
 export function modelsEndpointFor(protocol, baseUrl) {
   const base = trimSlash(baseUrl);
   if (protocol === 'anthropic') return `${base.replace(/\/messages$/, '').replace(/\/v1$/, '')}/v1/models?limit=1000`;
-  return `${base.replace(/\/chat\/completions$/, '')}/models`;
+  return `${apiBase(base.replace(/\/chat\/completions$/, ''))}/models`;
 }
 
 /** Ask the provider which models this key can use. Returns a sorted list of model ids. */
