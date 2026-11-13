@@ -88,7 +88,8 @@ export function selectSkills(brief, all = SKILLS) {
   const said = squash([brief.topic, brief.keyMessage, brief.brand, brief.experience, brief.reference, ...(brief.materials?.docs || []).map((d) => d.text)].join('\n'));
   const group = brief.framework.group || 'general';
   return all.filter((s) => {
-    if (s.lang && s.lang !== brief.lang) return false;
+    // A playbook for one language is for that language: "zh" covers both scripts of Chinese, "en" is English alone.
+    if (s.lang && (s.lang === 'zh' ? brief.lang !== 'zh' : s.lang !== (brief.language || brief.lang))) return false;
     if (s.platforms.length && !s.platforms.includes(brief.platform.id)) return false;
     if ((s.frameworks.length || s.groups.length) && !s.frameworks.includes(brief.framework.id) && !s.groups.includes(group)) return false;
     if (s.minDuration && brief.duration < s.minDuration) return false;

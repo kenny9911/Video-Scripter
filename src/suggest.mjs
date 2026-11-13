@@ -8,7 +8,7 @@
 // video in, optionally a second that sets its tone, and a sentence on why. `input` is a brief as the page
 // sends it ({ topic, platformId, frameworkId, tone, audience, keyMessage, brand, host }).
 
-import { STYLES, STYLE_GROUPS } from './styles.mjs';
+import { STYLES, STYLE_GROUPS, styleClash } from './styles.mjs';
 import { getFramework } from './frameworks.mjs';
 import { getPlatform } from './platforms.mjs';
 import { LANG_NAME, replyJson } from './prompt.mjs';
@@ -144,7 +144,8 @@ export function suggestStyles(input = {}, lang = 'en') {
   const lead = leads[0];
   // A set a host presents from already has its own light: it takes a second style only when the brief clearly asks for one.
   const share = ['host', 'present'].includes(lead.style.group) ? 0.6 : 0.4;
-  const tone = ranked.find((r) => isTone(r.style) && r.n >= 3 && r.n >= lead.n * share);
+  // The second style has to go with the first: a light or an era that clashes with the lead is passed over (public/compat.js).
+  const tone = ranked.find((r) => isTone(r.style) && r.n >= 3 && r.n >= lead.n * share && !styleClash(lead.style.id, r.style.id));
   const alternatives = leads.slice(1, 4).map((r) => r.style.id);
 
   const zh = lang === 'zh';
@@ -227,7 +228,8 @@ export function parseStylePick(raw) {
   const known = (id) => (styleOf(text(id).trim()) ? text(id).trim() : '');
   const lead = known(obj.lead);
   if (!lead) return null;
-  const blend = known(obj.blend);
+  const second = known(obj.blend);
+  const blend = second && !styleClash(lead, second) ? second : ''; // a blend that clashes with the lead is not a blend
   const alternatives = [...new Set((Array.isArray(obj.alternatives) ? obj.alternatives : []).map(known).filter((id) => id && id !== lead && id !== blend))].slice(0, 3);
   return { styleIds: [lead, ...(blend && blend !== lead ? [blend] : [])], alternatives, reason: clean(obj.reason, 300), by: 'model' };
 }

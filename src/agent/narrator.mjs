@@ -29,6 +29,7 @@ import { publicSkill } from './skills.mjs';
 import { normalizeCard } from './card.mjs';
 import { buildEditPrompts, parseEdit } from './prompts.mjs';
 import { reviewNarration } from './review.mjs';
+import { debug } from '../log.mjs';
 
 export const AGENT_STEPS = ['skills', 'write', 'review'];
 const MAX_REVIEW_ROUNDS = 2;
@@ -42,6 +43,7 @@ function caller({ config, signal, emit, onCall, chat }) {
     const started = Date.now();
     let raw = '';
     let usage = null;
+    debug('agent', `step "${step}" asks the model`, { system: prompts.system.length, user: prompts.user.length });
     emit('delta', { text: `\n\n── ${step} ──\n` });
     try {
       for await (const text of chat(config, { ...prompts, signal, meta, onUsage: (u) => (usage = u), onRetry: (info) => emit('retry', info) })) {
@@ -91,6 +93,7 @@ async function review({ call, plan, beats, card, emit, until = Infinity }) {
     }
     rounds = round;
     const measured = reviewNarration(edit.beats, plan, { card });
+    debug('agent', `review round ${round}`, { errorsBefore: best.measured.errors, errorsAfter: measured.errors, warnsAfter: measured.warns, kept: measured.errors <= best.measured.errors, notes: edit.notes.length });
     if (round === 1) notes.push(...edit.notes);
     if (measured.errors <= best.measured.errors) best = { beats: edit.beats, measured };
   }
@@ -122,6 +125,7 @@ export async function writeNarration({ config, plan, signal, emit = () => {}, on
   }
   // A reply whose card cannot be read still gives a narration: it is then reviewed without one.
   const card = normalizeCard(replyJson(raw).card, plan.timeline.map((s) => s.key));
+  debug('agent', 'narration written', { beats: draft.beats.length, card: Boolean(card), skills: plan.skills.map((s) => s.id).join(',') });
   emit('step', { id: 'write', status: 'done', beats: draft.beats.length, card });
   return { title: draft.title, beats: draft.beats, card, report: checkNarration(plan, draft.beats, card) };
 }

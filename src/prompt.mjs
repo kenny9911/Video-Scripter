@@ -12,14 +12,15 @@
 // also read by the prompts in this file, each at the step it is written for.
 
 import { getPlatform } from './platforms.mjs';
-import { getFramework } from './frameworks.mjs';
-import { pickStyles, styleLook } from './styles.mjs';
+import { getFramework, pickVoices } from './frameworks.mjs';
+import { pickStyles, settleStyles, styleLook, blendOf } from './styles.mjs';
 import { getAspect } from './aspects.mjs';
 import { PACE, MIN_DURATION, MAX_DURATION, countSpoken, fitDuration, normalizeNarration, narrationBlock, spokenText } from './narration.mjs';
 import { selectSkills, skillSection, publicSkill } from './agent/skills.mjs';
 import { normalizeCard, cardBlock, CARD_SCHEMA, PLAN_RULES } from './agent/card.mjs';
 import { normalizeHosts, normalizeCast, settleCast, settleSceneHost, castLine, hostBrief } from './cast.mjs';
 import { replyJson } from './json.mjs';
+import { getLanguage, promptName, isNative } from './languages.mjs';
 import { normalizeMaterials, materialLines, materialRules, assetSchemaLine, settleSceneAssets, assetLine } from './materials.mjs';
 import { normalizeWeb, webLines, webSummary } from './web/brief.mjs';
 
@@ -27,8 +28,15 @@ export { repairJson, replyJson } from './json.mjs'; // where they used to live
 
 const clean = (v, max) => String(v ?? '').trim().slice(0, max);
 
-/** How fast a framework is spoken: its own pace when it is a narration style that sets one, otherwise the language's. */
-export const paceOf = (framework, lang) => framework.pace?.[lang] ?? PACE[lang];
+/**
+ * How fast a framework is spoken in a language (an id, or a rule family): its own pace when it is a narration
+ * style that sets one, otherwise the family's, scaled by the language's rate (src/languages.mjs).
+ */
+export function paceOf(framework, lang) {
+  const language = getLanguage(lang) || getLanguage('en');
+  const pace = framework.pace?.[language.family] ?? PACE[language.family];
+  return language.rate === 1 ? pace : Math.round(pace * language.rate * 10) / 10;
+}
 
 export function normalizeBrief(input = {}) {
   const platform = getPlatform(input.platformId);
@@ -38,14 +46,18 @@ export function normalizeBrief(input = {}) {
   if (!topic) throw new Error('Topic is required');
   // No length asked for ("Auto"): the one the narration style is made for, otherwise the platform's usual length.
   const asked = Math.min(MAX_DURATION, Math.max(MIN_DURATION, Math.round(Number(input.duration) || framework.length?.default || platform.defaultDuration)));
-  const lang = input.language === 'zh' || input.language === 'en' ? input.language : platform.lang;
+  // The language asked for, otherwise the platform's own. `lang` is the family of rules it is written to
+  // ('zh' or 'en'); `language` is the language itself, which is what it is counted and paced in.
+  const language = getLanguage(input.language) || getLanguage(platform.lang);
+  const lang = language.family;
   // A locked narration sets the length: the video runs as long as those words take to say.
   const narration = normalizeNarration(input.narration);
-  const duration = narration.length ? fitDuration(asked, countSpoken(narration.map((b) => b.text).join('\n'), lang), paceOf(framework, lang)) : asked;
+  const duration = narration.length ? fitDuration(asked, countSpoken(narration.map((b) => b.text).join('\n'), language.id), paceOf(framework, language.id)) : asked;
   return {
     platform,
     framework,
     lang,
+    language: language.id,
     duration,
     narration,
     topic,
@@ -59,7 +71,8 @@ export function normalizeBrief(input = {}) {
     card: normalizeCard(input.card), // the viewpoint card the narration was written to, when the agent made one
     ttsReady: Boolean(input.ttsReady),
     aspect: getAspect(input.aspectRatio),
-    styles: pickStyles(input.styleIds),
+    styles: settleStyles(input.styleIds), // the looks that go together, the first one leading (src/styles.mjs)
+    voices: pickVoices(input.voiceIds, framework), // other narration styles whose voice is blended into this one's (src/frameworks.mjs)
     hosts: normalizeHosts(input.host, framework.speakers, lang), // the digital host(s) on screen, [] when there is none
     materials: normalizeMaterials(input.materials), // the files from the creator's library this brief uses (src/materials.mjs)
     web: normalizeWeb(input.web), // what the server read on the web for this brief: its links, a search (src/web/brief.mjs)
@@ -85,13 +98,13 @@ export function buildTimeline(framework, duration, lang) {
 export function buildPlan(input) {
   const brief = normalizeBrief(input);
   const timeline = buildTimeline(brief.framework, brief.duration, brief.lang);
-  const pace = paceOf(brief.framework, brief.lang);
+  const pace = paceOf(brief.framework, brief.language);
   const budget = Math.round(brief.duration * pace);
-  return { brief, timeline, budget, pace, unit: brief.lang === 'zh' ? '汉字' : 'words', skills: selectSkills(brief) };
+  return { brief, timeline, budget, pace, unit: getLanguage(brief.language).unit, skills: selectSkills(brief) };
 }
 
 /** What the page is told about a plan: the story line with its times, the length, the voiceover budget and the skills in play. */
-export const planSummary = (plan) => ({ timeline: plan.timeline, duration: plan.brief.duration, lang: plan.brief.lang, pace: plan.pace, budget: plan.budget, unit: plan.unit, skills: plan.skills.map(publicSkill), ...(plan.brief.web && { web: webSummary(plan.brief.web) }) });
+export const planSummary = (plan) => ({ timeline: plan.timeline, duration: plan.brief.duration, lang: plan.brief.lang, language: plan.brief.language, pace: plan.pace, budget: plan.budget, unit: plan.unit, skills: plan.skills.map(publicSkill), ...(plan.brief.web && { web: webSummary(plan.brief.web) }) });
 
 /** The shape of a script reply. A video with a host on screen, or with two voices, also names its cast and who is in each frame. */
 const scriptSchema = (brief) => `{
@@ -159,7 +172,8 @@ export function castSection(brief) {
   if (!hasCast(brief)) return [];
   const { hosts, lang } = brief;
   const duo = brief.framework.speakers === 2;
-  const call = lang === 'zh' ? (duo ? '“主播A”“主播B”' : '“主播”') : duo ? '"Host A" and "Host B"' : '"the host"';
+  const tongue = getLanguage(brief.language);
+  const call = lang === 'zh' ? (duo ? '“主播A”“主播B”' : '“主播”') : `${duo ? '"Host A" and "Host B"' : '"the host"'}${tongue.id === 'en' ? '' : ` (in ${tongue.english})`}`;
   const rules = [
     duo
       ? 'Two people speak in this video, A and B. Give both in "cast": a short invented `name` that suits the language of the script, their `role` in this video, and `voice`, a casting note for a text-to-speech voice or a human reader (gender, age range, timbre, pace, attitude). The two voices must be easy to tell apart.'
@@ -185,7 +199,24 @@ export function castSection(brief) {
   return [`# ${hosts.length ? 'Speakers and on-screen host' : 'Speakers'}\n${bullets(rules)}`, ''];
 }
 
-export const LANG_NAME = { zh: 'Simplified Chinese (简体中文)', en: 'English' };
+export const LANG_NAME = { zh: 'Simplified Chinese (简体中文)', en: 'English' }; // the two rule families, for text written to the creator
+/** The language a brief is written in, as a prompt names it: "Japanese (日本語)". */
+export const langName = (brief) => promptName(getLanguage(brief.language) || getLanguage(brief.lang));
+
+/**
+ * The "Output language" block of a system prompt. `first` is its opening sentence. A language that is not the
+ * one its family's rules are written in is told so: the rules and their examples show the technique, and the
+ * writing is done in the language asked for.
+ */
+export function outputLanguage(brief, first = `Write every value in the JSON in ${langName(brief)}.`) {
+  const language = getLanguage(brief.language) || getLanguage(brief.lang);
+  const note = isNative(language)
+    ? ''
+    : language.family === 'zh'
+      ? ' Use Traditional Chinese characters (繁體字) throughout, with the wording that is natural to readers in Taiwan and Hong Kong. Some of the rules below are written in Simplified Chinese: follow them, and write in Traditional Chinese.'
+      : ` The rules below are written in English, and their example phrases are in English or Chinese: they show a technique. Do the same thing with words that are natural in ${language.english}; never translate an example word for word, and never answer in English because the rules are.`;
+  return `# Output language\n${first}${note} Keep the JSON keys exactly as given, in English.`;
+}
 export const writesFor = (platform) => `${platform.name}${platform.nameEn !== platform.name ? ` (${platform.nameEn})` : ''}`;
 export const bullets = (list) => list.map((r) => `- ${r}`).join('\n');
 
@@ -199,13 +230,21 @@ export function languageRules(brief) {
           ? '旁白是给语音合成用的：数字、百分比、年份一律写成中文读法（如“百分之九十”“二零二六年”“三步”），不要出现阿拉伯数字和符号。'
           : '旁白里的数字写法以口播自然为准。',
       ]
-    : [
-        'The voiceover is spoken English: contractions, short sentences, words a person would actually say out loud. No corporate phrasing.',
-        'Keep the on-screen text much shorter than the spoken line: a few words that reinforce it, never a transcript.',
-        brief.ttsReady
-          ? 'The voiceover feeds a text-to-speech engine: spell out numbers, percentages and symbols as words ("ninety percent", "twenty twenty-six").'
-          : 'Write numbers the way a presenter would naturally read them.',
-      ];
+    : brief.language && brief.language !== 'en'
+      ? [
+          `The voiceover is spoken ${getLanguage(brief.language).english}, the way people actually talk: short sentences, everyday words, the natural spoken forms of the language. No written, formal or corporate phrasing, and nothing that reads like a translation.`,
+          'Keep the on-screen text much shorter than the spoken line: a few words that reinforce it, never a transcript.',
+          brief.ttsReady
+            ? `The voiceover feeds a text-to-speech engine: write numbers, percentages, years and symbols as the words that are read aloud in ${getLanguage(brief.language).english}, with no digits or symbols left.`
+            : 'Write numbers the way a presenter would naturally read them.',
+        ]
+      : [
+          'The voiceover is spoken English: contractions, short sentences, words a person would actually say out loud. No corporate phrasing.',
+          'Keep the on-screen text much shorter than the spoken line: a few words that reinforce it, never a transcript.',
+          brief.ttsReady
+            ? 'The voiceover feeds a text-to-speech engine: spell out numbers, percentages and symbols as words ("ninety percent", "twenty twenty-six").'
+            : 'Write numbers the way a presenter would naturally read them.',
+        ];
 }
 
 export const HOOK_RULE = {
@@ -285,8 +324,29 @@ const VOICE_INTRO = {
 /** The rules a narration style adds (a framework with a `voice`): nothing for a plain structure. `use` is a key of VOICE_INTRO. */
 export function voiceSection(brief, use = 'script') {
   const rules = brief.framework.voice?.[brief.lang];
-  if (!rules) return [];
-  return [`# Narration style: ${brief.framework.name[brief.lang]}\n${VOICE_INTRO[use]}\n${bullets(rules)}`, ''];
+  const own = rules ? [`# Narration style: ${brief.framework.name[brief.lang]}\n${VOICE_INTRO[use]}\n${bullets(rules)}`, ''] : [];
+  return [...own, ...blendSection(brief, use, Boolean(rules))];
+}
+
+/** How a blended voice is to be taken, per use: it colours the writing and never moves the story line. */
+const BLEND_INTRO = {
+  script: 'Blend the voice of the styles below into the narration: their attitude, their diction and their devices.',
+  narration: 'Blend the voice of the styles below into the narration: their attitude, their diction and their devices.',
+  locked: 'The narration also carries the voice of the styles below and is final. Apply only what they say about on-screen text, sources and production notes.',
+  plan: 'The narration will also carry the voice of the styles below: their attitude, their diction and their devices. Plan for it.',
+  review: 'The narration is also meant to carry the voice of the styles below. Hold it to their attitude, diction and devices.',
+};
+
+/**
+ * The narration styles blended into the one that leads (brief.voices): their rules, with the order of things
+ * made plain. The story line, its stages, the length and the pace belong to the structure; a blended style
+ * adds how the words sound, and gives way wherever it disagrees.
+ */
+function blendSection(brief, use, led) {
+  const voices = (brief.voices || []).filter((v) => v.voice?.[brief.lang]);
+  if (!voices.length) return [];
+  const order = `The story line above, its stages, the length and the pace stay exactly as given${led ? ', and the narration style above leads' : ''}. Where a rule below asks for a structure, a length, a pace or an opening of its own, or disagrees with ${led ? 'the leading style' : 'the story line'}, leave that rule out and keep the rest. Where a rule mentions onScreenText or productionNotes, it applies when the script is built.`;
+  return [`# Also in the voice of: ${voices.map((v) => v.name[brief.lang]).join(' + ')}\n${BLEND_INTRO[use] || BLEND_INTRO.script} ${order}\n${voices.map((v) => `## ${v.name[brief.lang]}\n${bullets(v.voice[brief.lang])}`).join('\n')}`, ''];
 }
 
 /** The brief as the model reads it; the creator's notes and reference material are fenced off as information, not instructions. */
@@ -368,7 +428,7 @@ export function buildPrompts(plan) {
   const system = [
     `You are a senior short-video scriptwriter who writes for ${writesFor(platform)}. You write scripts that hold attention to the last second and that a creator can shoot or hand to an editor without further explanation.`,
     '',
-    `# Output language\nWrite every value in the JSON in ${LANG_NAME[lang]}. Keep the JSON keys exactly as given, in English.`,
+    outputLanguage(brief),
     '',
     `# Format\n${format}`,
     '',
@@ -383,7 +443,7 @@ export function buildPrompts(plan) {
     ...castSection(brief),
     ...(brief.styles.length
       ? [
-          `# Visual style\nEvery image and clip for this video will be made in ${brief.styles.length === 2 ? 'a blend of two styles, the first one leading' : 'one style'}:\n${brief.styles
+          `# Visual style\nEvery image and clip for this video will be made in ${blendOf(brief.styles)}:\n${brief.styles
             .map((st) => `- ${st.name[lang]}: ${st.brief}.`)
             .join('\n')}\nWrite each scene's "visual" and "camera" so it can be made in this style and looks like part of the same video as the others. Describe subject, action and composition; do not repeat the style name in every scene. Add one productionNotes line that states the visual style.`,
           '',
@@ -533,7 +593,7 @@ export function buildNarrationPrompts(plan, { card = null, planFirst = false } =
   const system = [
     `You are a senior short-video scriptwriter who writes for ${writesFor(platform)}. Right now you write the narration only: the words that are spoken. The scenes, the visuals and the publishing package are built around it afterwards, so it has to hold attention on its own.`,
     '',
-    `# Output language\nWrite every value in the JSON in ${LANG_NAME[lang]}. Keep the JSON keys exactly as given, in English.`,
+    outputLanguage(brief),
     '',
     `# Length\nA ${duration}-second video: about ${budget} ${unit} of narration in total (within 10%). It should feel slightly shorter than the video, because pauses and pictures need room. A narration that runs long gets cut in the edit.`,
     '',
@@ -601,8 +661,10 @@ const ASK = {
   spoken: () => 'Make it sound spoken: shorter sentences, everyday words, the rhythm of one person talking to another. Same content, about the same length.',
   punchy: () => 'Make it hit harder: put the point first, use concrete verbs and nouns, cut hedges and filler. Add no hype words and no new claims. Same content, about the same length.',
   plain: () => 'Make it clear to an outsider: replace jargon and abbreviations with plain words, or explain a term in a few words the first time it appears. Keep every fact.',
-  tts: (lang) =>
-    lang === 'zh'
+  tts: (lang, language) =>
+    language && !isNative(getLanguage(language)) && lang !== 'zh'
+      ? `Prepare it for text-to-speech: write every number, percentage, year, unit and symbol as the words that are read aloud in ${getLanguage(language).english}, and spell out anything a synthetic voice would misread. Change nothing else.`
+      : lang === 'zh'
       ? 'Prepare it for text-to-speech: write every number, percentage, year, unit and symbol the way it is read aloud in Chinese (“百分之九十”“二零二六年”), and spell out anything a synthetic voice would misread. Change nothing else.'
       : 'Prepare it for text-to-speech: write every number, percentage, year, unit and symbol as the words that are read aloud ("ninety percent", "twenty twenty-six"), and spell out anything a synthetic voice would misread. Change nothing else.',
 };
@@ -622,7 +684,7 @@ export function buildRefinePrompts(plan, beats, { index = null, preset = '', ins
   const custom = clean(instruction, 600);
   if (!known && !custom) throw new Error('Say what to change, or pick one of the refinements');
 
-  const count = (text) => countSpoken(text, lang);
+  const count = (text) => countSpoken(text, brief.language);
   const total = count(beats.map((b) => b.text).join('\n'));
   const reshape = known?.id === 'reshape';
   const asks = [];
@@ -639,14 +701,14 @@ export function buildRefinePrompts(plan, beats, { index = null, preset = '', ins
   } else if (reshape) {
     asks.push(`Reorganise the narration onto the story line: one beat per stage, in the story line's order, each with its stage key and sized to the room that stage has, about ${budget} ${unit} in total. Keep the creator's facts, claims and characteristic phrases; rewrite only what the structure and the narration style need.`);
   } else if (known) {
-    asks.push(ASK[known.id](lang));
+    asks.push(ASK[known.id](lang, brief.language));
   }
   if (custom) asks.push(`The creator asks for this${known ? ' as well' : ''}; treat it as an editing request for the narration and nothing else:\n"""${custom}"""`);
 
   const system = [
     `You are a senior script editor working on the narration (the spoken words) of a ${duration}-second video for ${writesFor(platform)}. You change what you are asked to change and leave the rest alone.`,
     '',
-    `# Output language\nThe narration is in ${LANG_NAME[lang]} and stays in ${LANG_NAME[lang]}. Keep the JSON keys exactly as given, in English.`,
+    outputLanguage(brief, `The narration is in ${langName(brief)} and stays in ${langName(brief)}.`),
     '',
     `# Story line: ${framework.name[lang]}\nThe whole narration has room for about ${budget} ${unit}.\n${storyLines(plan)}`,
     '',

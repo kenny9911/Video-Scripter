@@ -5,9 +5,12 @@
 //   synthesize(config, { text, voice })      one piece of text as sound: { pcm, rate } (16-bit mono)
 //   voiceScene(config, voiceover, options)   a scene's voiceover as one WAV, each speaker in their own voice
 //
-// Two protocols are spoken:
-//   volc     火山引擎 豆包语音 (Seed-TTS), V3 one-way HTTP: lines of JSON, each carrying a piece of the sound
-//   openai   POST {base}/audio/speech, the OpenAI shape many providers and gateways offer
+// Three protocols are spoken, by four kinds of service:
+//   volc         火山引擎 豆包语音 (Seed-TTS), V3 one-way HTTP: lines of JSON, each carrying a piece of the sound
+//   elevenlabs   POST {base}/text-to-speech/{voice id}?output_format=pcm_24000, the sound as raw PCM
+//   openai       POST {base}/audio/speech, the OpenAI shape many providers and gateways offer
+//   local        the same OpenAI shape from a service on this machine or network (Kokoro-FastAPI, LocalAI,
+//                openedai-speech…): no key is needed, and one is sent only when it is given
 // With no provider set, a script written in demo mode gets a placeholder tone, so the rest can be tried.
 //
 // Every scene is spoken on its own, so the length of its sound is known exactly: the video is cut to the
@@ -16,6 +19,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db.mjs';
 import { GatewayError, request, apiBase } from './gateway/client.mjs';
+import { debug } from './log.mjs';
 
 export const SPEECH_PROVIDERS = [
   {
@@ -29,6 +33,16 @@ export const SPEECH_PROVIDERS = [
     hint: 'APP ID and Access Token come from the 豆包语音 console; the voice is a speaker id from its voice list.',
   },
   {
+    id: 'elevenlabs',
+    label: 'ElevenLabs',
+    baseUrl: 'https://api.elevenlabs.io/v1',
+    model: 'eleven_multilingual_v2',
+    needsAppId: false,
+    voice: 'JBFqnCBsd6RMkjVDRZzb',
+    voices: ['JBFqnCBsd6RMkjVDRZzb', '21m00Tcm4TlvDq8ikWAM', 'EXAVITQu4vr4xnSDxMaL'],
+    hint: 'The API key comes from your ElevenLabs profile; the voice is a voice ID from your voice library. The multilingual model reads Chinese, English, Japanese and about thirty other languages.',
+  },
+  {
     id: 'openai',
     label: 'OpenAI-compatible (/audio/speech)',
     baseUrl: 'https://api.openai.com/v1',
@@ -37,6 +51,17 @@ export const SPEECH_PROVIDERS = [
     voice: 'alloy',
     voices: ['alloy', 'ash', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer'],
     hint: 'Any service with an OpenAI-style /audio/speech endpoint that can answer with WAV.',
+  },
+  {
+    id: 'local',
+    label: 'Local service (OpenAI-style, no key)',
+    baseUrl: 'http://localhost:8880/v1',
+    model: 'kokoro',
+    needsAppId: false,
+    keyOptional: true,
+    voice: 'af_heart',
+    voices: ['af_heart', 'af_bella', 'am_michael', 'bf_emma', 'zf_xiaoxiao', 'zm_yunxi', 'jf_alpha'],
+    hint: 'A text-to-speech service you run yourself that offers an OpenAI-style /audio/speech endpoint and can answer with WAV: Kokoro-FastAPI, LocalAI, openedai-speech and the like. The address is as this server sees it, so localhost is the machine the server runs on. A key is sent only if you enter one.',
   },
 ];
 
@@ -79,7 +104,7 @@ export function validateSpeech(config) {
   const preset = getSpeechProvider(config.provider);
   if (!preset) return 'Choose a voice provider';
   if (!/^https?:\/\/[^\s/]+/.test(config.baseUrl)) return 'The voice BASE_URL_API must be an http(s) URL';
-  if (!config.apiKey) return 'An API key is required for the voice provider';
+  if (!config.apiKey && !preset.keyOptional) return 'An API key is required for the voice provider';
   if (preset.needsAppId && !config.appId) return 'An APP ID is required for this voice provider';
   return null;
 }
@@ -104,11 +129,12 @@ export function publicSpeech(config, { admin = false, demo = false } = {}) {
 
 /** A voiceover as it is spoken: no stress marks, a pause mark as a comma, no line breaks. */
 export function speakable(value, lang = 'zh') {
-  const pause = lang === 'zh' ? '，' : ', ';
+  const cjk = /^(zh|ja)\b/i.test(lang); // written without spaces: a pause is a full-width comma
+  const pause = /^ja\b/i.test(lang) ? '、' : cjk ? '，' : ', ';
   return String(value ?? '')
     .replace(/\[\[|\]\]/g, '')
     // A pause mark is a comma, unless punctuation on either side already makes the pause.
-    .replace(/(\p{P})?\s*⏸\s*/gu, (mark, before, at, all) => (before ? `${before}${lang === 'zh' ? '' : ' '}` : /\p{P}/u.test(all[at + mark.length] || '') ? '' : pause))
+    .replace(/(\p{P})?\s*⏸\s*/gu, (mark, before, at, all) => (before ? `${before}${cjk ? '' : ' '}` : /\p{P}/u.test(all[at + mark.length] || '') ? '' : pause))
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -195,7 +221,7 @@ export function pcmOfWav(bytes) {
 
 /** A placeholder for demo mode: a soft tone that rises and falls like syllables, as long as the text would take. */
 export function demoPcm(said, lang, speed = 1) {
-  const count = lang === 'zh' ? [...said.replace(/[\p{P}\s]/gu, '')].length : said.split(/\s+/).filter(Boolean).length * 1.6;
+  const count = /^(zh|ja|ko)\b/i.test(lang) ? [...said.replace(/[\p{P}\s]/gu, '')].length : said.split(/\s+/).filter(Boolean).length * 1.6;
   const seconds = Math.min(60, Math.max(0.6, count / (4.2 * speed)));
   const pcm = Buffer.alloc(Math.round(seconds * RATE) * 2);
   for (let i = 0; i < pcm.length / 2; i++) {
@@ -216,7 +242,7 @@ async function volc(config, { text: said, voice, speed, lang, signal }) {
       text: said,
       speaker: voice,
       audio_params: { format: 'pcm', sample_rate: RATE, speech_rate: Math.round((speed - 1) * 100) },
-      additions: JSON.stringify({ disable_markdown_filter: true, ...(lang === 'zh' && { explicit_language: 'zh-cn' }) }),
+      additions: JSON.stringify({ disable_markdown_filter: true, ...(/^zh\b/i.test(lang) && { explicit_language: 'zh-cn' }) }),
     },
   };
   const headers = { 'content-type': 'application/json', 'x-api-app-id': config.appId, 'x-api-access-key': config.apiKey, 'x-api-resource-id': config.model, 'x-api-request-id': randomUUID() };
@@ -238,10 +264,26 @@ async function volc(config, { text: said, voice, speed, lang, signal }) {
   return { pcm: Buffer.concat(chunks), rate: RATE };
 }
 
+/** ElevenLabs reads at 0.7 to 1.2 times its usual speed; a faster pace asked for here is its fastest. */
+const ELEVEN_SPEED = { min: 0.7, max: 1.2 };
+
+async function elevenlabs(config, { text: said, voice, speed, signal }) {
+  const base = String(config.baseUrl).trim().replace(/\/+$/, '').replace(/\/text-to-speech(\/.*)?$/, '');
+  const url = `${base}/text-to-speech/${encodeURIComponent(voice)}?output_format=pcm_${RATE}`;
+  const pace = Math.min(ELEVEN_SPEED.max, Math.max(ELEVEN_SPEED.min, speed));
+  const body = { text: said, model_id: config.model, ...(pace !== 1 && { voice_settings: { speed: pace } }) };
+  const res = await request(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'audio/pcm', 'xi-api-key': config.apiKey }, body: JSON.stringify(body), signal }, { timeouts: 1 });
+  const pcm = Buffer.from(await res.arrayBuffer());
+  // Raw 16-bit sound has an even number of bytes; an answer in JSON here is the service saying something else.
+  if (pcm.length < 2 || /json|text/i.test(res.headers.get('content-type') || '')) throw new GatewayError('The voice provider returned no sound', 502);
+  return { pcm: pcm.subarray(0, pcm.length - (pcm.length % 2)), rate: RATE };
+}
+
 async function openai(config, { text: said, voice, speed, signal }) {
   const url = `${apiBase(config.baseUrl).replace(/\/audio\/speech$/, '')}/audio/speech`;
   const body = { model: config.model, voice, input: said, response_format: 'wav', ...(speed !== 1 && { speed }) };
-  const res = await request(url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${config.apiKey}` }, body: JSON.stringify(body), signal }, { timeouts: 1 });
+  // A service run locally usually has no key: the header goes out only when there is one.
+  const res = await request(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(config.apiKey && { authorization: `Bearer ${config.apiKey}` }) }, body: JSON.stringify(body), signal }, { timeouts: 1 });
   const bytes = Buffer.from(await res.arrayBuffer());
   try {
     return pcmOfWav(bytes);
@@ -259,7 +301,9 @@ export async function synthesize(config, { text: said, voice, speed = 1, lang = 
   if (demo) return { pcm: demoPcm(said, lang, pace), rate: RATE };
   const invalid = validateSpeech(config);
   if (invalid) throw new GatewayError(invalid, 400);
-  const made = await (config.provider === 'volc' ? volc : openai)(config, { text: said, voice: voice || config.voice, speed: pace, lang, signal });
+  const speak = { volc, elevenlabs, openai, local: openai }[config.provider] || openai;
+  debug('voice', 'speaking', { provider: config.provider, model: config.model, voice: voice || config.voice, speed: pace, language: lang, characters: [...String(said)].length });
+  const made = await speak(config, { text: said, voice: voice || config.voice, speed: pace, lang, signal });
   return { pcm: resample(made.pcm, made.rate, RATE), rate: RATE };
 }
 

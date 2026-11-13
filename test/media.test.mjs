@@ -113,7 +113,7 @@ test('a custom style carries the creator\'s own words through the script and the
 
   // It is picked like any other style: alone, blended with a listed one, or with another custom one.
   const custom = 'custom:illustration:儿童蜡笔画';
-  assert.deepEqual(pickStyles([custom, 'clay', 'ink']).map((s) => s.id), [custom, 'clay']);
+  assert.deepEqual(pickStyles([custom, 'clay', 'ink']).map((s) => s.id), [custom, 'clay', 'ink']);
   assert.deepEqual(pickStyles([custom, `${custom} `, 'custom:nope:x', 'custom:mood:雨夜']).map((s) => s.id), [custom, 'custom:mood:雨夜']);
   assert.equal(styleLook(pickStyles([custom])), 'Visual style: illustration, 儿童蜡笔画.');
   const scene = { visual: 'A founder at a desk', camera: 'wide', styleIds: [custom, 'clay'] };
@@ -131,23 +131,45 @@ test('a custom style carries the creator\'s own words through the script and the
   assert.deepEqual([`style-${custom}`, 'style-clay', 'wide', '', undefined].map(shotTag), ['custom-illustration', 'clay', 'wide', '', '']);
 });
 
-test('visual styles: one or two, applied to the script brief and to media prompts', async () => {
-  const { STYLES, STYLE_GROUPS, pickStyles, styleLook } = await import('../src/styles.mjs');
+test('visual styles: one, or up to four that go together, applied to the script brief and to media prompts', async () => {
+  const { STYLES, STYLE_GROUPS, MAX_STYLES, pickStyles, settleStyles, styleLook } = await import('../src/styles.mjs');
+  const { STYLE_TRAITS, STYLE_AXES, CLASH_REASON, styleClash, styleBlock, compatibleStyles } = await import('../public/compat.js');
   const { buildPlan, buildPrompts } = await import('../src/prompt.mjs');
   assert.equal(new Set(STYLES.map((s) => s.id)).size, STYLES.length);
   for (const s of STYLES) assert.ok(STYLE_GROUPS.some((g) => g.id === s.group) && s.name.zh && s.name.en && s.look && s.brief && s.blurb, s.id);
 
-  assert.deepEqual(pickStyles(['ink', 'nope', 'ink', 'clay', 'retro']).map((s) => s.id), ['ink', 'clay']); // unknown and extra ids dropped
+  assert.equal(MAX_STYLES, 4);
+  assert.deepEqual(pickStyles(['ink', 'nope', 'ink', 'clay', 'retro', 'cozy', 'misty']).map((s) => s.id), ['ink', 'clay', 'retro', 'cozy']); // unknown and extra ids dropped
+
+  // Which styles go together is one table (public/compat.js): every entry is a real style, on a known axis.
+  for (const [id, traits] of Object.entries(STYLE_TRAITS)) {
+    assert.ok(STYLES.some((s) => s.id === id), `${id} has traits and is not a style`);
+    for (const axis of Object.keys(traits)) assert.ok(STYLE_AXES.includes(axis) && CLASH_REASON[axis].en && CLASH_REASON[axis].zh, `${id}.${axis}`);
+  }
+  // The four media groups are media, and nothing else is (but the consulting deck): a tone goes over any of them.
+  for (const s of STYLES) assert.equal(Boolean(STYLE_TRAITS[s.id]?.medium), Boolean(STYLE_GROUPS.find((g) => g.id === s.group).medium) || s.id === 'deck', s.id);
+  assert.deepEqual([styleClash('cinematic', 'flat'), styleClash('highkey', 'noir'), styleClash('gufeng', 'cyberpunk'), styleClash('gufeng', 'techdesk'), styleClash('podcast', 'newsdesk'), styleClash('ugc', 'studio'), styleClash('bwfilm', 'dopamine')], ['medium', 'light', '', 'era', 'place', 'finish', 'colour']);
+  assert.deepEqual([styleClash('cinematic', 'shanghai'), styleClash('anime', 'podcast'), styleClash('diagram', 'brighttech'), styleClash('flat', 'flat'), styleClash('custom:live:x', 'custom:illustration:y'), styleClash('custom:mood:x', 'flat')], ['', '', '', '', 'medium', '']);
+  for (const a of STYLES) for (const b of STYLES) assert.equal(styleClash(a.id, b.id), styleClash(b.id, a.id) && styleClash(a.id, b.id), `${a.id} / ${b.id}`);
+  // A new brief keeps the styles that go together, the first one leading; what clashes with an earlier one is left out.
+  assert.deepEqual(compatibleStyles(['cinematic', 'flat', 'goldenhour', 'noir', 'retro']), ['cinematic', 'goldenhour', 'noir', 'retro']);
+  assert.deepEqual(settleStyles(['cinematic', 'flat', 'highkey', 'noir', 'retro', 'cozy', 'misty']).map((s) => s.id), ['cinematic', 'highkey', 'retro', 'cozy']);
+  assert.deepEqual(buildPlan({ platformId: 'douyin', topic: 'x', styleIds: ['flat', 'cinematic', 'pastel', 'custom:live:胶片'] }).brief.styles.map((s) => s.id), ['flat', 'pastel']);
+  // What the page greys out, and why: a clash names the style and the axis; a full set is full.
+  assert.deepEqual(styleBlock('flat', ['cinematic'], 4), { with: 'cinematic', axis: 'medium' });
+  assert.deepEqual([styleBlock('retro', ['cinematic'], 4), styleBlock('cinematic', ['cinematic'], 1), styleBlock('retro', ['cinematic', 'cozy'], 2)], [null, null, { full: true }]);
   assert.equal(styleLook([]), '');
   const scene = { visual: 'A founder at a desk', camera: 'wide' };
   assert.ok(!buildVisualPrompt(scene).includes('Visual style'));
   assert.match(buildVisualPrompt({ ...scene, styleIds: ['clay'] }), /Visual style: clay stop-motion look/);
   assert.match(buildVisualPrompt(scene, 'video', ['ink', 'clay']), /blend of two styles\. Lead with chinese ink \(.*mix in claymation \(/);
+  assert.match(styleLook(pickStyles(['cinematic', 'goldenhour', 'retro'])), /^Visual style: a consistent blend of three styles\. Lead with cinematic \(.*; mix in golden hour \(.*\); and retro film \(.*\)\. Fuse them into one coherent look, not a split frame\.$/);
 
   const plain = buildPrompts(buildPlan({ platformId: 'douyin', topic: 'x' })).system;
-  const styled = buildPrompts(buildPlan({ platformId: 'douyin', topic: 'x', styleIds: ['ink', 'clay'] })).system;
+  const styled = buildPrompts(buildPlan({ platformId: 'douyin', topic: 'x', styleIds: ['ink', 'misty'] })).system;
   assert.ok(!plain.includes('# Visual style'));
-  assert.match(styled, /# Visual style[\s\S]*国风水墨[\s\S]*黏土定格/);
+  assert.match(styled, /# Visual style\nEvery image and clip for this video will be made in a blend of two styles, the first one leading:\n- 国风水墨: [\s\S]*- 晨雾空灵: /);
+  assert.ok(buildPrompts(buildPlan({ platformId: 'douyin', topic: 'x', styleIds: ['ink'] })).system.includes('will be made in one style:'));
 });
 
 test('package names are safe on every file system and keep Chinese titles', async () => {

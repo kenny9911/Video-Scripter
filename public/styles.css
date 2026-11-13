@@ -187,6 +187,9 @@ input[type='text'], input[type='url'], input[type='password'], input[type='searc
 }
 select { appearance: none; padding-right: 34px; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%; background-size: 5px 5px; background-repeat: no-repeat; text-overflow: ellipsis; }
 textarea { resize: vertical; line-height: 1.5; }
+/* A text box fits its text and can be dragged taller (autosize.js). One line to start with is one line high. */
+textarea[rows='1'] { min-height: var(--tap); }
+.field > label { font-size: 13px; font-weight: 600; color: var(--ink); }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 0.75; }
 input:hover, textarea:hover, select:hover { border-color: var(--muted); }
 input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
@@ -223,6 +226,11 @@ input:disabled, select:disabled, textarea:disabled { opacity: 0.55; cursor: not-
 .chip input:checked + span { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight: 550; }
 .chip input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 .chip input:disabled + span { opacity: 0.5; }
+/* A style the current choice rules out: greyed, not clickable, and its title says what it clashes with. */
+.chip.blocked input { pointer-events: none; }
+.chip.blocked span { opacity: 0.38; cursor: not-allowed; border-style: dotted; }
+.chip.blocked:hover span { border-color: var(--line-strong); }
+#voiceHint:empty, #languageHint:empty { display: none; }
 .style-group .chip span { min-height: 30px; padding: 2px 11px; font-size: 13px; }
 /* A group's own style, described by the creator: a dashed chip, and a box under the chips while it is ticked. */
 .style-group .chips { flex: 1; min-width: 0; }
@@ -391,7 +399,7 @@ button.chip:hover { color: var(--ink); }
 .beat-count { font-size: 12px; font-weight: 550; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .beat-count.over { color: var(--warn); }
 .beat-guide { color: var(--muted); font-size: 13px; }
-.beat textarea, .narr-paste { font-size: 16.5px; line-height: 1.7; resize: none; field-sizing: content; min-height: 68px; overflow: hidden; }
+.beat textarea, .narr-paste { font-size: 16.5px; line-height: 1.7; min-height: 68px; }
 .beat textarea { border-color: transparent; background: var(--panel-2); }
 .beat textarea:hover { border-color: var(--line-strong); }
 .beat textarea[readonly] { opacity: 0.6; }

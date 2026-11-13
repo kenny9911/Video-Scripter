@@ -118,16 +118,16 @@ export function wireVideo({ toast, platformOf, isAdmin, publish = null, changed 
               },
             },
             el('option', { value: '', selected: !preset }, t('None: videos cannot be voiced')),
-            speech.providers.map((p) => el('option', { value: p.id, selected: p.id === state.provider }, p.label)),
+            speech.providers.map((p) => el('option', { value: p.id, selected: p.id === state.provider }, t(p.label))),
           ),
           preset && t(preset.hint),
         ),
         ...(preset ? [
           field('BASE_URL_API', input('baseUrl', { type: 'url' })),
           preset.needsAppId && field('APP ID', input('appId', { autocomplete: 'off' })),
-          field(preset.needsAppId ? 'Access Token' : 'API_KEY', input('apiKey', { type: 'password', autocomplete: 'off', placeholder: state.hasKey && state.provider === speech.provider ? `${speech.keyPreview} ${t('(saved)')}` : '' })),
+          field(preset.needsAppId ? 'Access Token' : preset.keyOptional ? t('API_KEY (optional)') : 'API_KEY', input('apiKey', { type: 'password', autocomplete: 'off', placeholder: state.hasKey && state.provider === speech.provider ? `${speech.keyPreview} ${t('(saved)')}` : '' })),
           field(preset.needsAppId ? 'Resource ID' : t('Model'), input('model')),
-          field(t('Voice'), input('voice', { list: 'speechVoices' }), t('The voice a script is read in unless another is picked for it.')),
+          field(preset.id === 'elevenlabs' ? t('Voice ID') : t('Voice'), input('voice', { list: 'speechVoices' }), t('The voice a script is read in unless another is picked for it.')),
           field(t('Second voice'), input('voiceB', { list: 'speechVoices' }), t('For the guest in a two-host conversation. Blank: the same voice.')),
           el('datalist', { id: 'speechVoices' }, preset.voices.map((v) => el('option', { value: v }))),
         ] : []).filter(Boolean),
@@ -250,7 +250,7 @@ export function wireVideo({ toast, platformOf, isAdmin, publish = null, changed 
       const done = voiced();
       const complete = done === scenes.length && done > 0;
       const timeline = buildTimeline(scenes, voice.scenes, lang);
-      const film = { size, theme: themeOf(ui.theme), timeline, images: new Map(), clips: new Map(), captions: ui.captions, label: ui.label ? (lang === 'zh' ? 'AI生成' : 'AI-generated') : '', layouts: new Map() };
+      const film = { size, theme: themeOf(ui.theme), timeline, images: new Map(), clips: new Map(), captions: ui.captions, label: ui.label ? (/^zh\b/i.test(lang) ? 'AI生成' : 'AI-generated') : '', layouts: new Map() };
       ui.t = Math.min(ui.t, timeline.duration);
 
       // ---- The preview: the frame at the second the slider is on ----

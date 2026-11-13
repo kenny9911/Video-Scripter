@@ -108,6 +108,12 @@
             <div class="platform-group"><span class="group-label">中文</span><div id="platformsZh" class="chips"></div></div>
             <div class="platform-group"><span class="group-label">English</span><div id="platformsEn" class="chips"></div></div>
           </fieldset>
+
+          <div class="field">
+            <label for="language">Output language <em>the script, its narration and the publishing text</em></label>
+            <select id="language" aria-describedby="languageHint"></select>
+            <p id="languageHint" class="hint"></p>
+          </div>
         </section>
 
         <section class="card">
@@ -130,6 +136,11 @@
           </div>
           <p id="frameworkBlurb" class="hint"></p>
           <p id="frameworkFit" class="hint fit-hint" hidden><span id="frameworkFitText"></span> <button id="frameworkFitUse" class="link-btn" type="button"></button></p>
+          <fieldset id="voiceField" class="field">
+            <legend>Narration styles to blend in <em>optional, up to two that go together</em></legend>
+            <div id="voiceMix" class="chips"></div>
+            <p id="voiceHint" class="hint"></p>
+          </fieldset>
           <p id="frameworkNeeds" class="hint note" data-icon="info" data-icon-size="16" hidden><span>This style reports facts. Paste the news or the figures under Details → Reference material. Where a fact is missing, the script leaves a marked gap instead of inventing one.</span></p>
           <fieldset class="field">
             <legend>Aspect ratio</legend>
@@ -142,7 +153,7 @@
           <summary class="card-title"><span class="step">3</span><span class="fold-title">Look and images</span><span id="lookSummary" class="fold-summary"></span></summary>
           <div class="fold-body">
             <fieldset class="field">
-              <legend>Visual style <em>pick one, or two to blend</em></legend>
+              <legend>Visual style <em>for every image and clip: one, or up to four that go together</em></legend>
               <div class="auto-pick">
                 <label class="check" title="The look is chosen from your topic, structure, platform and tone, and follows them as you type. Tick a style yourself and your choice is kept.">
                   <input id="styleAuto" type="checkbox" checked>
@@ -193,26 +204,26 @@
           <div class="fold-body">
             <label class="field">
               <span>Key message</span>
-              <input id="keyMessage" type="text" placeholder="The one thing the viewer should remember">
+              <textarea id="keyMessage" rows="1" placeholder="The one thing the viewer should remember"></textarea>
             </label>
             <div class="row">
               <label class="field">
                 <span>Audience</span>
-                <input id="audience" type="text" placeholder="e.g. 中小企业老板 / first-time founders">
+                <textarea id="audience" rows="1" placeholder="e.g. 中小企业老板 / first-time founders"></textarea>
               </label>
               <label class="field">
                 <span>Tone</span>
-                <input id="tone" type="text" placeholder="e.g. 冷静专业 / blunt and funny">
+                <textarea id="tone" rows="1" placeholder="e.g. 冷静专业 / blunt and funny"></textarea>
               </label>
             </div>
             <div class="row">
               <label class="field">
                 <span>Brand or creator</span>
-                <input id="brand" type="text" placeholder="Who is speaking, what is being offered">
+                <textarea id="brand" rows="1" placeholder="Who is speaking, what is being offered"></textarea>
               </label>
               <label class="field">
                 <span>Call to action</span>
-                <input id="cta" type="text" placeholder="e.g. 转给负责数字化的合伙人 / follow for part 2">
+                <textarea id="cta" rows="1" placeholder="e.g. 转给负责数字化的合伙人 / follow for part 2"></textarea>
               </label>
             </div>
             <label class="field">

@@ -18,9 +18,43 @@ export function detectLang(preferred = []) {
   return 'en';
 }
 
-function browserLanguages() {
+export function browserLanguages() {
   if (typeof navigator === 'undefined') return [];
   return navigator.languages?.length ? navigator.languages : [navigator.language];
+}
+
+/** The interface language someone picked with the toggle, or '' while the page still follows the browser. */
+export function pickedLang() {
+  try {
+    const saved = localStorage.getItem(KEY);
+    return SUPPORTED.includes(saved) ? saved : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The language to write in, from a list of the ones on offer ([{ id }], src/languages.mjs) and an ordered
+ * list of what is preferred (a saved choice, then the browser's languages): the first that is on offer.
+ * A regional tag falls back to its language ("pt-BR" is "pt"); Chinese is told apart by its script, so
+ * "zh-HK" and "zh-Hant" are Traditional and plain "zh" is Simplified. '' when nothing matches.
+ */
+export function matchLanguage(offered, preferred = []) {
+  const ids = offered.map((l) => l.id);
+  const has = (id) => ids.find((x) => x.toLowerCase() === id.toLowerCase());
+  for (const raw of preferred) {
+    const tag = String(raw || '').trim();
+    if (!tag) continue;
+    if (has(tag)) return has(tag);
+    if (/^zh(?:[-_]|$)/i.test(tag)) {
+      const id = /^zh[-_](tw|hk|mo|hant)/i.test(tag) ? 'zh-TW' : 'zh-CN';
+      if (has(id)) return has(id);
+      continue;
+    }
+    const base = tag.split(/[-_]/)[0];
+    if (has(base)) return has(base);
+  }
+  return '';
 }
 
 // A language picked with the toggle is remembered; until then every page, starting with
@@ -44,6 +78,20 @@ export function setLang(next) {
 }
 
 const ZH = {
+  // Output language, styles that go together, and text boxes
+  'Output language': '输出语言',
+  'the script, its narration and the publishing text': '脚本、旁白和发布文案都用它来写',
+  'Narration is budgeted at about {pace}.': '旁白按{pace}左右来估算篇幅。',
+  '{platforms} usually runs in another language: the script is still written in {language}.': '{platforms}通常用另一种语言，脚本仍会用{language}来写。',
+  'Narration styles to blend in': '融入其他旁白风格',
+  'optional, up to two that go together': '选填，最多两种，需彼此相容',
+  '{lead} leads: it keeps the story line, the pace and the length. Voice blended in: {names}.': '以「{lead}」为主：故事线、语速和时长都听它的。融入的腔调：{names}。',
+  'for every image and clip: one, or up to four that go together': '用于每张图片和每段视频：选一种，或最多四种相容的风格',
+  'Greyed-out styles clash with your choice. Point at one to see why.': '变灰的风格与当前选择相冲，把鼠标移上去可以看到原因。',
+  'That is the most that blend into one look: untick one to pick another.': '已达到可以混合的上限，取消一种才能再选别的。',
+  'Up to {n} can be blended: untick one first.': '最多混合 {n} 种，请先取消一种。',
+  'Clashes with {name}: {why}.': '与「{name}」相冲：{why}。',
+
   // Top bar
   'Short-video scripts for 视频号 · 抖音 · 小红书 · TikTok · Instagram · YouTube': '短视频脚本创作：视频号 · 抖音 · 小红书 · TikTok · Instagram · YouTube',
   'LLM settings': '模型设置',
@@ -1008,6 +1056,11 @@ const ZH = {
   'This browser cannot encode AAC sound. Use a current Chrome, Edge or Safari.': '这个浏览器无法编码 AAC 音频。请使用新版 Chrome、Edge 或 Safari。',
   'APP ID and Access Token come from the 豆包语音 console; the voice is a speaker id from its voice list.': 'APP ID 和 Access Token 来自豆包语音控制台；音色填它的音色列表里的 speaker id。',
   'Any service with an OpenAI-style /audio/speech endpoint that can answer with WAV.': '任何提供 OpenAI 风格 /audio/speech 接口、并能返回 WAV 的服务。',
+  'The API key comes from your ElevenLabs profile; the voice is a voice ID from your voice library. The multilingual model reads Chinese, English, Japanese and about thirty other languages.': 'API Key 在 ElevenLabs 的个人资料里；音色填你的音色库里的 Voice ID。多语言模型能读中文、英文、日文等三十来种语言。',
+  'A text-to-speech service you run yourself that offers an OpenAI-style /audio/speech endpoint and can answer with WAV: Kokoro-FastAPI, LocalAI, openedai-speech and the like. The address is as this server sees it, so localhost is the machine the server runs on. A key is sent only if you enter one.': '你自己运行的语音合成服务，只要提供 OpenAI 风格的 /audio/speech 接口并能返回 WAV 即可，例如 Kokoro-FastAPI、LocalAI、openedai-speech。地址以这台服务器的视角为准，localhost 就是运行服务器的那台机器。只有填了密钥才会发送密钥。',
+  'Local service (OpenAI-style, no key)': '本地服务（OpenAI 风格，无需密钥）',
+  'API_KEY (optional)': 'API_KEY（选填）',
+  'Voice ID': '音色 ID（Voice ID）',
   // Publishing through Postiz (publish.js), and what the video gained after its first version
   'Listen scene by scene, and fix how a line is read': '逐个场景试听，并修正某一句的读法',
   'Where a name or a number comes out wrong, write the line the way it should be said and voice that scene again. The captions keep the script’s own words.': '哪里的名字或数字读错了，就把这句话按应该读的样子写出来，再单独给这个场景配音。字幕仍然用脚本原文。',

@@ -56,11 +56,11 @@ test('voice settings: a key stays with its service, and only an administrator se
   const member = publicSpeech(saved);
   assert.deepEqual([member.ready, member.voice, 'baseUrl' in member, 'keyPreview' in member, JSON.stringify(member).includes('token')], [true, 'zh_female_x', false, false, false]);
   const admin = publicSpeech(saved, { admin: true });
-  assert.deepEqual([admin.keyPreview, admin.hasKey, admin.providers.length], ['tok••••6789', true, 2]);
+  assert.deepEqual([admin.keyPreview, admin.hasKey, admin.providers.length], ['tok••••6789', true, 4]);
   assert.deepEqual([publicSpeech(mergeSpeech({}, null), { demo: true }).demo, publicSpeech(saved, { demo: true }).demo], [true, false]);
 });
 
-test('both voice protocols, against stand-in servers', async (t) => {
+test('every voice protocol, against stand-in servers', async (t) => {
   const asked = [];
   const server = http.createServer(async (req, res) => {
     let body = '';
@@ -71,6 +71,9 @@ test('both voice protocols, against stand-in servers', async (t) => {
       const said = JSON.parse(body).req_params.text;
       if (said === 'refuse') return res.end(`${JSON.stringify({ code: 45000000, message: 'speaker not found' })}\n`);
       res.end([{ code: 0, data: pcm.subarray(0, 100).toString('base64') }, { code: 0, data: null, sentence: { text: said, words: [] } }, { code: 0, data: pcm.subarray(100).toString('base64') }, { code: 20000000, message: 'OK', data: null }].map((e) => JSON.stringify(e)).join('\n'));
+    } else if (req.url.startsWith('/v1/text-to-speech/')) {
+      if (JSON.parse(body).text === 'refuse') return res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ detail: { status: 'invalid_api_key', message: 'Invalid API key' } }));
+      res.writeHead(200, { 'content-type': 'audio/pcm' }).end(Buffer.alloc(RATE + 1)); // half a second of raw sound, and a stray byte
     } else if (req.url === '/v1/audio/speech') {
       res.writeHead(200, { 'content-type': 'audio/wav' }).end(wavOf(Buffer.alloc(48000 * 2), 48000)); // one second at another rate
     } else res.writeHead(404).end('{}');
@@ -98,6 +101,28 @@ test('both voice protocols, against stand-in servers', async (t) => {
   last = asked.at(-1);
   assert.deepEqual([last.url, last.headers.authorization, last.body], ['/v1/audio/speech', 'Bearer sk-test', { model: 'tts-1', voice: 'nova', input: 'Hello', response_format: 'wav', speed: 1.6 }]); // a bare host is called under /v1; the speed is kept in range
   assert.equal(made.pcm.length / 2 / RATE, 1); // brought to the rate the app keeps
+
+  // ElevenLabs: the voice is in the address, the key in its own header, and the sound comes back raw at the rate asked for.
+  const eleven = { provider: 'elevenlabs', baseUrl: `${base}/v1`, apiKey: 'xi-test', model: 'eleven_multilingual_v2', voice: 'voice id/1' };
+  made = await synthesize(eleven, { text: 'こんにちは', speed: 1.6, lang: 'ja' });
+  last = asked.at(-1);
+  assert.deepEqual([last.url, last.headers['xi-api-key'], last.headers.authorization, last.body], [`/v1/text-to-speech/voice%20id%2F1?output_format=pcm_${RATE}`, 'xi-test', undefined, { text: 'こんにちは', model_id: 'eleven_multilingual_v2', voice_settings: { speed: 1.2 } }]); // its fastest is 1.2
+  assert.deepEqual([made.rate, made.pcm.length], [RATE, RATE]);
+  await synthesize(eleven, { text: 'Hello', lang: 'en' });
+  assert.deepEqual(asked.at(-1).body, { text: 'Hello', model_id: 'eleven_multilingual_v2' }); // the usual speed is not sent
+  await assert.rejects(synthesize(eleven, { text: 'refuse' }), /401/);
+  assert.match(validateSpeech({ ...eleven, apiKey: '' }), /API key/);
+
+  // A service run locally speaks the OpenAI shape and needs no key: none is sent unless one is given.
+  const local = mergeSpeech({ provider: 'local', baseUrl: `${base}/v1` }, null);
+  assert.deepEqual([local.model, local.voice, local.apiKey, validateSpeech(local)], ['kokoro', 'af_heart', '', null]);
+  assert.equal(mergeSpeech({ provider: 'local' }, null).baseUrl, 'http://localhost:8880/v1');
+  made = await synthesize(local, { text: 'Hello', lang: 'en' });
+  last = asked.at(-1);
+  assert.deepEqual([last.url, 'authorization' in last.headers, last.body], ['/v1/audio/speech', false, { model: 'kokoro', voice: 'af_heart', input: 'Hello', response_format: 'wav' }]);
+  await synthesize({ ...local, apiKey: 'mine' }, { text: 'Hello', lang: 'en' });
+  assert.equal(asked.at(-1).headers.authorization, 'Bearer mine');
+  assert.deepEqual(SPEECH_PROVIDERS.map((p) => p.id), ['volc', 'elevenlabs', 'openai', 'local']);
 });
 
 test('captions: short lines cut at punctuation and pauses, stress kept, weighted by what is said', () => {
@@ -229,7 +254,7 @@ test('voicing over HTTP in demo mode: scene by scene, kept with the script, only
   let r = await ann.call('GET', '/api/speech/config');
   assert.deepEqual([r.status, r.body.ready, r.body.demo, 'providers' in r.body], [200, false, true, false]);
   assert.equal((await ann.call('PUT', '/api/speech/config', { provider: 'openai', apiKey: 'x' })).status, 403);
-  assert.equal((await admin.call('GET', '/api/speech/config')).body.providers.length, 2);
+  assert.equal((await admin.call('GET', '/api/speech/config')).body.providers.length, 4);
   assert.equal((await admin.call('PUT', '/api/speech/config', { provider: 'volc', apiKey: 'token' })).status, 400); // no APP ID
   r = await admin.call('PUT', '/api/speech/config', { provider: 'volc', apiKey: 'token-123456789', appId: '42' });
   assert.deepEqual([r.status, r.body.ready, r.body.keyPreview], [200, true, 'tok••••6789']);

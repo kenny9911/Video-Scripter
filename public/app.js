@@ -1,10 +1,12 @@
 // Video Scripter front end. Plain ES modules, no build step.
 
-import { t, lang, applyI18n, explain } from './i18n.js';
+import { t, lang, applyI18n, explain, pickedLang, browserLanguages, matchLanguage } from './i18n.js';
 import { icon, hydrateIcons } from './icons.js';
 import { showAuth, wireAccount, fmt, money } from './account.js';
 import { wireTheme, wireLang, enhancePasswords } from './shell.js';
-import { countSpoken, fitDuration, splitNarration, spokenText, MIN_DURATION, MAX_DURATION } from './narration.js';
+import { countSpoken, countsCharacters, fitDuration, splitNarration, spokenText, MIN_DURATION, MAX_DURATION } from './narration.js';
+import { styleBlock, compatibleStyles, voiceBlock, voiceClash, CLASH_REASON } from './compat.js';
+import { autosizeAll, fit as fitBox, refit } from './autosize.js';
 import { wireLibrary } from './library.js';
 import { wirePost } from './post.js';
 import { wireWebSettings, wireBriefWeb, sourcesNode, readingNote } from './web.js';
@@ -36,6 +38,7 @@ const state = {
   autoRun: null, // { done, total } while images are being made for every scene
   history: [],
   styleIds: [], // the chips that are ticked: a style id, or "custom:<group>" for a group's own custom style
+  voiceIds: [], // narration styles whose voice is blended into the structure that leads
   customStyles: {}, // group id -> what the creator wrote for that group's custom style
   styleAuto: true, // the styles follow the brief: they are picked from the topic until the creator picks their own
   pick: null, // the last suggestion: { styleIds, alternatives, reason, by, model, key }
@@ -148,6 +151,48 @@ function selectedPlatforms() {
   return [...document.querySelectorAll('input[name="platform"]:checked')].map((i) => i.value);
 }
 
+// ---------- Output language (what the script, its narration and its publishing text are written in) ----------
+// The choice is remembered. Until one is made it is the interface language someone picked, then the first
+// of the browser's languages that a script can be written in.
+
+const LANGUAGE_KEY = 'video-scripter.output-language';
+const languageOf = (id) => state.meta.languages.find((l) => l.id === id);
+/** A rule family ('zh', 'en') or an id from before there was a choice, as the language it stands for. */
+const languageFor = (id) => languageOf(id) || languageOf(matchLanguage(state.meta.languages, [id])) || languageOf('en');
+
+function defaultLanguage() {
+  let saved = '';
+  try {
+    saved = localStorage.getItem(LANGUAGE_KEY) || '';
+  } catch {}
+  return matchLanguage(state.meta.languages, [saved, pickedLang(), ...browserLanguages(), lang]) || 'en';
+}
+
+const selectedLanguage = () => languageFor($('language').value);
+/** Languages written without spaces between words: lines are joined, and captions cut, by the character. */
+const unspaced = (id) => /^(zh|ja)\b/i.test(String(id || ''));
+/** A count in a language's own unit: "128 字", "128 characters", "128 words"; with the room there is, "128 / 150 字". */
+function amountIn(id, count, room) {
+  const of = room ? `${count} / ${room}` : `${count}`;
+  if (/^zh\b/i.test(String(id))) return `${of} 字`;
+  return countsCharacters(id) ? t('{n} characters', { n: of }) : t('{n} words', { n: of });
+}
+
+function setLanguage(id) {
+  $('language').value = languageFor(id).id;
+  refreshLanguage();
+}
+
+/** Under the picker: how a narration in this language is measured and how fast it is spoken. */
+function refreshLanguage() {
+  const l = selectedLanguage();
+  const f = frameworkOf($('framework')?.value);
+  const n = paceFor(f, l.id);
+  const pace = countsCharacters(l.id) ? t('{n} characters per second', { n }) : t('{n} words per second', { n });
+  const others = selectedPlatforms().map(platformOf).filter((p) => p && languageFor(p.lang).family !== l.family);
+  $('languageHint').textContent = [t('Narration is budgeted at about {pace}.', { pace }), others.length && t('{platforms} usually runs in another language: the script is still written in {language}.', { platforms: others.map((p) => p.name).join(' · '), language: l.name })].filter(Boolean).join(' ');
+}
+
 // ---------- Aspect ratio (the frame of the video, and of every scene image and clip) ----------
 
 /** The aspect for an id; an unknown one, or a script from before the option existed, is the first (vertical). */
@@ -157,7 +202,9 @@ const setAspect = (id) => document.querySelectorAll('input[name="aspect"]').forE
 /** A script keeps the shape it was written in, whatever the form says now. */
 const runAspect = (run) => aspectOf(run.brief?.aspectRatio);
 
-// ---------- Visual style (one, or two blended; the first picked leads) ----------
+// ---------- Visual style (one, or up to four that go together, blended; the first picked leads) ----------
+// Which styles go together is in compat.js, the same rules the server keeps to: a style that clashes with
+// what is ticked is greyed out and says why, and comes back as soon as the choice changes.
 // Every group ends with "Custom": a style the creator describes in their own words. On the form its id is
 // "custom:<group>"; when it is sent or saved the words ride along in the id, "custom:<group>:<words>",
 // which is the form the server reads (src/styles.mjs).
@@ -191,16 +238,38 @@ const activeStyleIds = () =>
     .filter(Boolean);
 
 function refreshStyleHint() {
-  const [a, b] = state.styleIds.map(styleOf);
-  $('styleHint').textContent = !a
+  const all = state.styleIds.map(styleOf);
+  const [a, ...rest] = all;
+  const said = !a
     ? t('No style chosen: the script and image model decide the look.')
-    : [a, b].some((s) => s?.custom && !s.text)
+    : all.some((s) => s?.custom && !s.text)
       ? t('Describe the look you want in the box under its group. Until then it is not used.')
-      : !b
+      : !rest.length
         ? a.custom
           ? t('Custom: {text}', { text: a.text })
           : `${a.name[lang]}: ${t(a.blurb)}`
-        : t('Blend: {a} leads, mixed with {b}.', { a: a.name[lang], b: b.name[lang] });
+        : t('Blend: {a} leads, mixed with {b}.', { a: a.name[lang], b: rest.map((s) => s.name[lang]).join(lang === 'zh' ? '、' : ', ') });
+  const blocked = document.querySelectorAll('#styleGroups .chip.blocked').length;
+  const full = state.styleIds.length >= state.meta.maxStyles;
+  $('styleHint').textContent = [said, a && blocked && (full ? t('That is the most that blend into one look: untick one to pick another.') : t('Greyed-out styles clash with your choice. Point at one to see why.'))].filter(Boolean).join(' ');
+}
+
+/** Why a style cannot be ticked right now, as its tooltip says it. */
+function blockReason(block, nameOf) {
+  if (block.full) return t('Up to {n} can be blended: untick one first.', { n: state.meta.maxStyles });
+  return t('Clashes with {name}: {why}.', { name: nameOf(block.with), why: CLASH_REASON[block.axis][lang] });
+}
+
+/** Grey out every style that does not go with the ones ticked, and bring back the ones that do again. */
+function refreshStyleLocks() {
+  for (const input of document.querySelectorAll('input[name="style"]')) {
+    const chip = input.closest('.chip');
+    chip.dataset.title ??= chip.title;
+    const block = styleBlock(input.value, state.styleIds, state.meta.maxStyles);
+    input.disabled = Boolean(block);
+    chip.classList.toggle('blocked', Boolean(block));
+    chip.title = block ? blockReason(block, (id) => styleOf(id)?.name[lang] || id) : chip.dataset.title;
+  }
 }
 
 function setStyles(ids) {
@@ -211,8 +280,10 @@ function setStyles(ids) {
     if (custom.text) state.customStyles[custom.group] = custom.text;
     return `custom:${custom.group}`;
   });
-  state.styleIds = [...new Set(picked)].filter(styleOf).slice(-state.meta.maxStyles); // a third pick replaces the oldest
+  // What is kept goes together, the first pick leading: a style that clashes with an earlier one is dropped.
+  state.styleIds = compatibleStyles([...new Set(picked)].filter(styleOf)).slice(0, state.meta.maxStyles);
   document.querySelectorAll('input[name="style"]').forEach((i) => (i.checked = state.styleIds.includes(i.value)));
+  refreshStyleLocks();
   for (const box of document.querySelectorAll('.style-custom')) {
     box.hidden = !state.styleIds.includes(`custom:${box.dataset.group}`);
     if (document.activeElement !== box) box.value = state.customStyles[box.dataset.group] || '';
@@ -274,6 +345,52 @@ function buildStyles() {
     }),
   );
   setStyles([]);
+}
+
+// ---------- Narration styles blended into the structure ----------
+// The structure leads: it keeps the story line, the pace and the length. Up to `maxVoices` other narration
+// styles lend it their voice. One that does not blend (another number of speakers, a length that does not
+// overlap, a very different pace: compat.js) is greyed out and says why.
+
+const voiceStyles = () => state.meta.frameworks.filter((f) => f.voiced);
+
+function setVoices(ids) {
+  const lead = frameworkOf($('framework').value);
+  const kept = [];
+  for (const id of ids || []) {
+    const style = voiceStyles().find((f) => f.id === id);
+    if (!style || style.id === lead?.id || kept.includes(style) || kept.length >= state.meta.maxVoices) continue;
+    if ([lead, ...kept].some((other) => voiceClash(other, style))) continue;
+    kept.push(style);
+  }
+  state.voiceIds = kept.map((f) => f.id);
+  refreshVoices();
+}
+
+/** Tick what is chosen, hide the structure's own chip, and grey out what does not blend with the rest. */
+function refreshVoices() {
+  const lead = frameworkOf($('framework').value);
+  const chosen = state.voiceIds.map(frameworkOf).filter(Boolean);
+  for (const input of document.querySelectorAll('input[name="voice"]')) {
+    const chip = input.closest('.chip');
+    const style = frameworkOf(input.value);
+    chip.hidden = style.id === lead?.id;
+    input.checked = state.voiceIds.includes(style.id);
+    const block = chip.hidden ? null : voiceBlock(style, lead, chosen, state.meta.maxVoices);
+    input.disabled = Boolean(block);
+    chip.classList.toggle('blocked', Boolean(block));
+    chip.title = block ? (block.full ? t('Up to {n} can be blended: untick one first.', { n: state.meta.maxVoices }) : t('Clashes with {name}: {why}.', { name: frameworkOf(block.with)?.name[lang] || block.with, why: CLASH_REASON[block.axis][lang] })) : style.blurb[lang];
+  }
+  $('voiceHint').textContent = chosen.length ? t('{lead} leads: it keeps the story line, the pace and the length. Voice blended in: {names}.', { lead: lead?.name[lang] || '', names: chosen.map((f) => f.name[lang]).join(lang === 'zh' ? '、' : ', ') }) : '';
+}
+
+function buildVoices() {
+  $('voiceMix').replaceChildren(
+    ...voiceStyles().map((f) =>
+      h('label', { class: 'chip', title: f.blurb[lang] }, h('input', { type: 'checkbox', name: 'voice', value: f.id, onchange: (e) => setVoices(e.target.checked ? [...state.voiceIds, f.id] : state.voiceIds.filter((x) => x !== f.id)) }), h('span', {}, f.name[lang])),
+    ),
+  );
+  setVoices([]);
 }
 
 // ---------- The look, picked from the topic ----------
@@ -504,8 +621,12 @@ function onDurationPick() {
 }
 
 const frameworkOf = (id) => state.meta.frameworks.find((f) => f.id === id);
-/** How fast a structure is spoken in a language: its own pace when it is a narration style that sets one. */
-const paceFor = (framework, language) => framework?.pace?.[language] ?? state.meta.pace[language];
+/** How fast a structure is spoken in a language: its own pace when it is a narration style that sets one, scaled by the language's rate. */
+function paceFor(framework, language) {
+  const l = languageFor(language);
+  const pace = framework?.pace?.[l.family] ?? state.meta.pace[l.family];
+  return l.rate === 1 ? pace : Math.round(pace * l.rate * 10) / 10;
+}
 
 /**
  * A narration style is made for a length and a pace: say so under the picker. "Auto" follows the style, so
@@ -517,8 +638,8 @@ function refreshFit() {
   if (!box) return;
   box.hidden = !f?.length;
   if (!f?.length) return;
-  const language = platformOf(selectedPlatforms()[0])?.lang || lang;
-  const pace = language === 'zh' ? t('{n} characters per second', { n: paceFor(f, language) }) : t('{n} words per second', { n: paceFor(f, language) });
+  const language = selectedLanguage().id;
+  const pace = countsCharacters(language) ? t('{n} characters per second', { n: paceFor(f, language) }) : t('{n} words per second', { n: paceFor(f, language) });
   const picked = Number(durationValue()) || 0;
   const off = picked > 0 && (picked < f.length.min || picked > f.length.max);
   $('frameworkFitText').textContent = t('Made for {min}–{max}, spoken at about {pace}.', { min: lengthLabel(f.length.min), max: lengthLabel(f.length.max), pace }) + (picked ? '' : ` ${t('Auto gives {n}.', { n: lengthLabel(f.length.default) })}`);
@@ -533,6 +654,7 @@ function refreshBlurb() {
   $('frameworkBlurb').textContent = f ? f.blurb[lang] : '';
   $('frameworkNeeds').hidden = !f?.needsReference || Boolean($('reference').value.trim());
   refreshFit();
+  if (state.meta.languages) refreshLanguage();
   $('topicIdeaList').replaceChildren(
     ...(f?.topics?.[lang] || IDEAS[lang]).map((idea) =>
       h('button', { class: 'chip', type: 'button', onclick: () => (($('topic').value = idea), refreshSummaries(), saveForm(), $('topic').focus()) }, idea),
@@ -564,7 +686,7 @@ function setNarrationMode(mode) {
 
 function saveForm() {
   const data = Object.fromEntries(FIELDS.map((f) => [f, $(f).value]));
-  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: durationValue(), aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: activeStyleIds(), styleAuto: state.styleAuto, host: hostValue() || null, narrationMode: state.narrationMode, agent: $('agent').checked, assetIds: library.selected(), webLinks: $('webLinks').checked, webSearch: $('webSearch').checked });
+  Object.assign(data, { platforms: selectedPlatforms(), language: $('language').value, voiceIds: state.voiceIds, framework: $('framework').value, duration: durationValue(), aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: activeStyleIds(), styleAuto: state.styleAuto, host: hostValue() || null, narrationMode: state.narrationMode, agent: $('agent').checked, assetIds: library.selected(), webLinks: $('webLinks').checked, webSearch: $('webSearch').checked });
   try {
     localStorage.setItem(FORM_KEY, JSON.stringify(data));
   } catch {}
@@ -578,6 +700,8 @@ function fillForm(data) {
   FIELDS.forEach((f) => ($(f).value = data[f] || ''));
   if (Array.isArray(data.platforms)) document.querySelectorAll('input[name="platform"]').forEach((i) => (i.checked = data.platforms.includes(i.value)));
   if (state.meta.frameworks.some((f) => f.id === data.framework)) $('framework').value = data.framework;
+  if (data.language) setLanguage(data.language); // a brief that names no language leaves the picker as it is
+  setVoices(Array.isArray(data.voiceIds) ? data.voiceIds : []);
   $('ttsReady').checked = Boolean(data.ttsReady);
   setAspect(data.aspectRatio);
   // autoImages is not restored from a saved brief: it is remembered on the user's account (see buildForm).
@@ -601,6 +725,7 @@ function fillForm(data) {
   refreshBlurb();
   refreshHost(); // one row or two: the structure says
   pickSoon();
+  refit($('briefForm')); // the text boxes fit what was just put into them
 }
 
 function restoreForm() {
@@ -613,14 +738,26 @@ function restoreForm() {
 
 function buildForm() {
   for (const p of state.meta.platforms) {
-    const chip = h('label', { class: 'chip' }, h('input', { type: 'checkbox', name: 'platform', value: p.id, onchange: refreshDurations }), h('span', {}, p.name));
+    const chip = h('label', { class: 'chip' }, h('input', { type: 'checkbox', name: 'platform', value: p.id, onchange: () => (refreshDurations(), refreshLanguage()) }), h('span', {}, p.name));
     $(p.lang === 'zh' ? 'platformsZh' : 'platformsEn').append(chip);
   }
   document.querySelector('input[name="platform"]').checked = true;
+  // The language of the script: each in its own name, with its English name beside it where that helps.
+  $('language').append(...state.meta.languages.map((l) => h('option', { value: l.id }, l.name === l.english || lang === 'zh' ? l.name : `${l.name} · ${l.english}`)));
+  $('language').value = defaultLanguage();
+  $('language').addEventListener('change', () => {
+    try {
+      localStorage.setItem(LANGUAGE_KEY, $('language').value); // a choice made by hand is the default from now on
+    } catch {}
+    refreshLanguage();
+    refreshFit();
+  });
   $('framework').append(
     ...state.meta.frameworkGroups.map((g) => h('optgroup', { label: g.name[lang] }, state.meta.frameworks.filter((f) => f.group === g.id).map((f) => h('option', { value: f.id }, f.name[lang])))),
   );
   $('framework').addEventListener('change', refreshBlurb);
+  $('framework').addEventListener('change', () => setVoices(state.voiceIds)); // what blends depends on what leads
+  buildVoices();
   // A format led by a host (a podcast) comes with one: it is switched on when the format is chosen.
   $('framework').addEventListener('change', () => {
     if (frameworkOf($('framework').value)?.hosted && !$('hostOn').checked) {
@@ -821,7 +958,7 @@ function runChanged(platformId) {
 /** The brief as the form has it now. */
 function collectBrief() {
   const brief = Object.fromEntries(FIELDS.map((f) => [f, $(f).value.trim()]));
-  return Object.assign(brief, { frameworkId: $('framework').value, duration: durationValue() || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: activeStyleIds(), host: hostValue(), agent: $('agent').checked, assetIds: library.selected().length ? library.selected() : undefined, webLinks: $('webLinks').checked ? undefined : false, webSearch: ($('webSearch').checked && !$('webSearch').disabled) || undefined });
+  return Object.assign(brief, { language: selectedLanguage().id, voiceIds: state.voiceIds.length ? state.voiceIds : undefined, frameworkId: $('framework').value, duration: durationValue() || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: activeStyleIds(), host: hostValue(), agent: $('agent').checked, assetIds: library.selected().length ? library.selected() : undefined, webLinks: $('webLinks').checked ? undefined : false, webSearch: ($('webSearch').checked && !$('webSearch').disabled) || undefined });
 }
 
 const isWriting = (run) => run.status === 'running' || run.status === 'drafting';
@@ -912,7 +1049,7 @@ function openHistory(entry) {
   const media = savedMedia(entry);
   const brief = entry.brief?.topic ? entry.brief : null; // an imported script may have no brief
   if (brief) {
-    fillForm({ ...brief, platforms: [entry.platformId], framework: brief.frameworkId, styles: brief.styleIds, styleAuto: false });
+    fillForm({ ...brief, language: brief.language || entry.plan?.language || platformOf(entry.platformId)?.lang, platforms: [entry.platformId], framework: brief.frameworkId, styles: brief.styleIds, styleAuto: false });
     $('formError').hidden = true;
     saveForm();
     toast(t('Brief restored from this script'));
@@ -1350,7 +1487,8 @@ const showsEditor = (run) => Boolean(run?.narration) && (run.status === 'narrati
 const filledBeats = (run) => run.narration.beats.filter((b) => b.text.trim());
 const forServer = (beats) => beats.map(({ stage, text }) => ({ stage, text: text.trim() }));
 const narrationText = (run) => filledBeats(run).map((b) => b.text.trim()).join('\n\n');
-const scriptLang = (platformId, run) => run.plan?.lang || (run.plan?.unit === '汉字' ? 'zh' : run.plan?.unit ? 'en' : platformOf(platformId).lang);
+/** The language a script is in: the one it was written in, or, for one from before there was a choice, its rule family. */
+const scriptLang = (platformId, run) => run.plan?.language || run.plan?.lang || (run.plan?.unit === '汉字' ? 'zh' : run.plan?.unit ? 'en' : platformOf(platformId).lang);
 
 /** True when no narration that would be lost is on screen, or the user agrees to let it go. */
 function mayReplaceRuns() {
@@ -1361,8 +1499,9 @@ function mayReplaceRuns() {
 /** What there is room for, when the server could not say (no topic yet): the platform's usual length. */
 function fallbackTarget(platformId) {
   const p = platformOf(platformId);
-  const pace = paceFor(frameworkOf($('framework').value), p.lang);
-  return { timeline: [], duration: p.defaultDuration, lang: p.lang, pace, budget: Math.round(p.defaultDuration * pace), unit: p.lang === 'zh' ? '汉字' : 'words' };
+  const l = selectedLanguage();
+  const pace = paceFor(frameworkOf($('framework').value), l.id);
+  return { timeline: [], duration: p.defaultDuration, lang: l.family, language: l.id, pace, budget: Math.round(p.defaultDuration * pace), unit: l.unit };
 }
 
 async function loadTarget(platformId) {
@@ -1594,7 +1733,7 @@ function cardMarkdown(card) {
 /** The narration of a finished script as beats: the one it was built on, or its scenes' voiceover gathered by stage. */
 function beatsOfScript(platformId, run) {
   if (run.brief?.narration?.length) return run.brief.narration.map(newBeat);
-  const glue = scriptLang(platformId, run) === 'zh' ? '' : ' ';
+  const glue = unspaced(scriptLang(platformId, run)) ? '' : ' ';
   const beats = [];
   for (const sc of run.script.scenes) {
     const text = plainVo(sc.voiceover);
@@ -1741,22 +1880,17 @@ function stageParts(target, key) {
   return m ? { name: m[1], guide: m[2] } : { name: label, guide: '' };
 }
 
-const autosizes = typeof CSS !== 'undefined' && CSS.supports('field-sizing', 'content');
-/** Grow a textarea to its text where the browser cannot do it by itself. */
-function autosize(area) {
-  if (autosizes || !area.scrollHeight) return;
-  area.style.height = 'auto';
-  area.style.height = `${area.scrollHeight + 2}px`;
-}
+/** Fit a text box to what was just put into it (autosize.js keeps it fitted while someone types). */
+const autosize = (area) => fitBox(area);
 
 function renderNarration(platformId, run) {
   const n = run.narration;
   n.target ??= fallbackTarget(platformId);
   const T = () => n.target; // read at use: the brief can change what there is room for while the editor is open
-  const zh = () => T().lang === 'zh';
-  const amount = (count, room) => (zh() ? `${count}${room ? ` / ${room}` : ''} 字` : room ? t('{n} / {room} words', { n: count, room }) : t('{n} words', { n: count }));
+  const tongue = () => T().language || T().lang; // what the narration is counted in
+  const amount = (count, room) => amountIn(tongue(), count, room);
   const secs = (count) => Math.max(count ? 1 : 0, Math.round(count / T().pace));
-  const count = (text) => countSpoken(text, T().lang);
+  const count = (text) => countSpoken(text, tongue());
   const frozen = () => Boolean(n.busy); // the whole narration is being rewritten
   const waiting = () => frozen() || anyWriting(); // nothing new can be started from here yet
   const has = n.beats.some((b) => b.text.trim());
@@ -2090,9 +2224,7 @@ function renderScript(platformId, run) {
   const s = run.script;
   const tele = state.teleprompter[platformId];
   const voText = s.scenes.map((sc) => plainVo(sc.voiceover)).join('\n\n');
-  const zh = scriptLang(platformId, run) === 'zh';
-  const spoken = countSpoken(voText, zh ? 'zh' : 'en');
-  const count = zh ? `${spoken} 字` : t('{n} words', { n: spoken });
+  const count = amountIn(scriptLang(platformId, run), countSpoken(voText, scriptLang(platformId, run)));
   const locked = run.plan?.narration; // built around a narration from the editor: { locked, repaired }
   const meta = [platformOf(platformId).name, `${s.scenes.at(-1).end}s`, runAspect(run).id, t('{n} scenes', { n: s.scenes.length }), t('voiceover {count}', { count }), locked && (locked.agent ? t('Narration by the agent') : t('Your narration, word for word')), run.plan?.model && `${run.plan.model}`, styleNames(run.styleIds)].filter(Boolean);
 
@@ -2763,6 +2895,7 @@ function wireSettings() {
 async function boot() {
   applyI18n();
   hydrateIcons();
+  autosizeAll(); // every text box fits its text and can be dragged taller, the ones made later too
   enhancePasswords();
   const me = await api('/api/auth/me');
   if (!me.user) return showAuth(me);

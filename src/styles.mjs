@@ -1,4 +1,5 @@
-// Visual styles for a video's images and clips. The user picks one, or two to blend.
+// Visual styles for a video's images and clips. The user picks one, or up to four that go together to blend
+// (which ones go together is in public/compat.js, shared with the page).
 // `look` is written for image / video models; `brief` tells the scriptwriter what the style can and cannot show.
 // No living artists, studios or brands are named: each look is described by its own traits.
 //
@@ -17,6 +18,10 @@ export const STYLE_GROUPS = [
   { id: 'bright', name: { en: 'Bright and light', zh: '明亮与浅色' } },
   { id: 'mood', name: { en: 'Era and mood', zh: '年代与氛围' } },
 ];
+
+import { compatibleStyles, styleClash, STYLE_TRAITS } from '../public/compat.js';
+
+export { styleClash, STYLE_TRAITS };
 
 export const MAX_CUSTOM_STYLE = 200; // characters of description kept
 
@@ -277,19 +282,41 @@ export const STYLES = [
     'visual metaphors that could not be filmed: impossible scale, floating objects, dream logic'),
 ];
 
-export const MAX_STYLES = 2;
+export const MAX_STYLES = 4;
 
-/** The styles for the ids chosen, in that order, at most two: unknown ids are dropped, a custom id becomes its style. */
-export function pickStyles(ids) {
-  const list = Array.isArray(ids) ? ids : ids ? [ids] : [];
+/** The styles for the ids given, in that order, each once: unknown ids are dropped, a custom id becomes its style. */
+function knownStyles(ids) {
+  const list = Array.isArray(ids) ? ids.slice(0, 24) : ids ? [ids] : [];
   const styles = list.map((id) => STYLES.find((s) => s.id === String(id)) || customStyle(id)).filter(Boolean);
-  return styles.filter((s, i) => styles.findIndex((x) => x.id === s.id) === i).slice(0, MAX_STYLES);
+  return styles.filter((s, i) => styles.findIndex((x) => x.id === s.id) === i);
 }
 
-/** One line for an image / video prompt. Two styles are blended, the first one leading. */
+/** The styles for the ids chosen, in that order, at most MAX_STYLES. */
+export const pickStyles = (ids) => knownStyles(ids).slice(0, MAX_STYLES);
+
+/**
+ * The styles a new brief is written and drawn in: the ones chosen that go together, in order. A style that
+ * clashes with one chosen before it (a different medium, a different era…) is left out, so the scriptwriter
+ * and the image model are never asked for two looks that cannot be one picture.
+ */
+export function settleStyles(ids) {
+  const all = knownStyles(ids);
+  const kept = compatibleStyles(all.map((s) => s.id));
+  return all.filter((s) => kept.includes(s.id)).slice(0, MAX_STYLES);
+}
+
+const NUMBER = ['', 'one', 'two', 'three', 'four'];
+const listed = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0] || '');
+
+/** One line for an image / video prompt. Several styles are blended, the first one leading. */
 export function styleLook(styles) {
   if (!styles.length) return '';
   if (styles.length === 1) return `Visual style: ${styles[0].look}.`;
-  const [a, b] = styles;
-  return `Visual style: a consistent blend of two styles. Lead with ${a.name.en.toLowerCase()} (${a.look}); mix in ${b.name.en.toLowerCase()} (${b.look}). Fuse them into one coherent look, not a split frame.`;
+  const [a, ...rest] = styles;
+  const named = (s) => `${s.name.en.toLowerCase()} (${s.look})`;
+  return `Visual style: a consistent blend of ${NUMBER[styles.length] || styles.length} styles. Lead with ${named(a)}; mix in ${rest.map(named).join('; and ')}. Fuse them into one coherent look, not a split frame.`;
 }
+
+/** How many styles a blend has, as a prompt says it: "one style", "a blend of three styles, the first one leading". */
+export const blendOf = (styles) => (styles.length < 2 ? 'one style' : `a blend of ${NUMBER[styles.length] || styles.length} styles, the first one leading`);
+export { listed };

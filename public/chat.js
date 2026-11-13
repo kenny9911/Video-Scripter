@@ -5,6 +5,7 @@
 // Replies are Markdown, read and drawn by markdown.js; a ```image or ```video block in one is shown as the
 // picture or the clip the server made for it.
 
+import { autosize as growBox } from './autosize.js';
 import './chat.zh.js';
 import { t, lang, applyI18n, explain } from './i18n.js';
 import { icon, hydrateIcons } from './icons.js';
@@ -1057,6 +1058,7 @@ function wire() {
 async function boot() {
   applyI18n();
   hydrateIcons();
+  growBox($('skillBody')); // the instructions of a skill fit their text and can be dragged taller; the prompt box sizes itself (autosize)
   const me = await call('/api/auth/me');
   if (!me.user) return location.replace('app.html?next=chat');
   state.user = me.user;

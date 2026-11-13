@@ -32,7 +32,9 @@ const bare = (s) => s.replace(/\*\*/g, '');
  * enough to read at a glance (about 16 characters of Chinese, 44 letters of English). `[[stressed]]` words
  * come out as `**marked**`. `weight` is how long the line takes to say, in letters plus a beat for a stop.
  */
-export function captionsOf(voiceover, lang = 'zh') {
+export function captionsOf(voiceover, language = 'zh') {
+  // `language` is the script's ("zh-TW", "ja", "es"…). Chinese and Japanese are written without spaces: lines are cut by the character.
+  const lang = /^(zh|ja)\b/i.test(String(language)) ? 'zh' : 'en';
   const max = lang === 'zh' ? 16 : 44;
   const text = String(voiceover ?? '')
     .replace(/(^|[\s。！？!?.…])[AB][:：]\s*/g, '$1') // a conversation's speaker labels are not read out

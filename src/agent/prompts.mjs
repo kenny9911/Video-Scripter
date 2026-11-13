@@ -1,14 +1,15 @@
 // Prompts for the review step of the narration agent: an editor's read of a draft, then the corrected
 // narration. The step before it, planning and writing, uses buildNarrationPrompts in ../prompt.mjs.
 
-import { LANG_NAME, writesFor, bullets, languageRules, voiceSection, briefLines, cardLines, storyLines, replyJson, parseNarration, EAR_RULES, speakerRules } from '../prompt.mjs';
+import { langName, outputLanguage, writesFor, bullets, languageRules, voiceSection, briefLines, cardLines, storyLines, replyJson, parseNarration, EAR_RULES, speakerRules } from '../prompt.mjs';
 import { countSpoken } from '../narration.mjs';
 import { skillSection } from './skills.mjs';
 import { LIMITS, findingLines } from './review.mjs';
 
-const RUBRIC = (lang) => {
+const RUBRIC = (lang, language = lang) => {
   const limit = LIMITS[lang];
-  const breath = lang === 'zh' ? `one breath (the text between two punctuation marks) is at most ${limit.breath} characters` : `a sentence is at most ${limit.breath} words`;
+  // The measured limits are those of Chinese and of English: another language is asked for the same thing in words, without a figure.
+  const breath = lang === 'zh' ? `one breath (the text between two punctuation marks) is at most ${limit.breath} characters` : language === 'en' ? `a sentence is at most ${limit.breath} words` : 'a sentence is short enough to say in one breath';
   return [
     'Opening: the first sentence states a business stake, a loss or a claim that contradicts what the viewer assumes, in the viewer\'s own words. No greeting, no definition, no wind-up.',
     'Reason to stay: by the end of the second beat the viewer knows what they get for watching to the end, and whatever the opening promised is paid off later, visibly.',
@@ -41,7 +42,7 @@ const EDIT_SCHEMA = `{
 export function buildEditPrompts(plan, beats, report, { card = null, round = 1 } = {}) {
   const { brief, budget, unit } = plan;
   const { platform, framework, lang, duration } = brief;
-  const count = (text) => countSpoken(text, lang);
+  const count = (text) => countSpoken(text, brief.language);
   const measured = beats
     .map((b, i) => {
       const room = report.stats.beats[i]?.room;
@@ -52,13 +53,13 @@ export function buildEditPrompts(plan, beats, report, { card = null, round = 1 }
   const system = [
     `You are the editor of a senior short-video writing team for ${writesFor(platform)}. You are given the draft narration of a ${duration}-second video, the plan it was written to, and a list of problems found by measuring it. First say what is wrong: the measured problems, and anything else the standard below catches. Then return the corrected narration. Fix what is wrong and leave what works word for word: an edit that rewrites good lines is a worse edit.`,
     '',
-    `# Output language\nThe narration is in ${LANG_NAME[lang]} and stays in ${LANG_NAME[lang]}; write the review notes in ${LANG_NAME[lang]} too. Keep the JSON keys exactly as given, in English.`,
+    outputLanguage(brief, `The narration is in ${langName(brief)} and stays in ${langName(brief)}; write the review notes in ${langName(brief)} too.`),
     '',
     `# Story line: ${framework.name[lang]}\nThe whole narration has room for about ${budget} ${unit} (within 10%).\n${storyLines(plan)}`,
     '',
     ...voiceSection(brief, 'review'),
     ...skillSection(plan.skills, 'review'),
-    `# The standard\n${bullets(RUBRIC(lang))}`,
+    `# The standard\n${bullets(RUBRIC(lang, brief.language))}`,
     '',
     `# Rules\n${bullets([
       'Keep every fact, figure, name and quote that is in the draft and is supported by the material. Add no fact from anywhere else.',

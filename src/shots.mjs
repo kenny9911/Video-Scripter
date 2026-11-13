@@ -87,7 +87,7 @@ export const IMAGE_MODES = [
   {
     id: 'styles',
     name: { en: 'Style comparison', zh: '风格对比' },
-    blurb: { en: 'The same shot in each of your two visual styles, then the blend. Needs two styles picked.', zh: '同一个镜头分别用所选的两种画面风格生成，第三张为混合。需要选择两种风格。' },
+    blurb: { en: 'The same shot in each of your first two visual styles, then the blend of all you picked. Needs two styles picked.', zh: '同一个镜头分别用所选的前两种画面风格生成，第三张为全部所选风格的混合。至少需要选择两种风格。' },
     needsStyles: 2,
   },
 ];
@@ -106,12 +106,14 @@ export function planShots(mode, count, styleIds) {
   if (n === 1) return plain;
 
   if (mode === 'styles') {
-    const [a, b] = pickStyles(styleIds);
+    const all = pickStyles(styleIds);
+    const [a, b] = all;
     if (!b) return plain;
+    // The two that lead, each on its own, then everything chosen as one look.
     return [
       { id: `style-${a.id}`, directive: '', styleIds: [a.id] },
       { id: `style-${b.id}`, directive: '', styleIds: [b.id] },
-      { id: 'blend', directive: '', styleIds: [a.id, b.id] },
+      { id: 'blend', directive: '', styleIds: all.map((s) => s.id) },
     ].slice(0, n);
   }
 

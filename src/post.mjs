@@ -13,6 +13,7 @@
 
 import { getPlatform } from './platforms.mjs';
 import { replyJson } from './json.mjs';
+import { getLanguage, promptName, isNative } from './languages.mjs';
 
 /** The picture sizes a card can be drawn in. A platform lists the ids it takes, its usual one first. */
 export const POST_SIZES = [
@@ -52,6 +53,9 @@ export function postFormat(platformId) {
 
 /** The part of a format the page needs: no writing guidance. */
 export const publicFormat = (format) => format && (({ notes, platformId, lang, ...rest }) => rest)(format);
+
+/** The language a post is written in: that of its script (kept with the plan, or asked for in the brief), otherwise the platform's. */
+export const postLanguage = (entry, format) => getLanguage(entry?.plan?.language) || getLanguage(entry?.brief?.language) || getLanguage(format.lang) || getLanguage('en');
 
 function normalizeCard(input, index) {
   const c = input && typeof input === 'object' ? input : {};
@@ -95,7 +99,6 @@ export function normalizePost(input, format) {
 
 const spoken = (s) => String(s ?? '').replace(/\[\[|\]\]/g, '').replace(/\s*⏸\s*/g, ' ').trim();
 const bullets = (items) => items.map((r) => `- ${r}`).join('\n');
-const LANG_NAME = { zh: 'Simplified Chinese (简体中文)', en: 'English' };
 
 /**
  * The prompts that turn one script into an image post. `entry` is the script as the history keeps it
@@ -103,7 +106,9 @@ const LANG_NAME = { zh: 'Simplified Chinese (简体中文)', en: 'English' };
  */
 export function buildPostPrompts(entry, format, { instruction = '' } = {}) {
   const platform = getPlatform(format.platformId);
-  const lang = format.lang === 'zh' ? 'zh' : 'en';
+  // A post is in the language of its script: the one chosen for it, otherwise the platform's own.
+  const language = postLanguage(entry, format);
+  const lang = language.family;
   const room = ROOM[lang];
   const size = format.sizes[0];
   const { script, brief } = entry;
@@ -136,7 +141,7 @@ export function buildPostPrompts(entry, format, { instruction = '' } = {}) {
     '- Use only facts, figures, names and quotes found in the script or the brief. Do not invent statistics, clients, results or quotes.',
     '- Where the script marks something as not verified ([TO VERIFY: …], [TO ADD: …]), leave that claim out.',
     '',
-    `# Output language\nWrite every value in the JSON in ${LANG_NAME[lang]}. Keep the JSON keys exactly as given, in English.`,
+    `# Output language\nWrite every value in the JSON in ${promptName(language)}, the language of the script.${isNative(language) ? '' : ` The room on a card is given for ${lang === 'zh' ? 'Simplified Chinese' : 'English'}: keep to the same visual length in ${language.english}.`} Keep the JSON keys exactly as given, in English.`,
     '',
     '# Response format\nReply with one JSON object and nothing else: no markdown fences, no commentary. Shape:',
     '{ "titles": ["option 1", "option 2", "option 3"], "body": "the text of the post", "hashtags": ["#tag"], "cards": [ { "kind": "cover", "kicker": "", "title": "", "body": "", "bullets": [] } ] }',
@@ -195,7 +200,7 @@ const firstSentence = (text, max) => {
  * puts words on screen, and a summary that lists them. It is what demo mode shows, and a start to edit from.
  */
 export function postFromScript(entry, format) {
-  const zh = format.lang === 'zh';
+  const zh = postLanguage(entry, format).family === 'zh';
   const { script } = entry;
   const pub = script.publish || {};
   const seen = new Set();

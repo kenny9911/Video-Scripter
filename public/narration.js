@@ -8,12 +8,15 @@ export const MAX_DURATION = 360;
 /** Spoken text without the delivery marks a script carries: [[stress]] and ⏸ pauses. */
 export const spokenText = (s) => String(s ?? '').replace(/\[\[|\]\]/g, '').replace(/\s*⏸\s*/g, ' ').trim();
 
-/** Chinese: one per 汉字 and per digit, a Latin word by its syllables (about two letters each). English: words. */
+/** True for a language whose narration is counted by the character: Chinese, Japanese, Korean. The rest count words. */
+export const countsCharacters = (lang) => /^(zh|ja|ko)\b/i.test(String(lang ?? ''));
+
+/** Chinese, Japanese, Korean: one per character and per digit, a Latin word by its syllables (about two letters each). Others: words. */
 export function countSpoken(text, lang) {
   const s = spokenText(text);
-  if (lang !== 'zh') return s.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+  if (!countsCharacters(lang)) return s.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
   let n = 0;
-  for (const [token] of s.matchAll(/\p{Script=Han}|[A-Za-z]+|\d/gu)) n += /[A-Za-z]/.test(token) ? Math.ceil(token.length / 2) : 1;
+  for (const [token] of s.matchAll(/\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}|[A-Za-z]+|\d/gu)) n += /[A-Za-z]/.test(token) ? Math.ceil(token.length / 2) : 1;
   return n;
 }
 

@@ -116,10 +116,16 @@ function layerShares(beats, card, count) {
 export function reviewNarration(beats, plan, { card = null } = {}) {
   const { brief, timeline, budget } = plan;
   const lang = brief.lang === 'zh' ? 'zh' : 'en';
+  const language = brief.language || lang;
+  // Sentence length, the opening and the turn rhythm are measured with the punctuation and the turn words of
+  // Chinese and of English. A narration in another language is held to its length and to what any language
+  // shares (marks, digits, names, labels); the editor step reads the rest by ear.
+  const measured = /^zh\b/i.test(language) || language === 'en';
   const limit = LIMITS[lang];
-  const say = MSG[lang];
+  // The English messages count in words; a language counted by the character is told so in its own unit.
+  const say = lang === 'en' && plan.unit && plan.unit !== 'words' ? Object.fromEntries(Object.entries(MSG.en).map(([k, fn]) => [k, (...a) => fn(...a).replace(/\bwords\b/g, plan.unit)])) : MSG[lang];
   const pace = plan.pace;
-  const count = (text) => countSpoken(text, lang);
+  const count = (text) => countSpoken(text, language);
   const findings = [];
   const add = (level, rule, beat, message, excerpt = '') => findings.push({ level, rule, beat, message, ...(excerpt && { excerpt: clip(excerpt) }) });
 
@@ -148,7 +154,7 @@ export function reviewNarration(beats, plan, { card = null } = {}) {
   if (texts[0]) {
     const first = FIRST_SENTENCE[lang].exec(texts[0])[0].trim();
     if (GREETING[lang].test(texts[0].slice(0, 40))) add('error', 'opening.greeting', 0, say.greeting(), GREETING[lang].exec(texts[0])[0]);
-    else if (count(first) > limit.hook) add('warn', 'opening.hook', 0, say.hook(count(first), limit.hook), first);
+    else if (measured && count(first) > limit.hook) add('warn', 'opening.hook', 0, say.hook(count(first), limit.hook), first);
   }
   texts.forEach((text, i) => {
     const hit = WRAP_UP[lang].exec(text);
@@ -180,7 +186,7 @@ export function reviewNarration(beats, plan, { card = null } = {}) {
   let longest = 0;
   texts.forEach((text, i) => {
     const long = [];
-    for (const part of text.split(BREATHS[lang])) {
+    for (const part of measured ? text.split(BREATHS[lang]) : []) {
       const n = count(part);
       longest = Math.max(longest, n);
       if (n > limit.breath) long.push({ part: part.trim(), n });
@@ -189,7 +195,7 @@ export function reviewNarration(beats, plan, { card = null } = {}) {
     for (const { part, n } of long.slice(0, 3)) add(n > limit.breathHard ? 'error' : 'warn', 'ear.breath', i, say.breath(n, limit.breath), part);
     const figures = (text.match(FIGURES[lang]) || []).length;
     if (figures >= limit.figures) add('warn', 'ear.figures', i, say.figures(figures));
-    if (counts[i] >= limit.turnFrom) {
+    if (measured && counts[i] >= limit.turnFrom) {
       const need = Math.floor(counts[i] / limit.turnEvery);
       const has = (text.match(TURNS[lang]) || []).length;
       if (has < need) add('warn', 'rhythm.turns', i, say.turns(Math.round(counts[i] / pace), has, need));

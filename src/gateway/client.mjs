@@ -21,6 +21,7 @@ import { validateConfig } from './config.mjs';
 import { mockStream } from './mock.mjs';
 import { outOfCredit } from '../errors.mjs';
 import { replyJson } from '../json.mjs';
+import { debug, info, dump, where } from '../log.mjs';
 
 export class GatewayError extends Error {
   constructor(message, status) {
@@ -386,19 +387,24 @@ export function errorDetail(status, body) {
 /** One fetch, with network failures and non-2xx replies turned into readable GatewayErrors that say where they came from. */
 async function requestOnce(url, init) {
   const host = new URL(url).host;
+  const began = Date.now();
+  const method = init?.method || 'GET';
   let res;
   try {
     res = await fetch(url, init);
   } catch (err) {
     if (isAbort(err)) throw err;
+    info('http', `${method} ${where(url)} could not be reached`, { ms: Date.now() - began, why: err.cause?.message || err.message });
     throw Object.assign(new GatewayError(`Could not reach ${host}: ${err.cause?.message || err.message}`, 502), { host, unreachable: true, code: err.cause?.code || '' });
   }
   if (!res.ok) {
     const body = (await res.text().catch(() => '')).slice(0, 4000);
     const detail = errorDetail(res.status, body);
     const retryAfter = Number(res.headers.get('retry-after')) || 0;
+    info('http', `${method} ${where(url)} → ${res.status}`, { ms: Date.now() - began, said: detail || res.statusText, retryAfter });
     throw Object.assign(new GatewayError(`${host} responded ${res.status}: ${detail || res.statusText}`, res.status), { host, upstream: true, ...(retryAfter && { retryAfter }), endpoint: { url: url.split('?')[0], status: res.status, statusText: res.statusText, body } }); // `endpoint`: its answer word for word, for Test API
   }
+  debug('http', `${method} ${where(url)} → ${res.status}`, { ms: Date.now() - began, type: res.headers.get('content-type') });
   return res;
 }
 
@@ -420,6 +426,7 @@ export async function request(url, init = {}, { retries = retryPolicy.retries, t
       const again = attempt < retries && isTransient(err) && !init.signal?.aborted && (!TIMED_OUT.has(err.status) || timedOut++ < timeouts);
       if (!again) throw attempt ? Object.assign(err, { attempts: attempt + 1 }) : err;
       const waitMs = pauseFor(err, attempt);
+      debug('http', `asking ${where(url)} again`, { try: `${attempt + 2} of ${retries + 1}`, after: err.status || err.code || 'no answer', waitMs });
       onRetry?.({ attempt: attempt + 1, of: retries, status: err.status, host: err.host, waitMs, resumed: false, reason: err.message.slice(0, 200) });
       await pause(waitMs, init.signal);
     }
@@ -559,7 +566,12 @@ export async function* streamChat(config, { system, user, images, signal, maxTok
   if (invalid) throw new GatewayError(invalid, 400);
   const preset = getProvider(config.provider).protocol;
 
+  // What this call is for, for the log: the kind of reply, and the brief it is written for when there is one.
+  const brief = meta?.plan?.brief;
+  const about = { kind: meta?.kind || (meta?.plan ? 'script' : json ? 'json' : 'chat'), ...(brief && { platform: brief.platform?.id, language: brief.language, structure: brief.framework?.id, seconds: brief.duration }) };
+
   if (preset === 'mock') {
+    debug('llm', 'demo reply: no model is connected', about);
     yield* mockStream({ signal, meta, partial });
     return;
   }
@@ -570,19 +582,33 @@ export async function* streamChat(config, { system, user, images, signal, maxTok
   const usage = {};
   let said = String(partial || '');
   let idle = 0; // attempts in a row that added nothing
+  const began = Date.now();
+  let spoke = 0; // when the first words of the reply arrived
+  let tries = 0;
+  debug('llm', 'call', { ...about, provider: config.provider, model: config.model, wire: protocol, to: where(url), system: String(system || '').length, user: String(user || '').length, images: images?.length, turns: history.length, carriedOn: said.length, maxTokens });
+  dump('llm', 'system prompt', system);
+  dump('llm', 'user prompt', user);
+  const failed = (err) => info('llm', 'call failed', { ...about, model: config.model, wire: protocol, status: err.status, tries: tries + 1, ms: Date.now() - began, written: said.length, why: err.name === 'AbortError' ? 'stopped' : err.message });
   for (let resumes = 0; ; resumes++) {
     const had = said.length;
     try {
       for await (const text of streamOnce(protocol, url, config, { system, user, images, maxTokens, signal, onRetry, partial: said, usage, history, json })) {
+        if (!spoke) {
+          spoke = Date.now();
+          debug('llm', 'first words', { kind: about.kind, model: config.model, wire: protocol, ms: spoke - began });
+        }
         said += text;
         yield text;
       }
       break;
     } catch (err) {
+      tries++;
+      if (isAbort(err)) failed(err);
       // The Gemini door was chosen here, not by the preset, and the gateway has no reply to give at it (no such
       // route): the door the preset names is used instead, and this one is left alone for a while.
       if (protocol !== preset && !said && !err.midstream && err.upstream && [404, 405, 501].includes(err.status)) {
         closeDoor(config);
+        debug('llm', 'the Gemini door has no such route: using the door the preset names', { model: config.model, status: err.status, wire: preset });
         protocol = preset;
         url = endpointFor(protocol, config.baseUrl, config.model);
         resumes--;
@@ -597,18 +623,25 @@ export async function* streamChat(config, { system, user, images, signal, maxTok
       // moments, and they seldom share one.
       if (!again && protocol !== preset && !said && isTransient(err) && !signal?.aborted) {
         onRetry?.({ attempt: 1, of: retryPolicy.retries, status: err.status, host: err.host, waitMs: 0, resumed: false, reason: err.message.slice(0, 200) });
+        debug('llm', 'the Gemini door stayed shut: asking at the other door for this reply', { model: config.model, status: err.status, wire: preset, why: err.message });
         protocol = preset;
         url = endpointFor(protocol, config.baseUrl, config.model);
         resumes = -1;
         idle = 0;
         continue;
       }
-      if (!again) throw resumes ? Object.assign(err, { attempts: resumes + 1 }) : err;
+      if (!again) {
+        if (!isAbort(err)) failed(err);
+        throw resumes ? Object.assign(err, { attempts: resumes + 1 }) : err;
+      }
       const waitMs = pauseFor(err, 0);
+      debug('llm', said ? 'the reply broke off: asking for the rest' : 'no reply yet: asking again', { model: config.model, wire: protocol, try: `${resumes + 2} of ${retryPolicy.maxResumes + 1}`, written: said.length, cut: Boolean(err.cut), waitMs, why: err.message });
       onRetry?.({ attempt: resumes + 1, of: retryPolicy.maxResumes, host: err.host, waitMs, resumed: Boolean(said), cut: Boolean(err.cut), written: said.length, reason: err.message.slice(0, 200) });
       await pause(waitMs, signal);
     }
   }
+  debug('llm', 'reply complete', { kind: about.kind, model: config.model, wire: protocol, ms: Date.now() - began, firstWordsMs: spoke ? spoke - began : undefined, characters: said.length - String(partial || '').length, tokensIn: usage.inputTokens, tokensOut: usage.outputTokens, tries: tries + 1 });
+  dump('llm', 'reply', said);
   if (onUsage && (usage.inputTokens != null || usage.outputTokens != null)) onUsage(usage);
 }
 

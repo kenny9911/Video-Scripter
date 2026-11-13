@@ -12,6 +12,8 @@
 //   speakers        2 when the narration is a conversation: every line is marked "A:" or "B:" (see src/cast.mjs)
 //   hosted          true when the format is led by a host on screen: the form switches the digital host on
 
+import { voiceClash } from '../public/compat.js';
+
 export const FRAMEWORK_GROUPS = [
   { id: 'general', name: { zh: '通用结构', en: 'General structures' } },
   { id: 'voice', name: { zh: '通用内容风格', en: 'General content styles' } },
@@ -655,4 +657,24 @@ export const FRAMEWORKS = [
 
 export function getFramework(id) {
   return FRAMEWORKS.find((f) => f.id === id);
+}
+
+export const MAX_VOICES = 2; // narration styles that may lend their voice to the structure that leads
+
+/**
+ * The narration styles that lend their voice to a script led by `lead`: the ones asked for (`ids`) that are
+ * narration styles, are not the lead itself, and blend with it and with each other (voiceClash in
+ * public/compat.js: the same number of speakers, lengths that overlap, a pace that is not far off).
+ * The lead keeps the story line, the pace and the length; these only add how the words are written.
+ */
+export function pickVoices(ids, lead) {
+  const kept = [];
+  for (const id of Array.isArray(ids) ? ids.slice(0, 24) : []) {
+    const style = getFramework(String(id));
+    if (!style?.voice || style.id === lead?.id || kept.includes(style)) continue;
+    if ([lead, ...kept].some((other) => voiceClash(other, style))) continue;
+    kept.push(style);
+    if (kept.length === MAX_VOICES) break;
+  }
+  return kept;
 }

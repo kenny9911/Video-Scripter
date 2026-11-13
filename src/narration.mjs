@@ -6,7 +6,7 @@
 // countSpoken, splitNarration and fitDuration also run in the browser (public/narration.js) so the
 // editor can count while you type. The two copies are kept identical by test/narration.test.mjs.
 
-export const PACE = { zh: 4.3, en: 2.6 }; // spoken Chinese characters / English words per second, unless a narration style sets its own
+export const PACE = { zh: 4.3, en: 2.6 }; // spoken Chinese characters / English words per second, unless a narration style sets its own; other languages scale these (src/languages.mjs)
 export const MIN_DURATION = 10;
 export const MAX_DURATION = 360;
 export const MAX_BEATS = 60;
@@ -15,16 +15,20 @@ export const MAX_NARRATION = 8000; // characters over all beats; six minutes of 
 /** Spoken text without the delivery marks a script carries: [[stress]] and ⏸ pauses. */
 export const spokenText = (s) => String(s ?? '').replace(/\[\[|\]\]/g, '').replace(/\s*⏸\s*/g, ' ').trim();
 
+/** True for a language whose narration is counted by the character: Chinese, Japanese, Korean. The rest count words. */
+export const countsCharacters = (lang) => /^(zh|ja|ko)\b/i.test(String(lang ?? ''));
+
 /**
- * Length of a narration in the unit its language is budgeted in. Chinese: one per 汉字 and per digit,
- * and a Latin word counts as its syllables, roughly one per two letters ("AI" 1, "Ontology" 4).
- * English: words.
+ * Length of a narration in the unit its language is budgeted in. `lang` is a language id ("zh-TW", "ja",
+ * "es") or a rule family ("zh", "en"). Chinese, Japanese and Korean: one per 汉字, kana or Hangul syllable
+ * and per digit, and a Latin word counts as its syllables, roughly one per two letters ("AI" 1,
+ * "Ontology" 4). Every other language: words.
  */
 export function countSpoken(text, lang) {
   const s = spokenText(text);
-  if (lang !== 'zh') return s.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+  if (!countsCharacters(lang)) return s.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
   let n = 0;
-  for (const [token] of s.matchAll(/\p{Script=Han}|[A-Za-z]+|\d/gu)) n += /[A-Za-z]/.test(token) ? Math.ceil(token.length / 2) : 1;
+  for (const [token] of s.matchAll(/\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}|[A-Za-z]+|\d/gu)) n += /[A-Za-z]/.test(token) ? Math.ceil(token.length / 2) : 1;
   return n;
 }
 
@@ -90,7 +94,7 @@ function cutPoints(source) {
  * Returns { scenes, repaired }.
  */
 export function lockNarration(scenes, beats, lang) {
-  const glue = lang === 'zh' ? '' : ' ';
+  const glue = /^(zh|ja)\b/i.test(String(lang ?? '')) ? '' : ' '; // no space between two lines of Chinese or Japanese
   const source = beats.map((b) => b.text).join('\n');
   const bare = (s) => spokenText(s).replace(/\s+/g, '');
   if (bare(scenes.map((s) => s.voiceover).join('')) === bare(source)) return { scenes, repaired: false };

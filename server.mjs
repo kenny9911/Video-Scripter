@@ -13,6 +13,9 @@ import { PLATFORMS } from './src/platforms.mjs';
 import { FRAMEWORKS, FRAMEWORK_GROUPS } from './src/frameworks.mjs';
 import { PROVIDERS, getProvider } from './src/gateway/providers.mjs';
 import { STYLES, STYLE_GROUPS, MAX_STYLES } from './src/styles.mjs';
+import { MAX_VOICES } from './src/frameworks.mjs';
+import { publicLanguages } from './src/languages.mjs';
+import { debug, info } from './src/log.mjs';
 import { publicPresets, hostSetting, normalizeCast, onFrame, MAX_HOST_LOOK } from './src/cast.mjs';
 import { suggestStyles, buildStylePrompts, parseStylePick } from './src/suggest.mjs';
 import { IMAGE_MODES, SHOT_LABELS, MAX_IMAGES, planShots } from './src/shots.mjs';
@@ -471,8 +474,10 @@ const routes = {
     json(res, 200, {
       platforms: PLATFORMS.map(({ id, name, nameEn, lang, defaultDuration, durations, banned = [] }) => ({ id, name, nameEn, lang, defaultDuration, durations, banned, post: publicFormat(postFormat(id)) })),
       frameworkGroups: FRAMEWORK_GROUPS,
-      frameworks: FRAMEWORKS.map(({ id, group = 'general', name, blurb, topics, needsReference = false, pace, length, board = false, speakers = 1, hosted = false }) => ({ id, group, name, blurb, topics, needsReference, pace, length, board, speakers, hosted })),
+      frameworks: FRAMEWORKS.map(({ id, group = 'general', name, blurb, topics, needsReference = false, pace, length, board = false, speakers = 1, hosted = false, voice }) => ({ id, group, name, blurb, topics, needsReference, pace, length, board, speakers, hosted, voiced: Boolean(voice) })),
+      maxVoices: MAX_VOICES, // narration styles that may lend their voice to the structure
       pace: PACE,
+      languages: publicLanguages(), // what a script can be written in: each with its rule family, its unit and its rate
       duration: { min: MIN_DURATION, max: MAX_DURATION },
       refinePresets: REFINE_PRESETS,
       skills: SKILLS.map(publicSkill),
@@ -828,7 +833,7 @@ const routes = {
     const ready = !validateSpeech(speech);
     const demo = !ready && getProvider((await loadConfig()).provider)?.protocol === 'mock';
     if (!ready && !demo) throw fail('No voice provider is connected yet. An administrator connects one under Voice settings.');
-    const lang = entry.plan?.lang || entry.plan?.brief?.lang || PLATFORMS.find((p) => p.id === entry.platformId)?.lang || 'zh';
+    const lang = entry.plan?.language || entry.plan?.lang || entry.plan?.brief?.lang || PLATFORMS.find((p) => p.id === entry.platformId)?.lang || 'zh'; // the language the script is in
     const voices = { A: String(voice || '').trim().slice(0, 120), B: String(voiceB || '').trim().slice(0, 120) };
     const pace = Math.min(1.6, Math.max(0.7, Number(speed) || 1));
     const say = String(text || '').trim().slice(0, 600); // how the creator wants this line read, where the script's own words come out wrong
@@ -1331,6 +1336,7 @@ const routes = {
     send('plan', { ...planInfo, taskId, ...(given.part > 1 && { part: given.part }) });
     const started = Date.now();
     const prompts = buildPrompts(plan);
+    debug('script', 'writing a script', { ...about, language: plan.brief.language, structure: plan.brief.framework.id, voices: plan.brief.voices?.map((v) => v.id).join('+'), seconds: plan.brief.duration, budget: `${plan.budget} ${plan.unit}`, styles: plan.brief.styles.map((s) => s.id).join('+'), skills: plan.skills.map((s) => s.id).join(','), narration: plan.brief.narration.length ? 'locked' : '', part: given.part > 1 ? given.part : '' });
     let raw = given.text;
     let usage = null;
     let asked = false; // whether the model was called in this request
@@ -1365,7 +1371,7 @@ const routes = {
         // A script built around a final narration carries it word for word, whatever the model did with it.
         if (plan.brief.narration.length) {
           const byAgent = narrationBy === 'agent';
-          const locked = lockNarration(script.scenes, plan.brief.narration, plan.brief.lang);
+          const locked = lockNarration(script.scenes, plan.brief.narration, plan.brief.language);
           script.scenes = locked.scenes;
           planInfo.narration = { locked: true, repaired: locked.repaired, ...(byAgent && { agent: true }) };
           rest.narration = plan.brief.narration;
@@ -1444,17 +1450,24 @@ async function serveStatic(req, res, pathname) {
   }
 }
 
+// Requests that come in a steady drip and say nothing: the visit counter.
+const QUIET_PATHS = new Set(['/api/track']);
+
 /** The whole application as one request handler. */
 export async function handler(req, res) {
   req.started = Date.now(); // the host's clock for this request starts here (src/limits.mjs)
   const { pathname, searchParams } = new URL(req.url, 'http://localhost');
   try {
     if (pathname.startsWith('/api/')) {
+      // Every API request is a line in the terminal when it ends: what was asked, how it was answered, how long it took.
+      let who = '';
+      if (!QUIET_PATHS.has(pathname)) res.once('close', () => info('api', `${req.method} ${pathname} → ${res.statusCode}`, { ms: Date.now() - req.started, user: who, ...(!res.writableFinished && { cut: 'the connection closed first' }) }));
       if (!sameOrigin(req)) return json(res, 403, { error: 'Cross-origin request refused' });
       const found = routes[`${req.method} ${pathname}`];
       if (!found) return json(res, 404, { error: 'Not found' });
       await ensureAdmin();
       const user = await authenticate(req);
+      who = user?.email || '';
       if (found.access !== 'public' && !user) return json(res, 401, { error: 'Sign in to continue' });
       if (found.access === 'admin' && !isAdmin(user)) return json(res, 403, { error: 'Only an administrator can do that' });
       return await found.run(req, res, user, searchParams);

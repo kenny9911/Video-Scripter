@@ -37,7 +37,7 @@ It works with the model provider you already use, runs on your own machine or on
 | English | Instagram Reels | 15, 30, 45, 60, 90 |
 | English | YouTube Shorts | 30, 45, 60, 90, 180 |
 
-The script language follows the platform. The interface language is a separate choice (see [Interface](#interface)).
+**Output language.** A script, its narration and its publishing text are written in the language you pick under the platforms: 简体中文, 繁體中文, English, 日本語, 한국어, Español, Français, Deutsch, Português, Italiano, Русский, العربية, हिन्दी, Bahasa Indonesia, Tiếng Việt, Türkçe or Nederlands. The picker starts on the language you chose last, then on the interface language you picked, then on the first of your browser's languages that is on the list. Chinese, Japanese and Korean are budgeted by the character and the others by the word, each at its own speaking rate (`src/languages.mjs`). A request to the API that names no language is written in its platform's own, as the table shows. The interface language is a separate choice (see [Interface](#interface)).
 
 ## Get started
 
@@ -67,7 +67,8 @@ Only the topic is required. The rest sharpens the result.
 | Platforms | One script is written per platform you tick |
 | Materials | Files from [your library](#your-library) that this script is written from: up to 8 documents, pictures and clips |
 | Structure and Length | The story framework, or a narration style that also sets the voice and the pace, and the running time: Auto (the length the style is made for, otherwise the platform's usual one), one of the platform's lengths, or **Custom** for any length from 10 to 360 seconds |
-| Visual style | One look, or two blended, for the scene notes and all generated media. Picked from the topic until you pick your own (see [Visual styles](#visual-styles)) |
+| Narration styles to blend in | Up to two other narration styles lend their voice to the structure, which keeps the story line, the pace and the length. One that does not blend with it (one voice against two, lengths that do not overlap, a very different pace) is greyed out and says why |
+| Visual style | One look, or up to four that go together, blended, for the scene notes and all generated images and clips. Picked from the topic until you pick your own (see [Visual styles](#visual-styles)) |
 | On-screen host | A digital presenter who is the same person in every scene, or two for a conversation (see [On-screen host](#on-screen-host)) |
 | Key message, Audience, Tone | The one thing to remember, who it is for, and how it should sound |
 | Brand or creator, Call to action | Who is speaking and what the viewer should do next |
@@ -173,7 +174,9 @@ An administrator connects one voice provider for everyone under **Video → Voic
 | Provider | What to enter |
 | --- | --- |
 | 火山引擎 豆包语音 (Seed-TTS) | APP ID and Access Token from the 豆包语音 console, a resource id (`seed-tts-2.0`) and a speaker id as the voice |
+| ElevenLabs | The API key from your ElevenLabs profile, a model (`eleven_multilingual_v2` reads Chinese, English, Japanese and about thirty other languages) and a voice ID from your voice library. It reads at 0.7 to 1.2 times its usual speed |
 | OpenAI-compatible | The base URL and key of any service with a `/audio/speech` endpoint that can answer with WAV, a model and a voice name |
+| Local service | A text-to-speech service you run yourself with the same `/audio/speech` endpoint (Kokoro-FastAPI, LocalAI, openedai-speech…): its address as the server sees it (`http://localhost:8880/v1` to start with), a model and a voice. No key is needed; one is sent only if you enter it |
 
 The key stays on the server, and members only see which voices they can pick. With no provider connected, demo mode stands a placeholder tone in for the voice so the rest can be tried.
 
@@ -303,7 +306,7 @@ The **Visual style** picker offers 74 looks in eight groups.
 
 Every group ends with **Custom…**: tick it and describe a look in your own words, up to 200 characters ("children's crayon drawing on warm paper"). A custom look is used like any listed style, alone or blended; one with nothing written is ignored.
 
-Pick one, or two to blend. The first one picked leads, and a third pick replaces the oldest. The choice does two things:
+Pick one, or up to four that go together. The first one picked leads. Styles that clash with what is ticked are greyed out, each saying what it clashes with, and come back as soon as the choice changes: a different medium (live action against illustration), bright against dark, quiet colour against vivid, a different era, a different set, raw against polished. The rules are one table, `public/compat.js`, which the server keeps to as well. The choice does two things:
 
 1. The scriptwriter is told what the style can show, so each scene's Visual and Camera notes suit it.
 2. Every image and video prompt for that script carries the style description.
@@ -403,7 +406,7 @@ With two or three images, the dropdown next to it decides how they relate:
 | Action beats | start, end | start, middle, end | A slideshow, or first and last frames for image-to-video |
 | Camera coverage | wide, close-up | wide, medium, close-up | Cuts within one scene |
 | Main shot + cutaways | main, detail | main, detail, context | B-roll to cut away to |
-| Style comparison | style A, style B | style A, style B, blend | Choosing between your two visual styles |
+| Style comparison | style A, style B | style A, style B, blend of all picked | Choosing between your first two visual styles |
 
 Each image gets its own prompt: the scene's Visual note plus that shot's instruction. Coverage and cutaway shots replace the scene's Camera note; action beats keep it. Each image is captioned with its role, and the role is carried into the file name in the `.zip` (`scene-01_00m00s-00m04s_1-wide.png`).
 
@@ -618,6 +621,7 @@ These need the site's public address. Set `SITE_URL` (for example `https://examp
 ## Interface
 
 - **Language.** The **中文 / English** button in the top bar switches the interface between English and Simplified Chinese. Until you choose, it follows the browser language. Messages that come from the server or the model provider stay in English.
+- **Text boxes.** Every text box grows and shrinks with what you write, up to about two thirds of the window, then scrolls. Drag its corner to set the height yourself: it then never gets smaller than that on its own.
 - **Theme.** The sun / moon button in the top bar switches between light and dark. Until you choose, the page follows the system setting.
 - **Brief in four steps.** Your video, structure, look and images, details. The last two are folded and show a one-line summary. The **Generate** bar is always in reach.
 - **Desktop.** Brief on the left, script on the right. History and LLM settings open from the top bar.
@@ -649,7 +653,9 @@ Everything below is optional. Settings saved in the app take precedence over the
 | `VIDEO_BASE_URL_API`, `VIDEO_MODEL`, `VIDEO_API_KEY` | Video generation defaults | Off |
 | `GATEWAY_RETRY_BASE_MS` | The first pause, in milliseconds, before a failed provider request is tried again; later pauses grow from it | `900` |
 | `REQUEST_TIME_LIMIT_S` | How many seconds the host lets one request run. The server winds a request up shortly before, and a script that is not finished is carried on in the next request | `800` on Vercel, otherwise no limit |
-| `SPEECH_PROVIDER`, `SPEECH_API_KEY`, `SPEECH_APP_ID` | The voice provider until one is saved in the app: `volc` (豆包语音 Seed-TTS, which also needs the APP ID) or `openai` (an OpenAI-compatible `/audio/speech`) | None |
+| `SPEECH_PROVIDER`, `SPEECH_API_KEY`, `SPEECH_APP_ID` | The voice provider until one is saved in the app: `volc` (豆包语音 Seed-TTS, which also needs the APP ID), `elevenlabs`, `openai` (an OpenAI-compatible `/audio/speech`) or `local` (the same endpoint on your own machine, no key) | None |
+| `LOG_LEVEL` | What the server writes to its terminal: `debug` (every API request, every call to a model, an image, video, voice or web service, each retry and each step of the narration agent), `info` (requests and failures) or `quiet` | `debug` |
+| `LOG_PROMPTS` | `1` also prints the prompts sent to the model and its replies, whole | Off |
 | `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET` | The Google OAuth client people connect their YouTube channel through, until one is saved in the app | None |
 | `POSTIZ_API_URL` | Where Postiz is, for a deployment that hosts its own | `https://api.postiz.com` |
 | `SPEECH_BASE_URL_API`, `SPEECH_MODEL`, `SPEECH_VOICE`, `SPEECH_VOICE_B` | Its address, model or resource id, and the voices scripts are read in | The provider's |
