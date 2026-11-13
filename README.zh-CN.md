@@ -13,7 +13,7 @@ Video Scripter 是一个短视频脚本工作台。把视频描述一次，勾�
 - **一份需求，六个平台。** 抖音脚本和 YouTube Shorts 脚本本来就是两种写法。每个平台各写一份，而不是一稿到处贴。
 - **拿来就能拍。** 每个场景都有时间码，并写好旁白、屏幕文字、画面、镜头和声音。
 - **拿来就能发。** 每份脚本都附带标题、封面文字、描述文案、话题标签和置顶评论。
-- **在应用里发布。** 通过你自己的 Postiz 账号，把图文或视频发到 YouTube、Instagram、TikTok、LinkedIn 等渠道：立即发布、定时，或存为草稿。
+- **在应用里发布。** 登录一次 Google，就能把视频直接上传到你自己的 YouTube 频道；也可以通过你自己的 Postiz 账号，把图文或视频发到 Instagram、TikTok、LinkedIn 等渠道：立即发布、定时，或存为草稿。
 - **直接出成片。** 脚本逐个场景配音，在你的浏览器里做成带字幕的 MP4，按声音的长度剪辑。
 - **视频或图文。** 同一份脚本可以变成一组图片卡片和配套的发布文案，适用于小红书图文、抖音图文、TikTok Photo Mode 和 Instagram 轮播，并按各平台的限制计数。
 - **旁白由智能体来写，而不是一条提示词写完。** 先在三维观点卡上想清楚要说什么，再用适合这份需求的技能来写，最后量化检查、审稿、修订，然后才围绕它生成脚本。
@@ -178,7 +178,19 @@ YouTube Shorts 没有这种形式。小红书、TikTok 和 Instagram 的限制�
 
 ## 发布
 
-**图文**和**视频**页签的最后都有一个**发布**区，通过 [Postiz](https://postiz.com) 把成品发到你自己的渠道。Postiz 是一个排程工具，一个账号就能发布到 YouTube、Instagram、TikTok、LinkedIn、X 等平台。Video Scripter 不需要在这些平台申请任何开发者应用：这些 Postiz 都有。
+**图文**和**视频**页签的最后都有一个**发布**区。有两条路，并排放在一起。
+
+### 直接发到 YouTube
+
+视频可以直接发到你自己的 YouTube 频道。点**连接 YouTube**，会在一个小窗口里打开 Google 登录；你允许向频道上传视频之后，**上传到 YouTube** 就会把刚生成的视频发上去，带上可以修改的标题、脚本的描述文案和话题标签、可见范围（所有人、知道链接的人、仅自己），并声明含有合成内容。三分钟以内的竖屏视频会成为 Shorts。上传完成后会显示视频链接。
+
+- 应用只申请一项权限：上传视频。它读不到你的频道、你的视频，也读不到账号里的其他内容。**断开 YouTube** 会在这里忘记连接，并在 Google 那边撤销授权。
+- 文件从你的浏览器经服务器分片传到 YouTube；你的 Google 令牌只留在服务器上。
+- **给管理员。** 本站需要一个 Google OAuth 客户端：在 Google Cloud 里启用 YouTube Data API v3，创建类型为 *Web application* 的 OAuth 客户端 ID，并把应用在**发布 → 设置 YouTube 登录**里显示的重定向地址加进去。在那里填入客户端 ID 和密钥，或者设置 `YOUTUBE_CLIENT_ID` 和 `YOUTUBE_CLIENT_SECRET`。在 Google 完成应用验证之前，只有同意屏幕里列出的测试用户可以连接，而且连接一周后失效。
+
+### 通过 Postiz 发到其他渠道
+
+[Postiz](https://postiz.com) 是一个排程工具，一个账号就能发布到 YouTube、Instagram、TikTok、LinkedIn、X 等平台。通过它，Video Scripter 不需要在这些平台申请任何开发者应用：这些 Postiz 都有。每个人使用自己的 Postiz 账号。
 
 1. **连接一次。** 在 Postiz 里连接你要发布的渠道，并在设置里创建 API 密钥。把密钥粘贴到**发布**区。密钥会先向 Postiz 校验，保存在服务器上，之后不再显示；每个人连接自己的密钥。
 2. **选择渠道。** 列出你的 Postiz 账号里已有的渠道，与脚本平台对应的那个会自动勾上。YouTube 只在发布视频时出现。
@@ -593,6 +605,7 @@ Vercel 上的限制：单次请求最长运行 800 秒（`vercel.json` 里的 `m
 | `GATEWAY_RETRY_BASE_MS` | 服务商请求失败后第一次重试前等待的毫秒数，之后的等待在此基础上加长 | `900` |
 | `REQUEST_TIME_LIMIT_S` | 平台允许单次请求运行的秒数。服务端会在这之前收尾，没写完的脚本由下一个请求接着写 | Vercel 上为 `800`，其他环境不限 |
 | `SPEECH_PROVIDER`、`SPEECH_API_KEY`、`SPEECH_APP_ID` | 在应用里保存配音设置之前使用的配音服务：`volc`（豆包语音 Seed-TTS，还需要 APP ID）或 `openai`（OpenAI 兼容的 `/audio/speech`） | 无 |
+| `YOUTUBE_CLIENT_ID`、`YOUTUBE_CLIENT_SECRET` | 用户连接 YouTube 频道所用的 Google OAuth 客户端，在应用里保存之前使用 | 无 |
 | `POSTIZ_API_URL` | Postiz 的地址，供自己部署 Postiz 的环境使用 | `https://api.postiz.com` |
 | `SPEECH_BASE_URL_API`、`SPEECH_MODEL`、`SPEECH_VOICE`、`SPEECH_VOICE_B` | 它的地址、模型或 Resource ID，以及朗读脚本的音色 | 该服务的默认值 |
 | `TAVILY_API_KEY`、`TAVILY_MCP_URL`、`FIRECRAWL_API_KEY` | 在应用里保存联网设置之前使用的联网服务（模型设置 → 联网搜索） | 无 |
@@ -640,6 +653,7 @@ src/vision.mjs          让当前模型看图：写图片说明、读扫描件�
 src/materials.mjs       一份需求用到的素材：提示词怎么写它们，以及哪个场景用哪个素材
 src/package.mjs         单份脚本的 .zip 下载包（由 src/zip.mjs 写出压缩包）
 src/post.mjs            脚本的图文：各平台的规格、提示词、读取模型的回复
+src/youtube.mjs         直接连接 YouTube：本站的 OAuth 客户端、每个人的登录、分片上传
 src/publish.mjs         通过 Postiz 发布：每个人的密钥、渠道、上传和发帖
 src/speech.mjs          视频的配音：配音服务、两种协议、把一个场景的旁白合成一个 WAV
 src/chat/               对话：store.mjs（对话及其文件）、skills.mjs（用户写的技能）、
@@ -708,6 +722,12 @@ test/                   node --test
 | `GET`、`PUT` | `/api/speech/config` | 当前的配音服务：所有人都能知道是否已接入以及有哪些音色；管理员还能看到地址和打码的密钥，并用 `{ provider, baseUrl, apiKey, appId, model, voice, voiceB }` 修改 |
 | `POST` | `/api/speech/test` | 管理员：用请求体里的设置读一句话，返回 `{ seconds, audio }`（`data:` URI 里的 WAV） |
 | `POST` | `/api/voice/scene` | `{ historyId, sceneId, voice?, voiceB?, speed?, text?, done? }` 为脚本的一个场景配音（有 `text` 时读它，而不是场景的旁白）并保存在脚本上：`{ sceneId, url, seconds }` |
+| `GET` | `/api/youtube/status` | 本站能否登录 YouTube、当前登录的人是否已连接；管理员还能看到 OAuth 客户端（密钥打码）和要登记的重定向地址 |
+| `PUT` | `/api/youtube/config` | 管理员：`{ clientId, clientSecret }`，`clientId` 留空则关闭 |
+| `GET` | `/api/youtube/connect`、`/api/youtube/callback` | 登录流程：跳到 Google，再带着授权码回来换取这个人的令牌 |
+| `POST` | `/api/youtube/disconnect` | 忘记这个人的连接，并在 Google 撤销授权 |
+| `POST` | `/api/youtube/upload` | `{ historyId, size, title, description?, tags?, visibility?, ai?, publishAt? }` 在 YouTube 开启一次上传：`{ uploadId, partBytes }` |
+| `POST` | `/api/youtube/part` | 请求体是视频的一片（`x-upload-id`、`x-offset`、`x-history-id`），按顺序发送；最后一片返回 `{ done, id, url, channel }` |
 | `GET` | `/api/publish/status` | 当前登录的人是否已连接 Postiz，以及密钥能发布到的渠道 |
 | `POST` | `/api/publish/connect` | `{ apiKey }` 连接（Postiz 校验通过后才保存）；`{ disconnect: true }` 断开并忘记密钥 |
 | `POST` | `/api/publish/media` | 请求体是图片或视频（文件名在 `x-file-name` 里），转存到这个人的 Postiz 素材库：`{ id, path }`。大文件先分片发到 `/api/publish/part`（`x-upload-id`、`x-part`），再在这里用 `x-upload-id` 和 `x-parts` 指明 |

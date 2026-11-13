@@ -26,6 +26,7 @@ import { buildPackage } from './src/package.mjs';
 import { postFormat, publicFormat, buildPostPrompts, parsePost, postFromScript, normalizePost } from './src/post.mjs';
 import { loadSpeech, saveSpeech, mergeSpeech, validateSpeech, publicSpeech, getSpeechProvider, voiceScene, synthesize, wavOf } from './src/speech.mjs';
 import * as publishing from './src/publish.mjs';
+import * as youtube from './src/youtube.mjs';
 import { buildPlan, planSummary, buildPrompts, parseScript, settleScript, buildVisualPrompt, buildHostPrompt, showsHost, buildNarrationPrompts, parseNarration, buildRefinePrompts, parseRefined, REFINE_PRESETS } from './src/prompt.mjs';
 import { PACE, MIN_DURATION, MAX_DURATION, normalizeNarration, lockNarration } from './src/narration.mjs';
 import { writeNarration, reviseNarration, checkNarration, AGENT_STEPS } from './src/agent/narrator.mjs';
@@ -148,6 +149,16 @@ const storeView = (store, user) => publicStore(store, { admin: isAdmin(user) });
 async function draftConfig(body) {
   const store = await loadStore();
   return mergeConfig(body, store.profiles.find((p) => p.id === body.id));
+}
+
+/**
+ * The page a YouTube sign-in ends on. It was opened in its own small window, which closes itself; opened
+ * any other way, it goes back to the app.
+ */
+function youtubePage(res, ok, message) {
+  const text = String(message).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  res.writeHead(ok ? 200 : 400, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+  res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>YouTube</title></head><body style="font:16px/1.5 system-ui,sans-serif;padding:48px 24px;text-align:center;color-scheme:light dark"><p>${text}</p><p style="opacity:.65">${ok ? 'This window closes by itself. 此窗口会自动关闭。' : 'Close this window and try again. 请关闭此窗口后重试。'}</p><script>setTimeout(function(){ if (window.opener) window.close(); else location.replace('/app.html'); }, ${ok ? 700 : 6000});</script></body></html>`);
 }
 
 /** A script the user may touch: their own (administrators may open anyone's). Throws 404 otherwise. */
@@ -914,6 +925,79 @@ const routes = {
       json(res, 200, { sent });
     } catch (err) {
       json(res, err.status === 400 || err.status === 429 ? err.status : 502, failure(req, err));
+    }
+  }),
+
+  // ---------- YouTube, connected directly (src/youtube.mjs) ----------
+
+  // Whether this deployment can sign people in to YouTube, and whether the signed-in person has. An
+  // administrator also sees the OAuth client (its secret masked) and the address to register at Google.
+  'GET /api/youtube/status': route('user', async (req, res, user) => {
+    const admin = isAdmin(user);
+    json(res, 200, { ...youtube.publicClient(await youtube.loadClient(), { admin }), ...(await youtube.connection(user.id)), partBytes: youtube.partBytes(), ...(admin && { redirectUri: `${requestSiteUrl(req)}/api/youtube/callback` }) });
+  }),
+
+  // The Google OAuth client everyone signs in through: `{ clientId, clientSecret }`, or an empty id to remove it.
+  'PUT /api/youtube/config': route('admin', async (req, res, user) => {
+    const client = await youtube.saveClient(await readJson(req));
+    await logActivity(req, user, 'youtube.config', { gateway: client ? 'set' : 'removed' });
+    json(res, 200, youtube.publicClient(client, { admin: true }));
+  }),
+
+  // Sends the person to Google to allow uploads to their channel. Google sends them back to the callback below.
+  'GET /api/youtube/connect': route('user', async (req, res, user) => {
+    const client = await youtube.loadClient();
+    if (!client) return youtubePage(res, false, 'YouTube sign-in is not set up on this site yet.');
+    res.writeHead(302, { location: await youtube.authUrl(client, { userId: user.id, redirectUri: `${requestSiteUrl(req)}/api/youtube/callback` }), 'cache-control': 'no-store' }).end();
+  }),
+
+  'GET /api/youtube/callback': route('user', async (req, res, user, query) => {
+    if (query.get('error')) return youtubePage(res, false, query.get('error') === 'access_denied' ? 'YouTube was not connected: the request was declined.' : `YouTube was not connected: ${query.get('error')}`);
+    try {
+      const client = await youtube.loadClient();
+      if (!client) throw fail('YouTube sign-in is not set up on this site yet.');
+      await youtube.connectWithCode(client, { userId: user.id, code: query.get('code'), state: query.get('state') });
+      await logActivity(req, user, 'youtube.connect', {});
+      youtubePage(res, true, 'YouTube is connected.');
+    } catch (err) {
+      youtubePage(res, false, err.message);
+    }
+  }),
+
+  'POST /api/youtube/disconnect': route('user', async (req, res, user) => {
+    await youtube.disconnect(user.id);
+    await logActivity(req, user, 'youtube.disconnect', {});
+    json(res, 200, await youtube.connection(user.id));
+  }),
+
+  // Opens an upload at YouTube for the video of a script: `{ historyId, size, title, description, tags,
+  // visibility, ai, publishAt? }`. Answers `{ uploadId, partBytes }`; the file then follows in pieces.
+  'POST /api/youtube/upload': route('user', async (req, res, user) => {
+    const { historyId, size, title, description, tags, visibility, ai, publishAt } = await readJson(req);
+    await ownedHistory(user, historyId);
+    const client = await youtube.loadClient();
+    if (!client) throw fail('YouTube sign-in is not set up on this site yet.');
+    try {
+      json(res, 200, await youtube.startUpload(client, { userId: user.id, size, video: { title, description, tags: Array.isArray(tags) ? tags.slice(0, 40) : [], visibility, ai, publishAt } }));
+    } catch (err) {
+      json(res, err.status === 400 || err.status === 413 ? err.status : 502, failure(req, err));
+    }
+  }),
+
+  // One piece of the video: the body is the piece, x-upload-id names the upload, x-offset says where the
+  // piece starts and x-history-id which script it is the video of. The last piece answers with the video.
+  'POST /api/youtube/part': route('user', async (req, res, user) => {
+    const entry = await ownedHistory(user, req.headers['x-history-id']);
+    try {
+      const sent = await youtube.sendPart({ userId: user.id, uploadId: req.headers['x-upload-id'], offset: Number(req.headers['x-offset']), bytes: await readBytes(req, youtube.partBytes()) });
+      if (sent.done) {
+        const note = { ts: Date.now(), kind: 'video', when: 'now', channels: [{ name: sent.channel || 'YouTube', identifier: 'youtube' }], url: sent.url, direct: true };
+        await db.update('history', entry.id, (e) => Object.assign(e, { published: [...(e.published || []), note].slice(-20) }));
+        await logActivity(req, user, 'youtube.upload', { taskId: entry.id, title: entry.script.title, file: sent.url });
+      }
+      json(res, 200, sent);
+    } catch (err) {
+      json(res, [400, 404, 413].includes(err.status) ? err.status : 502, failure(req, err));
     }
   }),
 

@@ -2794,7 +2794,7 @@ async function boot() {
   }
   // A server that has not been restarted since the page was updated knows no image posts yet: the script still shows.
   // Sending an image post or a video to the person's own channels (publish.js), where the server can.
-  const publish = wirePublish({ toast });
+  const publish = wirePublish({ toast, isAdmin: () => state.user.role === 'admin' });
   if (state.meta.platforms.some((p) => p.post))
     imagePost = wirePost({
       toast,

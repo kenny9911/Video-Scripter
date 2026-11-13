@@ -15,7 +15,7 @@ It works with the model provider you already use, runs on your own machine or on
 - **Ready to publish.** Titles, cover text, description, hashtags and a pinned comment come with every script.
 - **A narration agent, not a one-shot prompt.** The spoken words are planned on a viewpoint card, written with the skills that fit the brief, then measured, reviewed and corrected before a script is built around them.
 - **Your words, if you want.** Have the narration drafted first, paste your own, or rewrite any beat in the narration editor. The script is then built around it word for word.
-- **Publish from the app.** Send the image post or the video to your YouTube, Instagram, TikTok, LinkedIn and other channels through your own Postiz account: now, at a set time, or as a draft.
+- **Publish from the app.** Upload the video straight to your own YouTube channel after one Google sign-in, or send the image post or the video to Instagram, TikTok, LinkedIn and other channels through your own Postiz account: now, at a set time, or as a draft.
 - **A finished video.** The script is voiced scene by scene and made into a captioned MP4 in your browser, cut to the voice.
 - **Video or image post.** The same script becomes a set of picture cards with the text to post under them, for 小红书 图文, 抖音图文, TikTok Photo Mode and Instagram carousels, counted against each platform's limits.
 - **Storyboards included.** Turn any scene into an image or clip in the video's aspect ratio (9:16, 16:9, 1:1, 3:4 or 4:3), in one of 74 visual styles.
@@ -181,7 +181,19 @@ What it does not do yet: sound effects, lip-synced hosts, and word-exact caption
 
 ## Publishing
 
-The **Image post** and **Video** tabs end in a **Publish** section that sends the finished post to your own channels through [Postiz](https://postiz.com), a scheduler that posts to YouTube, Instagram, TikTok, LinkedIn, X and more from one account. Video Scripter needs no developer app at any of those platforms: Postiz has them.
+The **Image post** and **Video** tabs end in a **Publish** section. There are two ways out, and they sit side by side.
+
+### YouTube, directly
+
+A video can go straight to your own YouTube channel. **Connect YouTube** opens Google's sign-in in a small window; you allow uploads to your channel, and from then on **Upload to YouTube** sends the video you just made, with a title you can change, the script's description and hashtags, who can see it (everyone, people with the link, or only you), and the declaration that it contains synthetic media. A vertical video of up to three minutes is a Short. The link to the video is shown when it is up.
+
+- The app asks for one permission, uploading videos. It cannot read your channel, your videos or anything else in your account. **Disconnect YouTube** forgets the connection here and withdraws it at Google.
+- The file goes from your browser through the server to YouTube in pieces; your Google token stays on the server.
+- **For the administrator.** This needs one Google OAuth client for the site: in Google Cloud, switch on the YouTube Data API v3, create an OAuth client ID of type *Web application*, and add the redirect address the app shows under **Publish → Set up YouTube sign-in**. Enter the client ID and secret there, or set `YOUTUBE_CLIENT_ID` and `YOUTUBE_CLIENT_SECRET`. Until Google has verified the app, only the test users listed on its consent screen can connect, and their connection lapses after a week.
+
+### Other channels, through Postiz
+
+[Postiz](https://postiz.com) is a scheduler that posts to YouTube, Instagram, TikTok, LinkedIn, X and more from one account. Through it, Video Scripter needs no developer app at any of those platforms: Postiz has them. Each person uses their own Postiz account.
 
 1. **Connect once.** In Postiz, connect the channels you post to and create an API key under Settings. Paste the key into **Publish**. It is checked against Postiz, kept on the server and never shown again; every person connects their own.
 2. **Pick the channels.** The ones your Postiz account has are listed; the one that matches the script's platform is ticked for you. YouTube is offered for videos only.
@@ -619,6 +631,7 @@ Everything below is optional. Settings saved in the app take precedence over the
 | `GATEWAY_RETRY_BASE_MS` | The first pause, in milliseconds, before a failed provider request is tried again; later pauses grow from it | `900` |
 | `REQUEST_TIME_LIMIT_S` | How many seconds the host lets one request run. The server winds a request up shortly before, and a script that is not finished is carried on in the next request | `800` on Vercel, otherwise no limit |
 | `SPEECH_PROVIDER`, `SPEECH_API_KEY`, `SPEECH_APP_ID` | The voice provider until one is saved in the app: `volc` (豆包语音 Seed-TTS, which also needs the APP ID) or `openai` (an OpenAI-compatible `/audio/speech`) | None |
+| `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET` | The Google OAuth client people connect their YouTube channel through, until one is saved in the app | None |
 | `POSTIZ_API_URL` | Where Postiz is, for a deployment that hosts its own | `https://api.postiz.com` |
 | `SPEECH_BASE_URL_API`, `SPEECH_MODEL`, `SPEECH_VOICE`, `SPEECH_VOICE_B` | Its address, model or resource id, and the voices scripts are read in | The provider's |
 | `TAVILY_API_KEY`, `TAVILY_MCP_URL`, `FIRECRAWL_API_KEY` | The web services until some are saved in the app (LLM settings → Web search) | None |
@@ -670,6 +683,7 @@ src/materials.mjs       the library files one brief uses: what the prompts say a
 api/index.mjs           serverless entry point (Vercel); vercel.json routes requests to it
 src/package.mjs         the downloadable .zip for one script (src/zip.mjs writes the archive)
 src/post.mjs            the image post of a script: what each platform takes, the prompt, reading the reply
+src/youtube.mjs         YouTube connected directly: the site's OAuth client, each person's sign-in, the upload in pieces
 src/publish.mjs         publishing through Postiz: each person's key, their channels, uploads and the post
 src/speech.mjs          the voice of a video: the voice provider, the two protocols, a scene's voiceover as one WAV
 src/chat/               the chat: store.mjs (conversations and their files), skills.mjs (skills people write),
@@ -754,6 +768,12 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `GET`, `PUT` | `/api/speech/config` | The voice provider in use: everyone learns whether there is one and its voices; an administrator sees its address and a masked key, and changes it with `{ provider, baseUrl, apiKey, appId, model, voice, voiceB }` |
 | `POST` | `/api/speech/test` | Administrators: one sentence spoken with the settings in the body, as `{ seconds, audio }` (a WAV in a `data:` URI) |
 | `POST` | `/api/voice/scene` | `{ historyId, sceneId, voice?, voiceB?, speed?, text?, done? }` Speaks one scene (`text` is said in place of its voiceover) of a script and keeps the sound with the script: `{ sceneId, url, seconds }` |
+| `GET` | `/api/youtube/status` | Whether the site can sign people in to YouTube and whether the signed-in person has; an administrator also sees the OAuth client (secret masked) and the redirect address to register |
+| `PUT` | `/api/youtube/config` | Administrators: `{ clientId, clientSecret }`, or an empty `clientId` to switch it off |
+| `GET` | `/api/youtube/connect`, `/api/youtube/callback` | The sign-in: off to Google, and back with a code that is exchanged for the person's tokens |
+| `POST` | `/api/youtube/disconnect` | Forgets the person's connection and revokes it at Google |
+| `POST` | `/api/youtube/upload` | `{ historyId, size, title, description?, tags?, visibility?, ai?, publishAt? }` Opens an upload at YouTube: `{ uploadId, partBytes }` |
+| `POST` | `/api/youtube/part` | The body is one piece of the video (`x-upload-id`, `x-offset`, `x-history-id`), sent in order; the last answers `{ done, id, url, channel }` |
 | `GET` | `/api/publish/status` | Whether the signed-in person has connected Postiz, and the channels their key reaches |
 | `POST` | `/api/publish/connect` | `{ apiKey }` connects (the key is kept once Postiz answers to it); `{ disconnect: true }` forgets it |
 | `POST` | `/api/publish/media` | The body is a picture or a video (name in `x-file-name`), passed on to the person's Postiz library: `{ id, path }`. A large file is sent first in pieces to `/api/publish/part` (`x-upload-id`, `x-part`), then named here with `x-upload-id` and `x-parts` |

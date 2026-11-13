@@ -908,3 +908,8 @@ a.icon-btn { text-decoration: none; }
 .publish > .hint, .publish > .finding, .publish > .error { margin-top: 10px; }
 .publish .link-btn:disabled { opacity: 0.5; cursor: default; }
 input[type='datetime-local'] { min-height: var(--tap); padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--panel); color: var(--ink); }
+.publish-via { display: flex; align-items: baseline; gap: 10px; margin: 18px 0 8px; font-size: 14px; font-weight: 650; }
+.publish-via:first-of-type { margin-top: 4px; }
+.publish-via .hint { font-weight: 450; }
+.publish-title { flex: 1 1 320px; }
+.publish .finding a { color: inherit; word-break: break-all; }
