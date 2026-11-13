@@ -69,6 +69,7 @@ ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='设置一个足够长的密码' npm 
 | 一线经验 | 你亲眼见过的事：客户现场、踩过的坑、做出的结果。旁白会用你的口吻讲出来。不填的话，智能体只写不带数字、不点名客户的常见现象，并提醒你确认或替换 |
 | 素材 | 从[素材库](#素材库)里选出这份脚本要用的文件：最多 8 个文档、图片和视频 |
 | 参考资料 | 事实、引语或一篇文章。模型被要求只使用这里或需求中出现过的数据和引语 |
+| 联网 | 读取需求和素材文档里的链接，并可就主题联网搜索，都在动笔之前完成：见[联网：读取链接与搜索](#联网读取链接与搜索) |
 | 旁白用于语音合成 | 把数字和符号写成读法，让语音合成读得正确 |
 | 旁白 | **随脚本生成**：先写旁白，再围绕它生成脚本，中间不停。**先写旁白**：先起草旁白，由你修改。**用我的旁白**：打开编辑器，写或粘贴你自己的旁白 |
 | 旁白智能体 | 默认开启：旁白分步骤策划、写作、审稿（见[旁白智能体](#旁白智能体)）。取消勾选则一次写完，更快 |
@@ -144,6 +145,7 @@ YouTube Shorts 没有这种形式。小红书、TikTok 和 Instagram 的限制�
 - **历史记录。** 每个对话边写边保存，按日期列在侧栏。搜索会查找标题和消息内容。可以重命名、下载为 Markdown，或者连同其中生成的图片和视频一起删除。被停止或中途失败的回复会保留已经写出的部分。
 - **修改与重答。** 修改一条已发送的提示词，它之后的内容会被替换；也可以让最后一条提示词重新回答，先换模型再重答也行。
 - **画布。** 点击回复下方的**画布**，回复会在对话旁边以文档的形式打开：带标题、适合阅读的一页。切到 **Markdown** 可以编辑文本并保存回对话，也可以复制、下载为 `.md` 文件，或者打印（存为 PDF 也是这样做）。回复还在生成时画布会跟着更新，也可以铺满整个宽度。
+- **联网。** 提示里的链接会在模型回答之前读取；打开输入框下方的 **联网**，每条提示还会联网搜索。回复会在 **来自网络** 里列出读到的内容。详见[联网：读取链接与搜索](#联网读取链接与搜索)。
 - **技能。** 技能是一套只需写一次的指令：你的文风、产品页的结构、周报必须包含的内容。在**技能**里创建，填上名称、什么时候用，以及 Markdown 写的指令（也可以直接粘贴整份 `SKILL.md`）。一个对话最多选 8 个，用**技能**按钮选，或者在输入框里输入 `/`；助手会照着做，旁白智能体的每一步都会读它们，每条回复也会标出用了哪些技能。应用内置的技能也可以同样选用。
 
 对话是私密的：别人打不开，管理员也不行。用量和其他模型调用一样会被记录。
@@ -329,6 +331,34 @@ steps: plan, write, review   # plan、write、review（旁白的三步）和 scr
 
 素材库只属于本人。每个文件都记着添加它的用户，每个请求都只处理当前登录用户自己的文件：其他人（包括管理员）看不到列表、读不到内容、不能用在脚本里，也不能通过地址打开。删除账号会一并删除它的素材库。
 
+## 联网：读取链接与搜索
+
+脚本的质量取决于资料。配置联网服务后，应用会在动笔之前先读网页：
+
+- **读取链接。** 在主题、核心信息、一线经验或参考资料里贴上链接，开始写作时就会读取链接指向的网页。需求用到的素材库文档里的链接也会读取。一份需求最多读取 8 个链接，优先读你亲手填的。
+- **就主题搜索。** 在 **补充信息 → 联网** 里勾选 **就主题联网搜索**，应用会搜索这个主题，取回最相关的五条结果及其正文。
+- **在对话里。** 提示里的链接会在模型回答之前读取。打开输入框下方的 **联网**，每条提示还会联网搜索。读到的内容会跟着这条提示保存，追问时模型仍然看得到。在对话里调用旁白智能体时，它同样会读取提示里的链接。
+
+读到的内容作为更多的参考资料交给模型，用标记围起来并注明“仅作信息”，所以网页里夹带的指令只会被当作文字，不会被执行。诚实原则不变：数据和引语只来自需求和它的资料，现在也包括这些网页。网页在提示词里共用约 20,000 字的额度，搜索结果约 10,000 字，太长的按额度截断。
+
+每份脚本、每条回复都会在 **来自网络** 里列出来源：读了哪些网页、搜索了什么及其结果，以及哪些链接没读成和原因。链接失效不会影响脚本生成。
+
+一个网页读一次后会保留一天（搜索结果保留六小时），所以大纲、旁白、审稿和脚本，以及你选的每个平台，读的都是同一份，联网服务只被请求一次。
+
+### 配置
+
+管理员打开 **模型设置 → 联网搜索**，填写下面的一项或几项：
+
+| 设置 | 说明 |
+| --- | --- |
+| **Tavily API 密钥** | 在 [tavily.com](https://tavily.com) 获取。可以搜索，也可以读取网页（`/search`、`/extract`） |
+| **Tavily MCP 链接** | Tavily 托管 MCP 服务的地址，其中带有你的密钥：`https://mcp.tavily.com/mcp/?tavilyApiKey=…`。通过它的 `search` 和 `extract` 工具完成同样两件事 |
+| **Firecrawl API 密钥** | 在 [firecrawl.dev](https://firecrawl.dev) 获取。把网页读成干净的 Markdown（包括 PDF），也可以搜索（`/v2/scrape`、`/v2/search`） |
+
+填一项就够。**搜索使用** 和 **读取链接使用** 决定每件事先找哪个服务（默认 Tavily 搜索、Firecrawl 读取）；首选失败时会改用另一个已配置的服务。同时填了 Tavily 密钥和 MCP 链接时，先用密钥。**试一试** 会用表单里的值（保存与否都可以）搜索一次或读取一个链接，并显示结果和实际使用的服务。
+
+密钥保存在服务器上，只显示打码后的预览；MCP 链接里带有密钥，同样打码。成员只能看到联网功能是否可用。没有配置任何服务时，需求里的两个开关不可用，带链接的需求会提示链接没有读取。
+
 ## 图片和视频
 
 **每个场景的图片数**（1 到 3，默认 1）决定每次点击 **生成图片** 或自动出图时，为一个场景生成几张图。每张图都是对图像模型的一次单独请求。
@@ -483,7 +513,7 @@ Vercel 上的限制：单次请求最长运行 800 秒（`vercel.json` 里的 `m
 - **密钥不会发给别的服务。** 更改网关的服务商或接口地址会清除已保存的密钥。
 - **不进入版本库。** `data/` 已加入 .gitignore。
 
-你的需求、参考资料和需求用到的素材库文档只会发送给你选择的模型服务商。素材库的图片只有在以它为参考生成图片时，才会发送给图像模型服务商。
+你的需求、参考资料和需求用到的素材库文档只会发送给你选择的模型服务商。素材库的图片只有在以它为参考生成图片时，才会发送给图像模型服务商。配置了联网功能后，需求或提示里的链接会发送给联网服务（Tavily 或 Firecrawl），由它去抓取网页；搜索时会把主题或提示作为搜索词发给它。需求的其他内容不会发过去，本服务器也不会自己去抓取网页。
 
 ## 访客与转化
 
@@ -546,6 +576,9 @@ Vercel 上的限制：单次请求最长运行 800 秒（`vercel.json` 里的 `m
 | `REQUEST_TIME_LIMIT_S` | 平台允许单次请求运行的秒数。服务端会在这之前收尾，没写完的脚本由下一个请求接着写 | Vercel 上为 `800`，其他环境不限 |
 | `SPEECH_PROVIDER`、`SPEECH_API_KEY`、`SPEECH_APP_ID` | 在应用里保存配音设置之前使用的配音服务：`volc`（豆包语音 Seed-TTS，还需要 APP ID）或 `openai`（OpenAI 兼容的 `/audio/speech`） | 无 |
 | `SPEECH_BASE_URL_API`、`SPEECH_MODEL`、`SPEECH_VOICE`、`SPEECH_VOICE_B` | 它的地址、模型或 Resource ID，以及朗读脚本的音色 | 该服务的默认值 |
+| `TAVILY_API_KEY`、`TAVILY_MCP_URL`、`FIRECRAWL_API_KEY` | 在应用里保存联网设置之前使用的联网服务（模型设置 → 联网搜索） | 无 |
+| `WEB_SEARCH_WITH`、`WEB_READ_WITH` | 搜索和读取分别先找哪个服务：`tavily` 或 `firecrawl` | `tavily`、`firecrawl` |
+| `TAVILY_API_URL`、`FIRECRAWL_API_URL` | 两个接口的地址，用于自建的 Firecrawl 或代理 | `https://api.tavily.com`、`https://api.firecrawl.dev` |
 | `ASSET_MAX_MB` | 素材库单个文件的大小上限（MB） | `25`；图片和视频在 Vercel 上为 `4` |
 | `ASSET_BODY_MB` | 单次请求能上传的数据上限（MB），用于自身有上限的平台或反向代理。更大的文件会分片上传 | 不限；在 Vercel 上为 `4` |
 
@@ -591,6 +624,9 @@ src/post.mjs            脚本的图文：各平台的规格、提示词、读�
 src/speech.mjs          视频的配音：配音服务、两种协议、把一个场景的旁白合成一个 WAV
 src/chat/               对话：store.mjs（对话及其文件）、skills.mjs（用户写的技能）、
                         prompt.mjs（告诉模型什么）、routes.mjs（接口）
+src/web/                联网：config.mjs（Tavily 和 Firecrawl 的设置）、tavily.mjs、firecrawl.mjs 和
+                        mcp.mjs（各个服务）、links.mjs（找出文字里的链接）、sources.mjs（读取、搜索、
+                        保留读到的内容）、brief.mjs（告诉模型什么）、routes.mjs（接口）
 public/                 网页界面：index.html 和 zh.html 是首页（英文、中文），app.html 是应用，
                         chat.html 是对话页（markdown.js 负责读取和渲染回复）
 src/site.mjs            站点的公开地址，用于 canonical 链接、sitemap 和 robots.txt
@@ -657,11 +693,13 @@ test/                   node --test
 | `GET` | `/api/chat/meta` | 对话可以发给谁：各网关及其启用的模型（只有名称），以及负责画图和做视频的模型 |
 | `GET` | `/api/chats?q=` | 你的对话，最新的在前；`q` 搜索标题和消息。`GET /api/chats/get?id=` 返回一个完整的对话 |
 | `POST` | `/api/chats/rename`、`/api/chats/delete` | `{ id, title }`；`{ id }` 删除对话及其中的图片和视频 |
-| `POST` | `/api/chat/send` | `{ chatId?, text, target?, model?, skillIds?, aspect?, seconds? }` 把提示词发给 `assistant`、`narrator`、`image` 或 `video`。`regenerate: true` 重新回答最后一条提示词；`editId` 替换一条提示词及其后的内容。服务器发送事件（SSE）：`chat`、`delta`、`step`、`trace`、`retry`、`media`、`done`（`{ message, chat }`） |
+| `POST` | `/api/chat/send` | `{ chatId?, text, target?, model?, skillIds?, aspect?, seconds?, web? }`（提示里的链接会先读取，`web: true` 还会联网搜索；事件里多一个 `web`，回复的 `sources` 记录读到了什么）把提示词发给 `assistant`、`narrator`、`image` 或 `video`。`regenerate: true` 重新回答最后一条提示词；`editId` 替换一条提示词及其后的内容。服务器发送事件（SSE）：`chat`、`delta`、`step`、`trace`、`retry`、`media`、`done`（`{ message, chat }`） |
 | `POST` | `/api/chat/message/update` | `{ chatId, messageId, content }` 保存在画布里编辑过的回复 |
 | `POST` | `/api/chat/media/make`、`/api/chat/media/status` | `{ chatId, messageId, index }` 重新生成回复里的一张图片或一段视频；查询视频进度，完成后保存 |
 | `GET` | `/api/skills` | 你的技能，然后是内置技能（只有名称和用途） |
 | `POST` | `/api/skills`、`/api/skills/delete` | `{ id?, name, description?, body }` 创建或修改技能；`{ id }` 删除 |
+| `GET`、`PUT` | `/api/web/config` | 联网功能在这里能做什么：`{ search, read }`。管理员还能看到保存了哪些密钥（打码），并用 `{ tavilyKey?, tavilyMcp?, firecrawlKey?, search?, read?, clear? }` 保存：留空的字段保持原值，`clear: ["tavilyKey"]` 移除 |
+| `POST` | `/api/web/test` | 管理员：不保存，直接试用表单里的值。`{ try, with? }`：`try` 里是链接就读取，其他内容就搜索；`with` 指定只用 `tavily` 或 `firecrawl` |
 | `POST` | `/api/media/image` | `{ visual, camera, historyId, sceneId }` 生成并保存一张图片，返回 `{ url }`。用了主播定妆照作参考时带 `referenced: true` |
 | `POST` | `/api/media/host` | `{ historyId, hostId, aspectRatio, styleIds }` 生成并保存脚本里主播 `A` 或 `B` 的定妆照，返回 `{ url }` |
 | `POST` | `/api/styles/suggest` | `{ ...brief, lang }` 为一份需求选画面风格：`{ styleIds, alternatives, reason, by }`。按规则完成，不调用模型；`by: "model"` 让当前使用的模型来选 |

@@ -7,6 +7,7 @@ import { wireTheme, wireLang, enhancePasswords } from './shell.js';
 import { countSpoken, fitDuration, splitNarration, spokenText, MIN_DURATION, MAX_DURATION } from './narration.js';
 import { wireLibrary } from './library.js';
 import { wirePost } from './post.js';
+import { wireWebSettings, wireBriefWeb, sourcesNode, readingNote } from './web.js';
 import { wireVideo } from './video.js';
 
 const $ = (id) => document.getElementById(id);
@@ -562,7 +563,7 @@ function setNarrationMode(mode) {
 
 function saveForm() {
   const data = Object.fromEntries(FIELDS.map((f) => [f, $(f).value]));
-  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: durationValue(), aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: activeStyleIds(), styleAuto: state.styleAuto, host: hostValue() || null, narrationMode: state.narrationMode, agent: $('agent').checked, assetIds: library.selected() });
+  Object.assign(data, { platforms: selectedPlatforms(), framework: $('framework').value, duration: durationValue(), aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, autoImages: $('autoImages').checked, imageCount: $('imageCount').value, imageMode: $('imageMode').value, styles: activeStyleIds(), styleAuto: state.styleAuto, host: hostValue() || null, narrationMode: state.narrationMode, agent: $('agent').checked, assetIds: library.selected(), webLinks: $('webLinks').checked, webSearch: $('webSearch').checked });
   try {
     localStorage.setItem(FORM_KEY, JSON.stringify(data));
   } catch {}
@@ -582,6 +583,8 @@ function fillForm(data) {
   if ('imageCount' in data) $('imageCount').value = ['2', '3'].includes(String(data.imageCount)) ? String(data.imageCount) : '1';
   setHost(data.host);
   library.setSelected(data.assetIds); // the library files the brief is written from; none when it names none
+  $('webLinks').checked = data.webLinks !== false; // links are read unless the brief says not to
+  $('webSearch').checked = Boolean(data.webSearch);
   // Styles someone picked by hand stay theirs; a brief without any gets them picked from its topic.
   state.styleAuto = 'styleAuto' in data ? Boolean(data.styleAuto) : !data.styles?.length;
   $('styleAuto').checked = state.styleAuto;
@@ -706,6 +709,16 @@ function noteRetry(platformId, run, info) {
   if (state.active === platformId && state.runs[platformId] === run) updateStream(run);
 }
 
+/** The web is being read for a run (the links in its brief, a search for its topic), or has been: the run keeps what was read. */
+function noteWeb(platformId, run, data) {
+  if (data.status === 'reading') run.webNote = readingNote(data);
+  else {
+    const { status: _, ...web } = data;
+    Object.assign(run, { web, webNote: '' });
+  }
+  if (state.active === platformId && state.runs[platformId] === run) render();
+}
+
 const MAX_PARTS = 8; // requests one script may take (the server's limit: src/limits.mjs)
 const MIN_PROGRESS = 16; // characters a request must add for the next one to be worth making
 const RECONNECT_MS = 1500;
@@ -748,6 +761,7 @@ async function runPlatform(platformId, brief) {
             run.plan = data;
             if (state.active === platformId) render(); // the line under the progress bar now says which model is writing
           } else if (event === 'retry') noteRetry(platformId, run, data);
+          else if (event === 'web') noteWeb(platformId, run, data);
           else if (event === 'delta') {
             run.raw += data.text;
             run.notice = '';
@@ -806,7 +820,7 @@ function runChanged(platformId) {
 /** The brief as the form has it now. */
 function collectBrief() {
   const brief = Object.fromEntries(FIELDS.map((f) => [f, $(f).value.trim()]));
-  return Object.assign(brief, { frameworkId: $('framework').value, duration: durationValue() || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: activeStyleIds(), host: hostValue(), agent: $('agent').checked, assetIds: library.selected().length ? library.selected() : undefined });
+  return Object.assign(brief, { frameworkId: $('framework').value, duration: durationValue() || undefined, aspectRatio: selectedAspect(), ttsReady: $('ttsReady').checked, styleIds: activeStyleIds(), host: hostValue(), agent: $('agent').checked, assetIds: library.selected().length ? library.selected() : undefined, webLinks: $('webLinks').checked ? undefined : false, webSearch: ($('webSearch').checked && !$('webSearch').disabled) || undefined });
 }
 
 const isWriting = (run) => run.status === 'running' || run.status === 'drafting';
@@ -1452,6 +1466,7 @@ async function streamRun(platformId, run, url, body) {
       noteStep(run, data);
       if (state.active === platformId && state.runs[platformId] === run) render();
     } else if (event === 'retry') noteRetry(platformId, run, data);
+    else if (event === 'web') noteWeb(platformId, run, data);
     else if (event === 'delta') {
       run.raw += data.text;
       run.notice = '';
@@ -1964,6 +1979,7 @@ function renderNarration(platformId, run) {
           cardPanel,
           storyline,
           skillsLine,
+          sourcesNode(run.plan?.web || run.web || n.target?.web),
           h('ol', { class: 'beats' }, n.beats.map(beatCard)),
           h('button', { class: 'btn add-beat', type: 'button', disabled: frozen(), onclick: () => addBeat(n.beats.length) }, icon('plus', 16), h('span', {}, t('Add a beat'))),
           h('div', { class: 'narr-foot' }, foot, build),
@@ -2015,6 +2031,7 @@ function agentSteps(run) {
 }
 
 function progressNote(run) {
+  if (run.webNote) return run.webNote;
   if (!run.plan) return t('Contacting the model…');
   const step = agentSteps(run)?.find((x) => x.state === 'active');
   if (step) return `${step.label}…`;
@@ -2101,6 +2118,7 @@ function renderScript(platformId, run) {
       ),
     ),
     locked?.repaired && h('p', { class: 'note', role: 'status' }, icon('info', 16), h('span', {}, t('The model changed some of the wording, so your narration was put back word for word. Stress and pause marks were left out.'))),
+    sourcesNode(run.plan?.web || run.web), // the pages that were read for it, and what its search found
 
     s.card && h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h3', {}, t('Viewpoint card'))), cardNode(s.card)),
 
@@ -2234,6 +2252,7 @@ function render() {
         h('div', { class: 'progress-bar' }, h('i')),
         h('p', { class: 'stream-note' }, note),
         h('p', { class: 'note retry-note', role: 'status', hidden: !run.notice }, icon('info', 16), h('span', {}, run.notice || '')),
+        sourcesNode(run.plan?.web || run.web),
         steps
           ? h('ol', { class: 'agent-steps' }, steps.map((x) => h('li', { class: x.state }, h('span', { class: 'agent-dot' }, x.state === 'done' ? icon('check', 14) : x.state === 'active' ? h('span', { class: 'spin' }) : null), h('div', {}, h('b', {}, x.label), x.detail && h('span', { class: 'hint' }, x.detail)))))
           : h('div', { class: 'skeleton', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')),
@@ -2789,6 +2808,8 @@ async function boot() {
   buildForm();
   library.load();
   wireSettings();
+  wireWebSettings({ dialog: $('settings'), tabs: $('settingsTabs'), panel: $('webSettings') }); // the Web search tab: Tavily and Firecrawl
+  wireBriefWeb({ links: $('webLinks'), search: $('webSearch'), hint: $('webHint') });
   renderGateway();
   wireTheme($('themeToggle'));
   wireLang($('langToggle'));

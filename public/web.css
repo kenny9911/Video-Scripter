@@ -1,0 +1,41 @@
+/* The web: the sources of a script or a reply, and the Web search tab of LLM settings (web.js). */
+
+/* ---------- LLM settings: one dialog, two tabs ---------- */
+/* The dialog's body is a column that scrolls: the tab strip keeps its height and its own width in it. */
+.settings-tabs { flex: none; align-self: flex-start; }
+#settings:not([data-tab='web']) #webSettings { display: none; }
+#settings[data-tab='web'] .dialog-body > .hint,
+#settings[data-tab='web'] .gw-layout,
+#settings[data-tab='web'] #settingsStatus,
+#settings[data-tab='web'] #testGateway,
+#settings[data-tab='web'] #deleteProfile,
+#settings[data-tab='web'] #saveSettings { display: none; }
+#webSettings { display: grid; gap: 14px; flex: none; width: 100%; max-width: 640px; }
+#webSettings > .hint { margin: 0; }
+#webSettings .media-group { margin: 0; }
+#webSettings legend .badge { margin-left: 6px; vertical-align: middle; }
+#webSettings .inline > .pw-wrap, #webSettings .inline > input { flex: 1; min-width: 0; }
+#webSettings .actions { display: flex; justify-content: flex-end; }
+.web-test .test-reply { margin-top: 8px; }
+.web-results { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+.web-results .hint { font-weight: 400; }
+
+/* ---------- Sources: what was read on the web ---------- */
+.web-sources { margin-top: 16px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); font-size: 14px; }
+.web-sources > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; min-height: 40px; padding: 4px 12px; cursor: pointer; list-style: none; }
+.web-sources > summary::-webkit-details-marker { display: none; }
+.web-sources > summary .icon { color: var(--muted); flex: none; }
+.web-sources > summary b { font-weight: 600; }
+.web-sources ul { margin: 0; padding: 0 12px 10px; list-style: none; display: grid; gap: 6px; }
+.web-sources li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+.web-sources li a, .web-sources li > span:first-child { overflow-wrap: anywhere; }
+.web-sources li a { color: var(--accent-text, var(--accent)); text-decoration: none; }
+.web-sources li a:hover { text-decoration: underline; }
+.web-sources ul.bad li > span:first-child { color: var(--bad); }
+.web-sources > p.hint { margin: 0; padding: 0 12px 10px; }
+.msg .web-sources { margin-top: 10px; max-width: 100%; }
+
+/* ---------- The brief ---------- */
+#webField .check + .check { margin-top: 6px; }
+#webField .hint { margin-top: 8px; }
+#webField input:disabled + span { color: var(--muted); }

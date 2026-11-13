@@ -14,6 +14,9 @@
 //   POST /api/skills               create a skill (no id) or change one
 //   POST /api/skills/delete        { id }
 //
+// A prompt that links to pages has them read first, and with `web: true` the web is searched for it as well
+// (src/web): what was found is given to the model after the prompt, and the reply lists it as its `sources`.
+//
 // A prompt goes to one of four `target`s:
 //   assistant   the model picked for the conversation, with its skills. It can make pictures and clips by
 //               writing ```image / ```video blocks, which are made once the reply is whole (src/chat/prompt.mjs)
@@ -26,6 +29,7 @@
 //   delta    { text }                 the next piece of the reply
 //   step     { id, status, … }        what the agent is doing        trace { text }: what it is writing
 //   retry    { … }                    the provider failed and the call is being tried again
+//   web      { status, … }            the web is being read for the prompt, then what was read (src/web/routes.mjs)
 //   media    { index, item }          a picture or a clip of the reply, made or failed
 //   done     { message, chat }        the reply as it was saved (with `error` or `stopped` when it did not finish)
 // The reply is saved however the request ends, so the conversation reads the same after a reload.
@@ -44,6 +48,8 @@ import { parse, embeds } from '../../public/markdown.js';
 import { listChats, ownedChat, createChat, changeChat, renameChat, deleteChat, summary, newMessage, titleFrom, saveChatMedia, MAX_PROMPT, MAX_CONTENT, MAX_MESSAGES } from './store.mjs';
 import { listSkills, saveSkill, deleteSkill, skillsFor, cleanSkillIds, asPlaybook, MAX_SKILLS_PER_CHAT, MAX_SKILL_BODY } from './skills.mjs';
 import { systemPrompt, turnsFor, briefFromPrompt, narrationMarkdown, MAX_EMBEDS } from './prompt.mjs';
+import { promptWeb, publicSources, briefWeb } from '../web/routes.mjs';
+import { webSummary } from '../web/brief.mjs';
 
 export const TARGETS = ['assistant', 'narrator', 'image', 'video'];
 const CLIP_SECONDS = [4, 8, 12];
@@ -81,7 +87,9 @@ function chatMeta(store) {
   };
 }
 
-const publicChat = (chat) => ({ ...summary(chat), messages: chat.messages });
+/** A message as the page gets it: the text the web gave the model stays on the server, its sources are in the reply. */
+const publicMessage = ({ web, ...m }) => m;
+const publicChat = (chat) => ({ ...summary(chat), messages: chat.messages.map(publicMessage) });
 
 /** A fenced block that asks for a picture or a clip, as the assistant would write it. The fence is longer than any in the description. */
 function embedBlock({ kind, prompt, aspect, seconds }) {
@@ -188,8 +196,12 @@ export function chatRoutes({ route, json, readJson, eventStream, fail, failure, 
    * the playbooks its brief calls for. A review that cannot finish (out of time, a failing provider) leaves the
    * draft, which says so.
    */
-  async function narrate(req, { user, config, chat, reply, skills, prompt, send, signal }) {
-    const plan = buildPlan(briefFromPrompt(prompt));
+  async function narrate(req, { user, config, chat, reply, skills, prompt, search, send, signal }) {
+    const brief = briefFromPrompt(prompt);
+    buildPlan(brief); // a prompt that is no brief fails here, before the web is asked
+    const web = await briefWeb(req, user, { ...brief, reference: prompt, webSearch: search }, { signal, send });
+    const plan = buildPlan({ ...brief, ...(web && { web }) });
+    if (web) reply.sources = webSummary(web);
     for (const s of skills) {
       const playbook = s.builtin ? SKILLS.find((x) => `builtin:${x.id}` === s.id) : asPlaybook(s);
       if (playbook && !plan.skills.some((x) => x.id === playbook.id)) plan.skills.push(playbook);
@@ -302,13 +314,25 @@ export function chatRoutes({ route, json, readJson, eventStream, fail, failure, 
       const asked = chat.messages.at(-1);
       const reply = newMessage('assistant', '', { target, ...(!media && { model: config.model, gateway: config.name, ...(skills.length && { skills: skills.map((s) => ({ id: s.id, name: s.name, ...(s.title && { title: s.title }) })) }) }) });
       const { send, signal } = eventStream(req, res);
-      send('chat', { chat: summary(chat), user: asked, reply: { id: reply.id, target, model: reply.model, gateway: reply.gateway, skills: reply.skills } });
+      send('chat', { chat: summary(chat), user: publicMessage(asked), reply: { id: reply.id, target, model: reply.model, gateway: reply.gateway, skills: reply.skills } });
       const started = Date.now();
       try {
         const run = { user, store, config, chat, reply, skills, send, signal };
         if (media) await direct(req, { ...run, asked: { kind: target, prompt: asked.content, ...options } });
-        else if (target === 'narrator') await narrate(req, { ...run, prompt: asked.content });
-        else await converse(req, run);
+        else if (target === 'narrator') await narrate(req, { ...run, prompt: asked.content, search: body.web === true });
+        else {
+          // The pages the prompt links to are read, and the web searched when asked, before the model answers.
+          // What was read stays with the prompt, so a later turn, or the same prompt answered again, still has it.
+          if (!regenerate) {
+            const web = await promptWeb(req, user, asked.content, { search: body.web === true, signal, send, title: chat.title });
+            if (web) {
+              asked.web = web;
+              await changeChat(user.id, chat.id, (c) => void Object.assign(c.messages.find((m) => m.id === asked.id) || {}, { web }), { touch: false }).catch(() => {});
+            }
+          }
+          if (asked.web) reply.sources = publicSources(asked.web);
+          await converse(req, run);
+        }
       } catch (err) {
         if (err.name === 'AbortError') reply.stopped = true;
         else reply.error = err.unreadable ? failure(req, err, 'The agent could not read the model\'s reply') : failure(req, err);

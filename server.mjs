@@ -43,6 +43,7 @@ import { describePicture, readScan, lookLimit } from './src/vision.mjs';
 import { chatRoutes } from './src/chat/routes.mjs';
 import { isChatFile, chatFileOwner, deleteUserChats } from './src/chat/store.mjs';
 import { deleteUserSkills } from './src/chat/skills.mjs';
+import { webRoutes, briefWeb } from './src/web/routes.mjs';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const PORT = Number(process.env.PORT) || 3789;
@@ -195,9 +196,20 @@ async function hostPortraits(entry, scene) {
  * `materials`, which is what the prompts read (src/materials.mjs). Only the user's own files are found.
  */
 async function withMaterials(user, brief) {
-  const { materials: _, ...rest } = brief;
+  const { materials: _, web: _web, ...rest } = brief;
   const found = await materialsFor(user.id, brief.assetIds);
   return found.length ? { ...rest, materials: found } : rest;
+}
+
+/**
+ * The plan of a brief again, with what the web says about it (src/web/routes.mjs): the links in the brief and
+ * in its documents are read, and its topic is searched for when the brief asks. `sourced` is the brief as
+ * withMaterials left it. The plan comes back as it was when the brief has no links and asks for no search.
+ * With `send` the page hears what is being read; `cachedOnly` uses what was read before and asks nobody.
+ */
+async function withWeb(req, user, sourced, plan, opts) {
+  const web = await briefWeb(req, user, sourced, opts);
+  return web ? buildPlan({ ...sourced, web }) : plan;
 }
 
 /** Put a picture or a clip from the library into a scene of a script, as that scene's image or clip. */
@@ -974,7 +986,8 @@ const routes = {
   // voiceover budget and the skills that apply. The narration editor shows it as what there is room for.
   'POST /api/plan': route('user', async (req, res, user) => {
     const { narration, ...brief } = await readJson(req);
-    json(res, 200, planSummary(buildPlan(await withMaterials(user, brief))));
+    const sourced = await withMaterials(user, brief);
+    json(res, 200, planSummary(await withWeb(req, user, sourced, buildPlan(sourced), { cachedOnly: true }))); // a plan does not wait for the web
   }),
 
   // Writes the narration alone, one beat per stage, for the editor. Nothing is saved here: it becomes a
@@ -984,12 +997,14 @@ const routes = {
   // request of its own, /api/narration/review, so that no request carries two long model calls.
   'POST /api/narration/draft': route('user', async (req, res, user) => {
     const { narration, agent, card: _card, ...brief } = await readJson(req);
-    const plan = buildPlan(await withMaterials(user, brief)); // throws on a bad brief -> 400 below
+    const sourced = await withMaterials(user, brief);
+    let plan = buildPlan(sourced); // throws on a bad brief -> 400 below
     const config = await loadConfig();
     const invalid = validateConfig(config);
     if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
 
     const { send, signal } = eventStream(req, res);
+    plan = await withWeb(req, user, sourced, plan, { send, signal }); // the links in the brief are read before a word is written
     const model = config.model || config.name;
     const useAgent = agent !== false;
     const about = { platform: plan.brief.platform.id, topic: plan.brief.topic.slice(0, 120), model };
@@ -1045,7 +1060,8 @@ const routes = {
   // words, missing names, rhythm, the balance of the viewpoint card. No model is called and nothing is changed.
   'POST /api/narration/check': route('user', async (req, res, user) => {
     const { narration, card, agent, ...brief } = await readJson(req);
-    const plan = buildPlan(await withMaterials(user, brief));
+    const sourced = await withMaterials(user, brief);
+    const plan = await withWeb(req, user, sourced, buildPlan(sourced), { cachedOnly: true });
     json(res, 200, checkNarration(plan, normalizeNarration(narration), normalizeCard(card, plan.timeline.map((s) => s.key))));
   }),
 
@@ -1053,7 +1069,8 @@ const routes = {
   // and the corrected narration comes back with what is still left. Streams its progress like a draft does.
   'POST /api/narration/review': route('user', async (req, res, user) => {
     const { narration, card, agent, ...brief } = await readJson(req);
-    const plan = buildPlan(await withMaterials(user, brief));
+    const sourced = await withMaterials(user, brief);
+    let plan = buildPlan(sourced);
     const beats = normalizeNarration(narration);
     if (!beats.length) throw fail('There is no narration to review');
     const config = await loadConfig();
@@ -1061,6 +1078,7 @@ const routes = {
     if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
 
     const { send, signal } = eventStream(req, res);
+    plan = await withWeb(req, user, sourced, plan, { send, signal });
     const model = config.model || config.name;
     const about = { platform: plan.brief.platform.id, topic: plan.brief.topic.slice(0, 120), model };
     send('plan', { ...planSummary(plan), model, provider: config.provider, agent: true });
@@ -1079,15 +1097,18 @@ const routes = {
   // The "review" preset is the agent's review step: it answers { beats, report }.
   'POST /api/narration/refine': route('user', async (req, res, user) => {
     const { narration, index, preset, instruction, target, card, agent, ...brief } = await readJson(req);
-    const plan = buildPlan(await withMaterials(user, brief));
+    const sourced = await withMaterials(user, brief);
+    let plan = buildPlan(sourced);
     const beats = normalizeNarration(narration);
     const at = Number.isInteger(index) ? index : null;
     const agentReview = preset === 'review' && at == null;
     if (agentReview && !beats.length) throw fail('There is no narration to refine');
-    const prompts = agentReview ? null : buildRefinePrompts(plan, beats, { index: at, preset, instruction, target }); // throws when there is nothing to do -> 400
+    if (!agentReview) buildRefinePrompts(plan, beats, { index: at, preset, instruction, target }); // throws when there is nothing to do -> 400
     const config = await loadConfig();
     const invalid = validateConfig(config);
     if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
+    plan = await withWeb(req, user, sourced, plan, { signal: AbortSignal.timeout(60_000) }); // the pages the narration was written from, so a rewrite keeps to them
+    const prompts = agentReview ? null : buildRefinePrompts(plan, beats, { index: at, preset, instruction, target });
     const about = { platform: plan.brief.platform.id, topic: plan.brief.topic.slice(0, 120), model: config.model || config.name };
 
     if (agentReview) {
@@ -1128,13 +1149,15 @@ const routes = {
   // `resume: { text, part }`, the reply so far. The model then carries on from the last character of it.
   'POST /api/generate': route('user', async (req, res, user) => {
     const { agent, narrationBy, resume, ...brief } = await readJson(req);
-    const plan = buildPlan(await withMaterials(user, brief)); // throws on a bad brief -> 400 below
+    const sourced = await withMaterials(user, brief);
+    let plan = buildPlan(sourced); // throws on a bad brief -> 400 below
     const given = resumeOf(resume);
     const config = await loadConfig();
     const invalid = validateConfig(config);
     if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
 
     const { send, signal } = eventStream(req, res);
+    plan = await withWeb(req, user, sourced, plan, { send, signal }); // the links in the brief are read, and the topic searched for, before the script is written
     const taskId = newHistoryId();
     const planInfo = { ...planSummary(plan), model: config.model || config.name, provider: config.provider };
     const about = { taskId, platform: plan.brief.platform.id, topic: plan.brief.topic.slice(0, 120), model: planInfo.model };
@@ -1167,7 +1190,7 @@ const routes = {
       }
       await record(script ? {} : { ok: false, error: `Unreadable reply: ${parseError}` });
       if (script) {
-        const { platformId, narration, card, host, assetIds: _ids, materials: _materials, ...rest } = brief;
+        const { platformId, narration, card, host, assetIds: _ids, materials: _materials, web: _web, ...rest } = brief;
         // The library files the script was written from, by id: the form can pick them again, and their text is not kept twice.
         if (plan.brief.materials.ids.length) rest.assetIds = plan.brief.materials.ids;
         rest.aspectRatio = plan.brief.aspect.id; // always recorded, so the script keeps its shape if the default ever changes
@@ -1211,6 +1234,8 @@ const routes = {
 
 // The chat (conversations, their pictures and clips, and skills) has its routes in a file of its own.
 Object.assign(routes, chatRoutes({ route, json, readJson, eventStream, fail, failure, tokens }));
+// So do the web settings: the Tavily and Firecrawl keys that let a brief and a conversation read the web.
+Object.assign(routes, webRoutes({ route, json, readJson, failure }));
 
 /** A recorder for work that makes several model calls: one usage record per call, as "narration" (the narration agent) or "read" (looking at pictures). */
 function usageRecorder(user, config, kind = 'narration') {

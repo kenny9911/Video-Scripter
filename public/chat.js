@@ -11,6 +11,7 @@ import { icon, hydrateIcons } from './icons.js';
 import { el, call, when } from './account.js';
 import { wireTheme, wireLang } from './shell.js';
 import { parse, render, titleOf } from './markdown.js';
+import { sourcesNode, readingNote, webAbility } from './web.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -25,6 +26,8 @@ const state = {
   skillIds: [],
   aspect: '9:16',
   seconds: 8,
+  web: false, // search the web for each prompt (the links in a prompt are read either way)
+  webCan: { search: false, read: false }, // what the web can do on this server
   busy: null, // { abort, chat, reply } while a reply is being written
   editId: null, // the prompt being edited
   canvas: null, // { id, mode: 'preview' | 'source', dirty }
@@ -104,7 +107,7 @@ function loadPrefs() {
 }
 function savePrefs() {
   try {
-    localStorage.setItem(prefsKey(), JSON.stringify({ model: state.model, target: state.target, aspect: state.aspect, seconds: state.seconds, side: document.body.dataset.side }));
+    localStorage.setItem(prefsKey(), JSON.stringify({ model: state.model, target: state.target, aspect: state.aspect, seconds: state.seconds, web: state.web, side: document.body.dataset.side }));
   } catch {}
 }
 
@@ -169,7 +172,23 @@ function renderTarget() {
   $('aspect').hidden = !media;
   $('seconds').hidden = state.target !== 'video';
   $('skillMenu').hidden = media; // a picture is made from its description alone
+  $('webToggle').hidden = media;
+  renderWebToggle();
   renderSkillChips();
+}
+
+/** The Web switch under the box: on, the web is searched for every prompt before it is answered. */
+function renderWebToggle() {
+  const on = state.web && state.webCan.search;
+  $('webToggle').setAttribute('aria-pressed', String(on));
+  $('webToggle').classList.toggle('on', on);
+}
+
+function toggleWeb() {
+  if (!state.webCan.search) return toast(t('Web search is not set up. An administrator can add a Tavily or Firecrawl key under LLM settings, Web search.'));
+  state.web = !state.web;
+  renderWebToggle();
+  savePrefs();
 }
 
 function chooseTarget(id) {
@@ -437,6 +456,7 @@ function fill(node, m) {
     body.append(render(parse(text), mdOptions(m)));
     parts.push(body);
   } else if (m.pending && m.target !== 'narrator') parts.push(el('div', { class: 'typing', 'aria-label': t('Writing…') }, el('i'), el('i'), el('i')));
+  if (m.sources) parts.push(sourcesNode(m.sources));
   if (m.pending && m.notice) parts.push(el('p', { class: 'msg-notice' }, el('span', { class: 'spin' }), m.notice));
   if (m.error) parts.push(el('div', { class: 'msg-error', role: 'alert' }, el('p', {}, explain(t(m.error.error), m.error.cause)), isLastReply(m) && el('button', { class: 'btn small', type: 'button', onclick: () => send({ regenerate: true }), disabled: Boolean(state.busy) }, icon('refresh', 14), el('span', {}, t('Try again')))));
   if (m.stopped && !m.error) parts.push(el('p', { class: 'hint msg-stopped' }, t('Stopped.')));
@@ -633,7 +653,7 @@ async function send({ regenerate = false } = {}) {
   let finished = false;
   const onScreen = () => state.chat === chat;
   try {
-    const body = { chatId: chat.id || undefined, model: state.model, skillIds: media ? [] : state.skillIds, ...(regenerate ? { regenerate: true } : { text, target, editId: editId || undefined, ...(media && { aspect: state.aspect, seconds: state.seconds }) }) };
+    const body = { chatId: chat.id || undefined, model: state.model, skillIds: media ? [] : state.skillIds, ...(regenerate ? { regenerate: true } : { text, target, editId: editId || undefined, ...(media ? { aspect: state.aspect, seconds: state.seconds } : { web: (state.web && state.webCan.search) || undefined }) }) };
     const res = await fetch('/api/chat/send', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: abort.signal });
     if (res.status === 401) return location.replace('app.html?next=chat');
     if (!res.ok) throw fault(await res.json().catch(() => ({})), res.status);
@@ -667,6 +687,14 @@ async function send({ regenerate = false } = {}) {
         if (onScreen()) paintSoon(reply);
       } else if (event === 'retry') {
         reply.notice = retryNotice(data);
+        if (onScreen()) paintSoon(reply);
+      } else if (event === 'web') {
+        // The web is being read for the prompt; then what was read, which the reply lists as its sources.
+        if (data.status === 'reading') reply.notice = readingNote(data);
+        else {
+          const { status: _, ...sources } = data;
+          Object.assign(reply, { sources, notice: '' });
+        }
         if (onScreen()) paintSoon(reply);
       } else if (event === 'media') {
         (reply.media ||= [])[data.index] = data.item;
@@ -909,6 +937,7 @@ function wire() {
   $('userAvatar').textContent = name.trim()[0] || '?';
   $('userName').textContent = name;
 
+  $('webToggle').addEventListener('click', toggleWeb);
   $('aspect').replaceChildren(...state.meta.aspects.map((a) => el('option', { value: a.id }, `${a.id} · ${a.name[lang] || a.name.en}`)));
   $('aspect').value = state.aspect;
   $('seconds').replaceChildren(...state.meta.clipSeconds.map((s) => el('option', { value: s }, t('{n} s', { n: s }))));
@@ -1040,6 +1069,8 @@ async function boot() {
   state.model = validModel(prefs.model) || validModel(meta.default) || (meta.gateways[0] ? { gatewayId: meta.gateways[0].id, model: meta.gateways[0].models[0] } : null);
   state.aspect = meta.aspects.some((a) => a.id === prefs.aspect) ? prefs.aspect : meta.aspects[0].id;
   state.seconds = meta.clipSeconds.includes(prefs.seconds) ? prefs.seconds : 8;
+  state.webCan = await webAbility();
+  state.web = Boolean(prefs.web);
   state.target = meta.targets.includes(prefs.target) && targetReady(prefs.target) ? prefs.target : 'assistant';
   document.body.dataset.side = isMobile() || prefs.side === 'closed' ? 'closed' : 'open';
   document.body.dataset.auth = 'in';

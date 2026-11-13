@@ -2,6 +2,7 @@
 // The helpers exported here are shared with the admin page (admin.js).
 
 import './chat.zh.js'; // the chat's words, some of which the usage and activity lists show
+import './web.zh.js'; // and the web's
 import { t, lang, explain } from './i18n.js';
 import { wireLang, enhancePasswords, concealPassword } from './shell.js';
 
@@ -123,6 +124,8 @@ export const ACTIVITY = {
   'gateway.update': 'Changed a gateway',
   'gateway.delete': 'Deleted a gateway',
   'gateway.select': 'Switched the gateway in use',
+  'web.read': 'Read the web',
+  'web.settings': 'Changed the web search settings',
   'auth.profile_update': 'Changed their name',
   'auth.password_change': 'Changed their password',
   'admin.user_create': 'Created a user',

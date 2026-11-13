@@ -72,6 +72,7 @@ Only the topic is required. The rest sharpens the result.
 | Brand or creator, Call to action | Who is speaking and what the viewer should do next |
 | Your experience | What you have seen first-hand: a client situation, a mistake, a result. The narration tells it in your voice. Without it, the agent describes a common pattern with no numbers or client names and asks you to confirm or replace it |
 | Reference material | Facts, quotes or an article. The model is told to use only figures and quotes found here or in the brief |
+| Web | Reads the links in the brief and in its documents, and can search the web about the topic, before anything is written: see [The web: links and search](#the-web-links-and-search) |
 | Voiceover is for text-to-speech | Spells out numbers and symbols so a TTS voice reads them correctly |
 | Narration | **With script** writes the narration, then the script around it, without stopping. **Narration first** drafts the narration for you to edit. **My narration** opens the editor for your own text |
 | Narration agent | On by default: the narration is planned, written and reviewed in steps (see [The narration agent](#the-narration-agent)). Untick it for a single quick pass |
@@ -147,6 +148,7 @@ The cards are set in the fonts of the device, so no font is downloaded; a card d
 - **History.** Every conversation is saved as it is written and listed in the sidebar by day. Search looks through titles and messages. Rename one, download it as Markdown, or delete it with the pictures and clips made in it. A reply that was stopped, or that failed half-way, keeps what was written.
 - **Edit and answer again.** Change a prompt you sent and everything after it is replaced; or have the last prompt answered again, by another model if you switch first.
 - **Canvas.** **Canvas** under a reply opens it beside the conversation as a document: a page with its title, laid out to be read. Switch to **Markdown** to edit the text and save it back to the conversation, copy it, download it as a `.md` file, or print it (which is also how it becomes a PDF). The canvas follows a reply while it is being written, and can take the full width.
+- **The web.** A link in a prompt is read before the model answers, and **Web** under the box has every prompt searched for too; the reply lists what it read under **From the web**. See [The web: links and search](#the-web-links-and-search).
 - **Skills.** A skill is a set of instructions you write once: your house style, how a product page is laid out, what a weekly report has to cover. Create them under **Skills**, with a name, when to use it, and the instructions in Markdown (a whole `SKILL.md` file can be pasted). Pick up to eight for a conversation, from the **Skills** button or by typing `/` in the box; the assistant follows them, the narration agent reads them at every step, and each reply says which skills it was written with. The app's built-in playbooks can be picked the same way.
 
 Conversations are private: nobody else can open one, an administrator included. Usage is recorded like every other model call.
@@ -332,6 +334,34 @@ A brief uses up to 8 files, and their documents share about 24,000 characters of
 
 The library is private to its owner. Every file carries the id of the user who added it, and every request works on the signed-in user's files only: nobody else can list them, read them, use them in a script or open them by their address, an administrator included. Deleting an account deletes its library.
 
+## The web: links and search
+
+A script is only as good as its sources. With a web service set up, the app reads the web before it writes:
+
+- **Links are read.** Put a link in the topic, the key message, your experience or the reference material, and the page behind it is read when the writing starts. Links inside the library documents a brief uses are read too. One brief reads up to 8 links, the ones you typed first.
+- **A topic can be searched.** Tick **Search the web about the topic** under **Details → Web** and the topic is searched for; the five best results come back with their text.
+- **In the chat.** A link in a prompt is read before the model answers. Turn on **Web** under the box and every prompt is searched for as well. What was read stays with the prompt, so a follow-up question still has it. The narration agent, asked from the chat, reads the links of its prompt the same way.
+
+What was read reaches the model as more reference material, fenced and marked as information only, so an instruction hidden in a page is read as text and not obeyed. The honesty rule is unchanged: figures and quotes come from the brief and its sources, now including these pages. Pages share about 20,000 characters of the prompt and search results about 10,000; long ones are cut to fit.
+
+Every script and every reply lists its sources under **From the web**: the pages that were read, the search and its results, and any link that could not be read, with the reason. A dead link never stops a script.
+
+A page is read once and kept for a day (a search for six hours), so the plan, the narration, its review and the script, on every platform you picked, all read the same copy and the service is asked once.
+
+### Set it up
+
+An administrator opens **LLM settings → Web search** and adds one or more of:
+
+| Setting | What it is |
+| --- | --- |
+| **Tavily API key** | From [tavily.com](https://tavily.com). Searches, and reads pages (`/search`, `/extract`) |
+| **Tavily MCP link** | The address of Tavily's hosted MCP server with your key in it, `https://mcp.tavily.com/mcp/?tavilyApiKey=…`. Does the same two jobs through its `search` and `extract` tools |
+| **Firecrawl API key** | From [firecrawl.dev](https://firecrawl.dev). Reads a page as clean Markdown, PDFs included, and can search too (`/v2/scrape`, `/v2/search`) |
+
+One of them is enough. **Search with** and **Read links with** say which service is asked first for each job (Tavily searches and Firecrawl reads, unless you change it); the other, when it is set up, is asked when the first fails. With both a Tavily key and a Tavily MCP link, the key is used first. **Try it** runs a search or reads a link with the values in the form, saved or not, and shows what came back and from which service.
+
+Keys are stored on the server and shown masked; the MCP link carries a key, so it is masked the same way. Members see only whether the web is available. Without any service the two switches in the brief are off, and a brief with links says they were not read.
+
 ## Images and video
 
 **Images per scene** (1 to 3, default 1) sets how many images each **Generate image** click, or the automatic run, makes for a scene. Each image is a separate request to the image model.
@@ -511,7 +541,7 @@ When a scene has several images, each file name gains a number, and its role whe
 - **Keys cannot leak to another service.** Changing a gateway's provider or base URL clears its saved key.
 - **Out of version control.** `data/` is git-ignored. Never put `ADMIN_PASSWORD` or API keys in the repository; set them as environment variables.
 
-A brief, its reference material and the text of the library documents it uses are sent to the model provider the user picked, and to no one else. A library picture is sent to the image provider only when an image is drawn from it.
+A brief, its reference material and the text of the library documents it uses are sent to the model provider the user picked, and to no one else. A library picture is sent to the image provider only when an image is drawn from it. When the web is set up, a link in a brief or a prompt is sent to the web service (Tavily or Firecrawl), which fetches the page; a search sends it the topic or the prompt as the query. Nothing else of the brief goes there, and this server never fetches a page itself.
 
 ## Deploy on Vercel
 
@@ -572,6 +602,9 @@ Everything below is optional. Settings saved in the app take precedence over the
 | `REQUEST_TIME_LIMIT_S` | How many seconds the host lets one request run. The server winds a request up shortly before, and a script that is not finished is carried on in the next request | `800` on Vercel, otherwise no limit |
 | `SPEECH_PROVIDER`, `SPEECH_API_KEY`, `SPEECH_APP_ID` | The voice provider until one is saved in the app: `volc` (豆包语音 Seed-TTS, which also needs the APP ID) or `openai` (an OpenAI-compatible `/audio/speech`) | None |
 | `SPEECH_BASE_URL_API`, `SPEECH_MODEL`, `SPEECH_VOICE`, `SPEECH_VOICE_B` | Its address, model or resource id, and the voices scripts are read in | The provider's |
+| `TAVILY_API_KEY`, `TAVILY_MCP_URL`, `FIRECRAWL_API_KEY` | The web services until some are saved in the app (LLM settings → Web search) | None |
+| `WEB_SEARCH_WITH`, `WEB_READ_WITH` | Which service is asked first to search and to read: `tavily` or `firecrawl` | `tavily`, `firecrawl` |
+| `TAVILY_API_URL`, `FIRECRAWL_API_URL` | Where the two APIs are, for a self-hosted Firecrawl or a proxy | `https://api.tavily.com`, `https://api.firecrawl.dev` |
 | `ASSET_MAX_MB` | The largest file the library takes, in megabytes | `25`; for pictures and clips on Vercel `4` |
 | `ASSET_BODY_MB` | The largest upload one request may carry, for a host or a proxy that caps it. A larger file is sent in parts | no cap; on Vercel `4` |
 
@@ -621,6 +654,9 @@ src/post.mjs            the image post of a script: what each platform takes, th
 src/speech.mjs          the voice of a video: the voice provider, the two protocols, a scene's voiceover as one WAV
 src/chat/               the chat: store.mjs (conversations and their files), skills.mjs (skills people write),
                         prompt.mjs (what the model is told), routes.mjs (the API)
+src/web/                the web: config.mjs (the Tavily and Firecrawl settings), tavily.mjs, firecrawl.mjs and
+                        mcp.mjs (the services), links.mjs (the links in a text), sources.mjs (reading, searching,
+                        what is kept), brief.mjs (what the model is told), routes.mjs (the API)
 public/                 the web UI: index.html and zh.html are the home page (English, 中文), app.html the app,
                         chat.html the chat (markdown.js reads and draws its replies), admin.html the user
                         administration page
@@ -703,11 +739,13 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `GET` | `/api/chat/meta` | What a conversation can be sent to: the gateways and their enabled models (names only), and the models that draw and film |
 | `GET` | `/api/chats?q=` | Your conversations, the latest first; `q` searches titles and messages. `GET /api/chats/get?id=` is one in full |
 | `POST` | `/api/chats/rename`, `/api/chats/delete` | `{ id, title }`; `{ id }` deletes a conversation with its pictures and clips |
-| `POST` | `/api/chat/send` | `{ chatId?, text, target?, model?, skillIds?, aspect?, seconds? }` Sends a prompt to `assistant`, `narrator`, `image` or `video`. `regenerate: true` answers the last prompt again; `editId` replaces a prompt and what follows it. Server-sent events: `chat`, `delta`, `step`, `trace`, `retry`, `media`, `done` (`{ message, chat }`) |
+| `POST` | `/api/chat/send` | `{ chatId?, text, target?, model?, skillIds?, aspect?, seconds?, web? }` Sends a prompt to `assistant`, `narrator`, `image` or `video`. `regenerate: true` answers the last prompt again; `editId` replaces a prompt and what follows it. Links in the prompt are read first, and `web: true` searches the web for it. Server-sent events: `chat`, `web`, `delta`, `step`, `trace`, `retry`, `media`, `done` (`{ message, chat }`; the reply's `sources` say what was read) |
 | `POST` | `/api/chat/message/update` | `{ chatId, messageId, content }` Keeps a reply as it was edited in the canvas |
 | `POST` | `/api/chat/media/make`, `/api/chat/media/status` | `{ chatId, messageId, index }` Makes a picture or a clip of a reply again; asks how a clip is coming on and stores it when ready |
 | `GET` | `/api/skills` | Your skills, then the built-in ones (name and purpose only) |
 | `POST` | `/api/skills`, `/api/skills/delete` | `{ id?, name, description?, body }` Creates or changes a skill; `{ id }` deletes it |
+| `GET`, `PUT` | `/api/web/config` | What the web can do here: `{ search, read }`. An administrator also sees which keys are saved, masked, and saves them with `{ tavilyKey?, tavilyMcp?, firecrawlKey?, search?, read?, clear? }`: a blank field keeps what is saved, `clear: ["tavilyKey"]` removes it |
+| `POST` | `/api/web/test` | Administrators: tries the form's values without saving them. `{ try, with? }`: a link in `try` is read, anything else is searched for; `with` asks `tavily` or `firecrawl` alone |
 | `POST` | `/api/media/image` | `{ visual, camera, historyId, sceneId }` Makes and stores an image, returns `{ url }`. `referenced: true` when a host portrait was used as the reference |
 | `POST` | `/api/media/host` | `{ historyId, hostId, aspectRatio, styleIds }` Makes and stores the reference portrait of host `A` or `B` of a script, returns `{ url }` |
 | `POST` | `/api/styles/suggest` | `{ ...brief, lang }` The visual style for a brief: `{ styleIds, alternatives, reason, by }`. By rule, with no model call; `by: "model"` has the model in use choose |

@@ -21,6 +21,7 @@ import { normalizeCard, cardBlock, CARD_SCHEMA, PLAN_RULES } from './agent/card.
 import { normalizeHosts, normalizeCast, settleCast, settleSceneHost, castLine, hostBrief } from './cast.mjs';
 import { replyJson } from './json.mjs';
 import { normalizeMaterials, materialLines, materialRules, assetSchemaLine, settleSceneAssets, assetLine } from './materials.mjs';
+import { normalizeWeb, webLines, webSummary } from './web/brief.mjs';
 
 export { repairJson, replyJson } from './json.mjs'; // where they used to live
 
@@ -61,6 +62,7 @@ export function normalizeBrief(input = {}) {
     styles: pickStyles(input.styleIds),
     hosts: normalizeHosts(input.host, framework.speakers, lang), // the digital host(s) on screen, [] when there is none
     materials: normalizeMaterials(input.materials), // the files from the creator's library this brief uses (src/materials.mjs)
+    web: normalizeWeb(input.web), // what the server read on the web for this brief: its links, a search (src/web/brief.mjs)
   };
 }
 
@@ -89,7 +91,7 @@ export function buildPlan(input) {
 }
 
 /** What the page is told about a plan: the story line with its times, the length, the voiceover budget and the skills in play. */
-export const planSummary = (plan) => ({ timeline: plan.timeline, duration: plan.brief.duration, lang: plan.brief.lang, pace: plan.pace, budget: plan.budget, unit: plan.unit, skills: plan.skills.map(publicSkill) });
+export const planSummary = (plan) => ({ timeline: plan.timeline, duration: plan.brief.duration, lang: plan.brief.lang, pace: plan.pace, budget: plan.budget, unit: plan.unit, skills: plan.skills.map(publicSkill), ...(plan.brief.web && { web: webSummary(plan.brief.web) }) });
 
 /** The shape of a script reply. A video with a host on screen, or with two voices, also names its cast and who is in each frame. */
 const scriptSchema = (brief) => `{
@@ -313,7 +315,7 @@ export function briefLines(brief) {
       'REFERENCE>>>',
     );
   }
-  lines.push(...materialLines(brief.materials));
+  lines.push(...materialLines(brief.materials), ...webLines(brief.web));
   return lines;
 }
 

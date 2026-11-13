@@ -3,7 +3,8 @@
 //   systemPrompt({ skills, tools })     who the assistant is, how it answers, the pictures and clips it can make,
 //                                       and the skills picked for the conversation
 //   turnsFor(messages)                  the conversation as { history, user }: the turns before the last prompt,
-//                                       as many of the latest as fit, and the prompt itself
+//                                       as many of the latest as fit, and the prompt itself, each prompt with
+//                                       what was read on the web for it
 //   briefFromPrompt(text)               a prompt as a brief for the narration agent: the topic, the platform it
 //                                       names and the length it asks for
 //   narrationMarkdown(result, plan)     what the narration agent wrote, as the reply the conversation shows
@@ -81,7 +82,8 @@ export function systemPrompt({ skills = [], tools = {}, now = new Date() } = {})
 export function turnsFor(messages, { budget = contextTokens() } = {}) {
   const turns = [];
   for (const m of messages) {
-    const content = String(m.content || '').trim();
+    // A prompt is read with what the web gave it: the pages it links to, the results of its search (src/web).
+    const content = [String(m.content || '').trim(), m.role === 'user' && m.web?.context].filter(Boolean).join('\n\n');
     if (!content) continue;
     if (turns.at(-1)?.role === m.role) turns.at(-1).content += `\n\n${content}`;
     else turns.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content });

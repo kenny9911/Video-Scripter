@@ -12,6 +12,7 @@
   <script src="theme.js"></script>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="chat.css">
+  <link rel="stylesheet" href="web.css">
 </head>
 <body class="chat-page" data-auth="pending" data-side="open" data-canvas="closed">
   <aside id="side" class="chat-side" aria-label="Conversations">
@@ -94,6 +95,7 @@
               <button id="manageSkills" class="menu-item" type="button" data-icon="settings" data-icon-size="16"><span>Create and manage skills</span></button>
             </div>
           </details>
+          <button id="webToggle" class="btn small" type="button" aria-pressed="false" title="Search the web for this prompt. Links in a prompt are read either way." data-icon="globe" data-icon-size="16"><span>Web</span></button>
           <select id="aspect" class="compact" aria-label="Aspect ratio" hidden></select>
           <select id="seconds" class="compact" aria-label="Length of the clip" hidden></select>
           <span class="spacer"></span>

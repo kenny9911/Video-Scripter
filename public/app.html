@@ -13,6 +13,7 @@
   <script src="theme.js"></script>
   <script src="track.js" defer></script>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="web.css">
 </head>
 <body data-view="brief" data-auth="pending">
   <a class="skip-link" href="#result">Skip to the script</a>
@@ -222,6 +223,18 @@
               <span>Reference material</span>
               <textarea id="reference" rows="5" placeholder="Paste facts, quotes, notes or an article. The script will only use figures and quotes that appear here or in the brief."></textarea>
             </label>
+            <fieldset id="webField" class="field">
+              <legend>Web <em>read before writing</em></legend>
+              <label class="check">
+                <input id="webLinks" type="checkbox" checked>
+                <span>Read the links in the brief and in my documents</span>
+              </label>
+              <label class="check">
+                <input id="webSearch" type="checkbox">
+                <span>Search the web about the topic</span>
+              </label>
+              <p id="webHint" class="hint"></p>
+            </fieldset>
             <label class="check">
               <input id="ttsReady" type="checkbox">
               <span>Voiceover is for text-to-speech (spell out numbers and symbols)</span>
@@ -374,10 +387,15 @@
   <dialog id="settings" class="dialog wide">
     <form id="settingsForm" method="dialog" autocomplete="off">
       <header class="dialog-head">
-        <h2>LLM gateways</h2>
+        <h2>LLM settings</h2>
         <button id="closeSettingsX" class="icon-btn" type="button" aria-label="Close" data-icon="x"></button>
       </header>
       <div class="dialog-body">
+      <div id="settingsTabs" class="seg settings-tabs" role="tablist" aria-label="Settings sections">
+        <button class="seg-btn" type="button" role="tab" data-tab="gateways" aria-selected="true">LLM gateways</button>
+        <button class="seg-btn" type="button" role="tab" data-tab="web" aria-selected="false">Web search</button>
+      </div>
+      <div id="webSettings"></div>
       <p class="hint">Save a gateway for each provider or account, then choose which one writes everyone’s scripts. Keys are stored on this machine in <code>data/gateway.json</code> and are never sent back to the browser.</p>
 
       <div class="gw-layout">
