@@ -7,6 +7,7 @@
 //      ├─ script.html                   the same as a styled page that shows the images and clips
 //      ├─ script.json                   brief, plan, script and a manifest of the media files
 //      ├─ voiceover.txt                 spoken text only, one scene per paragraph
+//      ├─ post.md                       the image post, when one was written: the note to paste and what each card says
 //      ├─ images/scene-01_00m00s-00m04s.png      (…_1.png, …_2-end.png when a scene has several)
 //      ├─ images/host-A.png             the reference portrait of each on-screen host
 //      └─ videos/scene-01_00m00s-00m04s.mp4
@@ -15,6 +16,7 @@ import { readMedia } from './store.mjs';
 import { zip } from './zip.mjs';
 import { scriptHtml } from './html.mjs';
 import { getPlatform } from './platforms.mjs';
+import { postFormat, postMarkdown } from './post.mjs';
 
 const pad = (n) => String(n).padStart(2, '0');
 const stamp = (s) => `${pad(Math.floor(s / 60))}m${pad(Math.round(s % 60))}s`;
@@ -83,6 +85,7 @@ export async function buildPackage(entry, { markdown, lang } = {}) {
     { name: 'script.html', data: scriptHtml(entry, { media: manifest, platformName: getPlatform(entry.platformId)?.name, lang: lang === 'zh' ? 'zh' : 'en' }) },
     { name: 'script.json', data: JSON.stringify(json, null, 2) },
     { name: 'voiceover.txt', data: `${entry.script.scenes.map((sc) => spoken(sc.voiceover)).join('\n\n')}\n` },
+    entry.post?.cards?.length && postFormat(entry.platformId) && { name: 'post.md', data: postMarkdown(entry.post, postFormat(entry.platformId)) },
   ].filter(Boolean);
   files.unshift(...text.map((f) => ({ ...f, name: `${root}/${f.name}` })));
 

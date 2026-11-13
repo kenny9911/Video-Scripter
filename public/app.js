@@ -6,6 +6,7 @@ import { showAuth, wireAccount, fmt, money } from './account.js';
 import { wireTheme, wireLang, enhancePasswords } from './shell.js';
 import { countSpoken, fitDuration, splitNarration, spokenText, MIN_DURATION, MAX_DURATION } from './narration.js';
 import { wireLibrary } from './library.js';
+import { wirePost } from './post.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -49,6 +50,9 @@ const state = {
 
 // The creator's library (素材库, library.js): set once the page knows who is signed in. Until then nothing is picked.
 let library = { selected: () => [], setSelected() {}, has: () => false, open() {}, pick() {}, load() {}, added() {}, saveText: async () => null };
+
+// The image post of a script (图文, post.js): set once the page knows the platforms. A run shows its script or its post (`run.view`).
+let imagePost = { has: () => false, view: () => null };
 
 const HISTORY_KEY = 'video-scripter.history';
 const FORM_KEY = 'video-scripter.brief';
@@ -889,7 +893,7 @@ function openHistory(entry) {
     saveForm();
     toast(t('Brief restored from this script'));
   }
-  state.runs = { [entry.platformId]: { status: 'done', raw: '', brief, plan: entry.plan, script: entry.script, historyId: entry.id, media, styleIds: entry.brief?.styleIds || [] } };
+  state.runs = { [entry.platformId]: { status: 'done', raw: '', brief, plan: entry.plan, script: entry.script, historyId: entry.id, media, styleIds: entry.brief?.styleIds || [], post: entry.post || null } };
   state.teleprompter = {};
   state.active = entry.platformId;
   setView('script');
@@ -925,6 +929,7 @@ function renderHistory() {
                 h('span', {}, t('{n} scenes', { n: e.script.scenes.length })),
                 images > 0 && h('span', {}, t('{n} images', { n: images })),
                 videos > 0 && h('span', {}, t('{n} videos', { n: videos })),
+                e.post?.cards?.length > 0 && h('span', {}, t('Image post')),
               ),
             ),
           );
@@ -2163,6 +2168,14 @@ function renderScript(platformId, run) {
   );
 }
 
+/** Script or image post: the two things one script can be published as, where its platform has both. */
+function formatSwitch(platformId, run) {
+  if (!run.historyId || !imagePost.has(platformId)) return null;
+  const format = platformOf(platformId).post;
+  const tab = (id, label) => h('button', { class: 'seg-btn', type: 'button', role: 'tab', 'aria-selected': String((run.view || 'script') === id), onclick: () => ((run.view = id), render()) }, label);
+  return h('div', { class: 'seg format-switch', role: 'tablist', 'aria-label': t('Video script or image post') }, tab('script', t('Video script')), tab('post', `${t('Image post')}${lang === 'zh' ? (format.name === '图文' ? '' : ` · ${format.name}`) : /^Image (post|note)$/.test(format.nameEn) ? '' : ` · ${format.nameEn}`}`));
+}
+
 function render() {
   renderTabs();
   const run = state.runs[state.active];
@@ -2177,7 +2190,7 @@ function render() {
     return saveDrafts();
   }
   saveDrafts();
-  if (run.status === 'done') return box.replaceChildren(renderScript(state.active, run));
+  if (run.status === 'done') return box.replaceChildren(...[formatSwitch(state.active, run), run.view === 'post' && imagePost.has(state.active) && run.historyId ? imagePost.view(state.active, run) : renderScript(state.active, run)].filter(Boolean));
   if (isWriting(run)) {
     const about = { platform: platformOf(state.active).name, model: run.plan?.model, budget: run.plan?.budget, unit: run.plan?.unit };
     const note = !run.plan
@@ -2737,6 +2750,18 @@ async function boot() {
     $('openLibrary').hidden = true;
     $('assetChips').closest('.field').hidden = true;
   }
+  // A server that has not been restarted since the page was updated knows no image posts yet: the script still shows.
+  if (state.meta.platforms.some((p) => p.post))
+    imagePost = wirePost({
+      toast,
+      copy,
+      platformOf,
+      // The post was written or edited: the history has it too, so reopening the script shows it.
+      changed: (run) => {
+        const entry = state.history.find((e) => e.id === run.historyId);
+        if (entry) entry.post = run.post;
+      },
+    });
   buildForm();
   library.load();
   wireSettings();

@@ -23,6 +23,7 @@ import { streamChat, completeChat, listModels, request, cutShort, GatewayError }
 import { generateImage, createVideo, videoStatus, videoContent, clipSeconds } from './src/gateway/media.mjs';
 import { listHistory, getHistory, addHistory, newHistoryId, saveMedia, linkMedia, serveMedia, mediaOwner, readMedia, deleteUserHistory, transferHistory } from './src/store.mjs';
 import { buildPackage } from './src/package.mjs';
+import { postFormat, publicFormat, buildPostPrompts, parsePost, postFromScript, normalizePost } from './src/post.mjs';
 import { buildPlan, planSummary, buildPrompts, parseScript, settleScript, buildVisualPrompt, buildHostPrompt, showsHost, buildNarrationPrompts, parseNarration, buildRefinePrompts, parseRefined, REFINE_PRESETS } from './src/prompt.mjs';
 import { PACE, MIN_DURATION, MAX_DURATION, normalizeNarration, lockNarration } from './src/narration.mjs';
 import { writeNarration, reviseNarration, checkNarration, AGENT_STEPS } from './src/agent/narrator.mjs';
@@ -432,7 +433,7 @@ const routes = {
 
   'GET /api/meta': route('user', async (req, res) => {
     json(res, 200, {
-      platforms: PLATFORMS.map(({ id, name, nameEn, lang, defaultDuration, durations }) => ({ id, name, nameEn, lang, defaultDuration, durations })),
+      platforms: PLATFORMS.map(({ id, name, nameEn, lang, defaultDuration, durations, banned = [] }) => ({ id, name, nameEn, lang, defaultDuration, durations, banned, post: publicFormat(postFormat(id)) })),
       frameworkGroups: FRAMEWORK_GROUPS,
       frameworks: FRAMEWORKS.map(({ id, group = 'general', name, blurb, topics, needsReference = false, pace, length, board = false, speakers = 1, hosted = false }) => ({ id, group, name, blurb, topics, needsReference, pace, length, board, speakers, hosted })),
       pace: PACE,
@@ -690,6 +691,57 @@ const routes = {
       'cache-control': 'no-store',
     });
     res.end(pkg.buffer);
+  }),
+
+  // ---------- Image posts (图文) ----------
+
+  // Writes the image post of a script: cards and the note under them, for the platform the script was written
+  // for (src/post.mjs). The post is kept on the script, replacing the one before it; the look the creator chose
+  // (theme, size, footer) carries over. Demo mode drafts it from the script's own on-screen text, with no model.
+  'POST /api/post/generate': route('user', async (req, res, user) => {
+    const { historyId, instruction } = await readJson(req);
+    const entry = await ownedHistory(user, historyId);
+    const format = postFormat(entry.platformId);
+    if (!format) throw fail('That platform has no image-post format');
+    const config = await loadConfig();
+    const demo = getProvider(config.provider)?.protocol === 'mock';
+    const invalid = !demo && validateConfig(config);
+    if (invalid) return json(res, 400, { error: `LLM gateway is not configured: ${invalid}` });
+    const look = entry.post ? { theme: entry.post.theme, size: entry.post.size, footer: entry.post.footer } : {};
+    const save = async (post, by) => {
+      const saved = { ...normalizePost({ ...post, ...look }, format), ts: Date.now(), by };
+      await db.update('history', entry.id, (e) => Object.assign(e, { post: saved }));
+      await logActivity(req, user, 'post.write', { taskId: entry.id, title: entry.script.title, platform: entry.platformId, cards: saved.cards.length, model: by });
+      json(res, 200, { post: saved });
+    };
+    if (demo) return save(postFromScript(entry, format), 'demo');
+
+    const prompts = buildPostPrompts(entry, format, { instruction: String(instruction || '') });
+    const started = Date.now();
+    let raw = '';
+    let usage = null;
+    const record = (extra) => recordUsage({ user, taskId: entry.id, kind: 'post', config, ...tokens(usage, prompts, raw), ms: Date.now() - started, ...extra });
+    try {
+      raw = await completeChat(config, { ...prompts, signal: AbortSignal.timeout(280_000), onUsage: (u) => (usage = u) });
+      const post = parsePost(raw, format);
+      await record({});
+      await save(post, config.model || config.name);
+    } catch (err) {
+      const error = err.name === 'TimeoutError' ? 'Timed out after 280s' : err instanceof GatewayError ? err.message : `The model's reply could not be read as an image post: ${err.message}`;
+      await record({ ok: false, error });
+      json(res, 502, failure(req, err, error));
+    }
+  }),
+
+  // Keeps the creator's edits to a post: its text, its cards and how they look.
+  'POST /api/post/save': route('user', async (req, res, user) => {
+    const { historyId, post } = await readJson(req);
+    const entry = await ownedHistory(user, historyId);
+    const format = postFormat(entry.platformId);
+    if (!format) throw fail('That platform has no image-post format');
+    const saved = { ...normalizePost(post, format), ts: Date.now(), by: entry.post?.by || '' };
+    await db.update('history', entry.id, (e) => Object.assign(e, { post: saved }));
+    json(res, 200, { post: saved });
   }),
 
   // Media for one scene, made with the image / video settings of the user's gateway,

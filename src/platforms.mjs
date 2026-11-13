@@ -1,6 +1,10 @@
 // Platform profiles. Each profile is injected into the system prompt, so the notes are
 // written as direct guidance to the script writer. Edit freely: no code depends on the wording.
 // `banned` lists words the narration check (src/agent/review.mjs) flags as an error on that platform.
+// `post` is the platform's image post (图文): the picture sizes it takes (ids from POST_SIZES in src/post.mjs, the
+// first is the default), its limits, and how one is written. A platform without `post` has no such format.
+// The limits are the platforms' own where they publish them (小红书 title and body, TikTok and Instagram from
+// their API references); 视频号 and the 抖音 title are what creators report, so they are kept on the safe side.
 
 export const PLATFORMS = [
   {
@@ -25,6 +29,20 @@ export const PLATFORMS = [
       'pinnedComment：评论区置顶的获客钩子，引导回复【关键词】领取高清讲义 PDF，或私信预约企业内训、架构咨询。',
       'chapters：3分钟以上的视频给出带时间戳的章节进度条，每章标题不超过10个汉字；更短的视频留空数组。',
     ],
+    post: {
+      name: '图文',
+      nameEn: 'Image post',
+      sizes: ['3:4', '1:1'],
+      maxImages: 18,
+      titleMax: 20,
+      bodyMax: 1000,
+      hashtagMax: 8,
+      notes: [
+        '视频号图文靠熟人转发：这组图要像一份可以转给同事的学习材料，一张图一个结论，最后一张是可以抄作业的清单。',
+        '受众偏成熟：语气稳，信息密度高，像懂行的顾问写的要点页，不用网感过重的梗和夸张语气。',
+        '正文说清这组图值得谁看，补充图上放不下的背景和判断，结尾给一个具象的转发指令（转给谁）。',
+      ],
+    },
     compliance: [
       '避免广告法极限词（最、第一、唯一、100%、国家级等）和无法证实的功效/收益承诺。',
       '口播和字幕里不出现“加微信”“微信号”“转账”；引流统一导向“评论区置顶”或“私信”。',
@@ -52,6 +70,20 @@ export const PLATFORMS = [
       '视频描述就是标题文案后接话题标签，保持简短。',
       '置顶评论：抛一个容易回答的问题，或补充一个正片没讲的细节来带评论。',
     ],
+    post: {
+      name: '图文',
+      nameEn: 'Image post',
+      sizes: ['3:4', '9:16'],
+      maxImages: 30,
+      titleMax: 30,
+      bodyMax: 1000,
+      hashtagMax: 5,
+      notes: [
+        '抖音图文是滑着看的，第一张决定用户滑不滑下一张：封面大字要有冲突、反差或直接的利益点。',
+        '节奏比小红书更快：每张图一句话讲一个点，字要大，字要少，看一眼就懂。',
+        '正文就是一句口语化的标题文案，结尾抛一个容易回答的问题带评论。',
+      ],
+    },
     compliance: [
       '避免广告法极限词和医疗、金融类的绝对化承诺。',
       '不要提及微信、其他平台名称或任何站外导流信息。',
@@ -79,6 +111,21 @@ export const PLATFORMS = [
       'hashtags：话题标签5–8个（平台上限10个），格式 #标签：1–2个大类目词 + 2–3个精准长尾词 + 1–2个人群或场景词，放在正文末尾。',
       'pinnedComment：置顶评论，补充一个正片没讲的细节或资源获取方式，引导在评论区提问。',
     ],
+    post: {
+      name: '图文笔记',
+      nameEn: 'Image note',
+      sizes: ['3:4', '1:1'],
+      maxImages: 18,
+      titleMax: 20,
+      bodyMax: 1000,
+      hashtagMax: 10,
+      notes: [
+        '图文笔记靠封面和标题拿点击，靠收藏拿后续分发：封面一句话说清“谁、在什么场景、能得到什么”，并带上核心搜索关键词。',
+        '每张图只讲一个要点，像一页可以单独截图保存的清单；最后一张是可以照着做的总结。',
+        '正文不是图上文字的重复：第一行是钩子并带关键词，中间补充图上放不下的细节和亲身经历，分点成行，结尾一句互动提问。',
+        '第一人称，真实过来人的口吻，像在跟朋友分享；正文可以用表情符号做项目符号，不要硬广口吻和说教感。',
+      ],
+    },
     compliance: [
       '避免广告法极限词（最、第一、唯一、100%、全网最低等）和无法证实的功效承诺；护肤、保健、医疗、金融类内容不做疗效和收益保证，不用“治愈”“根治”“稳赚”这类词。',
       '不做站外导流：口播、字幕和正文里不出现微信号、手机号、二维码、外部链接和其他平台名称；引导统一放在评论区或站内私信。',
@@ -106,6 +153,20 @@ export const PLATFORMS = [
       'The description is the caption plus hashtags.',
       'Pinned comment: ask a specific, easy-to-answer question, or add one detail the video left out.',
     ],
+    post: {
+      name: 'Photo Mode',
+      nameEn: 'Photo Mode',
+      sizes: ['9:16', '3:4'],
+      maxImages: 35,
+      titleMax: 90,
+      bodyMax: 4000,
+      hashtagMax: 5,
+      notes: [
+        'Photo Mode is swiped fast. Slide 1 is the hook and has to make sense on its own: a bold claim, a visible result or an open loop.',
+        'One idea per slide, large text, few words. The last slide pays off the hook and asks a specific question.',
+        'The caption opens with the hook and holds the keywords people would search for. Keep it short.',
+      ],
+    },
     compliance: [
       'No medical, financial or income guarantees. No "link in bio" unless the brief asks for it.',
       'Do not reference a specific trending sound or copyrighted song by name; describe the music mood instead.',
@@ -130,6 +191,22 @@ export const PLATFORMS = [
       '3–5 targeted hashtags at the end of the caption.',
       'Pinned comment: a question that invites people to share their own version or situation.',
     ],
+    post: {
+      name: 'Carousel',
+      nameEn: 'Carousel',
+      sizes: ['4:5', '3:4', '1:1'],
+      maxImages: 20,
+      titleMax: 0, // a carousel has a caption and no title
+      bodyMax: 2200,
+      hashtagMax: 5,
+      fileType: 'jpg', // the publishing API takes JPEG only
+      notes: [
+        'The first slide is the only one seen in the feed: it carries the hook as a headline of under eight words.',
+        'Make slide 2 strong enough to open on as well, and give every slide one idea that reads with no caption.',
+        'End on a summary slide worth saving, with a share prompt that names who to send it to.',
+        'Caption: a first line that works as a hook on its own, two to four short value lines, then one call to action.',
+      ],
+    },
     compliance: [
       'No engagement bait that asks for likes or follows in exchange for nothing.',
       'No before/after health claims or guaranteed results.',

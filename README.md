@@ -15,6 +15,7 @@ It works with the model provider you already use, runs on your own machine or on
 - **Ready to publish.** Titles, cover text, description, hashtags and a pinned comment come with every script.
 - **A narration agent, not a one-shot prompt.** The spoken words are planned on a viewpoint card, written with the skills that fit the brief, then measured, reviewed and corrected before a script is built around them.
 - **Your words, if you want.** Have the narration drafted first, paste your own, or rewrite any beat in the narration editor. The script is then built around it word for word.
+- **Video or image post.** The same script becomes a set of picture cards with the text to post under them, for 小红书 图文, 抖音图文, TikTok Photo Mode and Instagram carousels, counted against each platform's limits.
 - **Storyboards included.** Turn any scene into an image or clip in the video's aspect ratio (9:16, 16:9, 1:1, 3:4 or 4:3), in one of 74 visual styles.
 - **The look picked for you.** Type a topic and the visual style is chosen from it, with the reason and a few alternatives. One click has the model choose instead.
 - **A host who stays the same.** Put a digital presenter on screen, or two for a podcast conversation. Their look is written into the script once, a portrait is made from it, and every scene they are in is drawn from that portrait.
@@ -111,6 +112,29 @@ With pictures or clips in [your library](#your-library), every scene also has **
 ### 5. Export
 
 **Download .zip** packs the script, the voiceover and every generated image and clip into one archive, named and numbered by scene (see [Your work](#your-work)).
+
+## Image posts
+
+Most of these platforms publish a second kind of post besides video: a set of swipeable picture cards with a short text under them (小红书 图文笔记, 抖音图文, 视频号图文, TikTok Photo Mode, an Instagram carousel). A finished script has an **Image post** tab next to **Video script** that turns it into one: the same idea and the same facts, rewritten to be read instead of heard.
+
+**Write the image post** has the model in use write six to nine cards and the text of the post: a cover that carries the hook, one idea per card, at most one quote, and a summary card worth saving. Say what should be different ("for beginners", "a bolder cover") and write it again as often as you like. In demo mode the post is drafted from the script's own on-screen text, with no model.
+
+| Platform | Format | Shapes (first is the default) | Title | Text | Hashtags | File |
+| --- | --- | --- | --- | --- | --- | --- |
+| 小红书 | 图文笔记 | 3:4 (1080×1440), 1:1 | 20 characters | 1,000 | 10 | PNG |
+| 抖音 | 图文 | 3:4, 9:16 | 30 | 1,000 | 5 | PNG |
+| 视频号 | 图文 | 3:4, 1:1 | 20 | 1,000 | 8 | PNG |
+| TikTok | Photo Mode | 9:16 (1080×1920), 3:4 | 90 | 4,000 | 5 | PNG |
+| Instagram | Carousel | 4:5 (1080×1350), 3:4, 1:1 | none | 2,200 | 5 | JPEG |
+
+YouTube Shorts has no such format. The 小红书, TikTok and Instagram limits are the platforms' own; the 视频号 limits and the 抖音 title are what creators report, kept on the safe side.
+
+- **The cards are drawn in your browser**, at the size the platform takes, so what you see is the picture you download. Every word can be changed and the card redraws as you type; wrap a phrase in `** **` to mark it. Type shrinks to fit and a card says so when it holds more text than it can show.
+- **Six themes**: cream paper, clean white, dark, bold colour, soft gradient and notebook. A line at the foot of every card can carry your name, and the cover can sit on one of the script's generated images.
+- **Counted against the platform.** The title, the text with its hashtags and the number of hashtags are counted as you type. Words the platform throttles are flagged.
+- **Out of the app in one step.** **Download images (.zip)** gives the numbered pictures with the title and text in `post.txt`. On a phone, **Share to an app** hands the pictures to the platform's own app through the share sheet and copies the title and text, ready to paste.
+
+The cards are set in the fonts of the device, so no font is downloaded; a card drawn on a Mac and on a Windows PC uses each one's own Chinese typeface. Nothing is posted for you: the app has no access to your accounts on these platforms.
 
 ## The narration agent
 
@@ -429,6 +453,7 @@ script.md                              the full script, in the interface languag
 script.html                            the same as a styled page that shows the images and clips; opens offline
 script.json                            brief, plan, script, and a list of the media files
 voiceover.txt                          spoken text only, one scene per paragraph
+post.md                                the image post, when one was written: the text to paste and what each card says
 images/host-A.png                      the reference portrait of each on-screen host
 images/scene-01_00m00s-00m04s.png      latest image per scene
 videos/scene-01_00m00s-00m04s.mp4      latest clip per scene
@@ -550,6 +575,7 @@ src/vision.mjs          the model in use looks at pictures: a picture's note, th
 src/materials.mjs       the library files one brief uses: what the prompts say about them, and the scene that shows one
 api/index.mjs           serverless entry point (Vercel); vercel.json routes requests to it
 src/package.mjs         the downloadable .zip for one script (src/zip.mjs writes the archive)
+src/post.mjs            the image post of a script: what each platform takes, the prompt, reading the reply
 public/                 the web UI: index.html and zh.html are the home page (English, 中文), app.html the app,
                         admin.html the user administration page
 src/site.mjs            the site's public address, for canonical links, the sitemap and robots.txt
@@ -571,6 +597,8 @@ test/                   node --test
 | Which styles are suggested for which topics, structures and platforms | The tables in `src/suggest.mjs` |
 | The ready-made hosts | `HOST_PRESETS` in `src/cast.mjs` |
 | Multi-image modes | `src/shots.mjs` |
+| What a platform's image post takes and how one is written | `post` in its entry in `src/platforms.mjs` |
+| The themes of the image-post cards | `THEMES` in `public/cards.js` |
 | Provider presets | `src/gateway/providers.mjs` |
 | Interface translations | `public/i18n.js` |
 
@@ -620,6 +648,8 @@ Image and video generation use the OpenAI-compatible media endpoints.
 | `GET` | `/api/history` | The signed-in user's scripts, newest first |
 | `POST` | `/api/history` | Import a script |
 | `POST` | `/api/history/package` | `{ id, markdown }` Returns the script's `.zip` |
+| `POST` | `/api/post/generate` | `{ historyId, instruction? }` Writes the image post of a script and keeps it on the script: `{ post }` with `title`, `titles`, `body`, `hashtags` and `cards` |
+| `POST` | `/api/post/save` | `{ historyId, post }` Keeps the creator's edits to a post: its text, its cards, and their theme, shape and footer |
 | `POST` | `/api/media/image` | `{ visual, camera, historyId, sceneId }` Makes and stores an image, returns `{ url }`. `referenced: true` when a host portrait was used as the reference |
 | `POST` | `/api/media/host` | `{ historyId, hostId, aspectRatio, styleIds }` Makes and stores the reference portrait of host `A` or `B` of a script, returns `{ url }` |
 | `POST` | `/api/styles/suggest` | `{ ...brief, lang }` The visual style for a brief: `{ styleIds, alternatives, reason, by }`. By rule, with no model call; `by: "model"` has the model in use choose |
