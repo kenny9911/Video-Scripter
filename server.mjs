@@ -19,7 +19,7 @@ import { IMAGE_MODES, SHOT_LABELS, MAX_IMAGES, planShots } from './src/shots.mjs
 import { ASPECTS } from './src/aspects.mjs';
 import { loadStore, loadConfig, saveStore, mergeConfig, publicStore, validateConfig, enabledModels, mediaTarget } from './src/gateway/config.mjs';
 import { fetchPriceList } from './src/gateway/prices.mjs';
-import { streamChat, completeChat, listModels, request, cutShort, GatewayError } from './src/gateway/client.mjs';
+import { streamChat, completeChat, listModels, endpointOf, request, cutShort, GatewayError } from './src/gateway/client.mjs';
 import { generateImage, createVideo, videoStatus, videoContent, clipSeconds } from './src/gateway/media.mjs';
 import { listHistory, getHistory, addHistory, newHistoryId, saveMedia, linkMedia, serveMedia, mediaOwner, readMedia, deleteUserHistory, transferHistory } from './src/store.mjs';
 import { buildPackage } from './src/package.mjs';
@@ -251,6 +251,8 @@ async function placeSceneAssets(user, entry) {
   return scenes.length ? (await getHistory(entry.id)) || entry : entry;
 }
 
+const HEARTBEAT_MS = Number(process.env.STREAM_HEARTBEAT_MS) || 15_000; // how often a quiet event stream says it is still there (the tests make it short)
+
 /**
  * Start a Server-Sent Events reply: `send(event, data)` writes one event. `signal` fires when the browser goes
  * away (an AbortError), and when the time the host gives one request is nearly up (a TimeoutError, see
@@ -261,8 +263,12 @@ function eventStream(req, res) {
   const abort = new AbortController();
   const budget = workBudgetMs();
   const timer = budget ? setTimeout(() => abort.abort(outOfTime()), Math.max(0, (req.started || Date.now()) + budget - Date.now())) : null;
+  // A model may think for minutes before it writes a word, and a proxy on the way to the browser drops a
+  // connection that carries nothing for that long. A comment line every so often keeps it open; the page skips it.
+  const beat = setInterval(() => res.write(': waiting\n\n'), HEARTBEAT_MS);
   res.on('close', () => {
     clearTimeout(timer);
+    clearInterval(beat);
     abort.abort();
   });
   return { send: (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`), signal: abort.signal };
@@ -537,13 +543,14 @@ const routes = {
   // With no `prompt` it is a connectivity check. With one (Test API) the prompt is sent as it is and the
   // model's reply comes back, with how long it took and what it cost: an empty reply counts as a failure.
   // A failure carries `endpoint`: the address called, its HTTP status and the body it answered with, as sent.
+  // A success carries `via`: the address that answered, which for a Gemini model on a gateway is its Gemini door.
   'POST /api/gateway/test': route('admin', async (req, res, user) => {
     const body = await readJson(req);
     const config = await draftConfig(body);
     const asked = typeof body.prompt === 'string' ? body.prompt.trim().slice(0, TEST_PROMPT_MAX) : '';
     const started = Date.now();
     const prompts = asked ? { system: 'You are a helpful assistant. Answer briefly.', user: asked } : { system: 'You are a connectivity check.', user: 'Reply with the single word OK.' };
-    const seconds = asked ? 60 : 30;
+    const seconds = 60; // a model that thinks first can take half a minute over one word
     let usage = null;
     try {
       const reply = (await completeChat(config, { ...prompts, maxTokens: asked ? 1024 : 256, signal: AbortSignal.timeout(seconds * 1000), onUsage: (u) => (usage = u) })).trim();
@@ -551,7 +558,8 @@ const routes = {
       const spent = tokens(usage, prompts, reply);
       const used = await recordUsage({ user, kind: 'test', config, ...spent, ms: Date.now() - started });
       const shownReply = reply.slice(0, asked ? TEST_REPLY_MAX : 120);
-      json(res, 200, { ok: true, ms: Date.now() - started, model: config.model, reply: shownReply, ...(asked && { ...spent, truncated: shownReply.length < reply.length, ...(used.priced && { cost: used.cost, currency: used.currency }) }) });
+      const via = (await endpointOf(config).catch(() => null))?.url;
+      json(res, 200, { ok: true, ms: Date.now() - started, model: config.model, reply: shownReply, ...(via && { via }), ...(asked && { ...spent, truncated: shownReply.length < reply.length, ...(used.priced && { cost: used.cost, currency: used.currency }) }) });
     } catch (err) {
       const error = err.name === 'TimeoutError' ? `Timed out after ${seconds}s` : err.message;
       await recordUsage({ user, kind: 'test', config, ok: false, error, ms: Date.now() - started });

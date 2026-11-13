@@ -2624,6 +2624,9 @@ function setSettingsStatus(text, kind) {
 /** What the endpoint itself answered a failed test with, word for word: the address, the HTTP status and the body. */
 const exactAnswer = (e) => (e ? `${t('The endpoint answered:')}\n${e.url}\nHTTP ${e.status}${e.statusText ? ` ${e.statusText}` : ''}\n${e.body || t('(an empty body)')}` : '');
 
+/** Where a test that worked was answered: the address the gateway was called at, which is not always the one typed in. */
+const calledAt = (via) => (via ? ` ${t('Called at {url}', { url: via })}` : '');
+
 /** The Test API panel: the reply or the error, and a line about it. */
 function showTest(text, kind = '', meta = '') {
   const box = $('testReply');
@@ -2660,7 +2663,7 @@ function wireSettings() {
     setSettingsStatus(t('Testing…'));
     try {
       const r = await api('/api/gateway/test', { method: 'POST', body: settingsPayload() });
-      if (r.ok) setSettingsStatus(t('Connected in {ms} ms. {model} replied: “{reply}”', { ms: r.ms, model: r.model, reply: r.reply }), 'ok');
+      if (r.ok) setSettingsStatus(t('Connected in {ms} ms. {model} replied: “{reply}”', { ms: r.ms, model: r.model, reply: r.reply }) + calledAt(r.via), 'ok');
       else setSettingsStatus(explain(r.error, r.cause), 'bad');
     } catch (err) {
       setSettingsStatus(err.message, 'bad');
@@ -2677,7 +2680,7 @@ function wireSettings() {
     showTest('', '', t('Waiting for the model…'));
     try {
       const r = await api('/api/gateway/test', { method: 'POST', body: { ...settingsPayload(), prompt } });
-      if (r.ok) showTest(r.reply, 'ok', t('{model} replied in {ms} ms · {input} tokens in, {output} out', { model: r.model, ms: fmt(r.ms), input: fmt(r.inputTokens), output: fmt(r.outputTokens) }) + (r.currency ? ` · ${money({ [r.currency]: r.cost })}` : '') + (r.truncated ? ` · ${t('reply cut short here')}` : ''));
+      if (r.ok) showTest(r.reply, 'ok', t('{model} replied in {ms} ms · {input} tokens in, {output} out', { model: r.model, ms: fmt(r.ms), input: fmt(r.inputTokens), output: fmt(r.outputTokens) }) + (r.currency ? ` · ${money({ [r.currency]: r.cost })}` : '') + (r.truncated ? ` · ${t('reply cut short here')}` : '') + (r.via ? ` ·${calledAt(r.via)}` : ''));
       else showTest([explain(r.error, r.cause), exactAnswer(r.endpoint)].filter(Boolean).join('\n\n'), 'bad', t('No reply after {ms} ms', { ms: fmt(r.ms) }));
     } catch (err) {
       showTest(shown(err), 'bad');

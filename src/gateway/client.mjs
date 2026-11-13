@@ -7,7 +7,15 @@
 //   in the middle of one    a stream that breaks, or ends before the reply is finished, is picked up where it
 //                           stopped: the model is shown what it had written and asked for the rest (streamChat)
 // `onRetry(info)` tells the caller each time, so the page can say what is going on.
+//
+// Three wire formats are spoken: OpenAI chat/completions, Anthropic messages and Gemini generateContent.
+// The provider preset names the format, with one exception that a gateway forces on us (wireFor): a gateway
+// that fronts several vendors (Sub2API, new-api) serves each key in its upstream's own format, and its
+// OpenAI-style door for a Gemini key is a conversion that may be switched off, rate-limited or broken while
+// the Gemini door works. So a Gemini model on an OpenAI-compatible gateway is called in Gemini's format
+// wherever the gateway offers that model there. test/gemini.test.mjs holds this in place.
 
+import { createHash } from 'node:crypto';
 import { getProvider } from './providers.mjs';
 import { validateConfig } from './config.mjs';
 import { mockStream } from './mock.mjs';
@@ -46,7 +54,7 @@ export function isTransient(err) {
   if (!err || isAbort(err)) return false;
   if (err.unreachable) return !HOPELESS.test(`${err.code || ''} ${err.message}`);
   if (!err.upstream) return false;
-  if (err.midstream) return !/authenti|permission|invalid_request|not_found|billing|quota|insufficient/i.test(`${err.kind || ''}`);
+  if (err.midstream) return !/authenti|permission|invalid_request|invalid_argument|failed_precondition|not_found|billing|quota|insufficient/i.test(`${err.kind || ''}`);
   return TRANSIENT.has(err.status) || (err.status === 429 && !outOfCredit(err.message));
 }
 
@@ -79,15 +87,86 @@ export function apiBase(baseUrl) {
   }
 }
 
-export function endpointFor(protocol, baseUrl) {
+/**
+ * Where a Gemini-format API hangs off an address: the address without the version, or the OpenAI-style path,
+ * it may have been saved with. https://gateway.example, …/v1, …/v1beta, …/v1beta/openai and
+ * …/v1/chat/completions all give https://gateway.example, and the API is called under its /v1beta.
+ */
+export function geminiRoot(baseUrl) {
+  return trimSlash(String(baseUrl || '').trim())
+    .replace(/\/chat\/completions$/, '')
+    .replace(/\/openai$/, '')
+    .replace(/\/v1(beta)?$/, '');
+}
+
+const bareModel = (model) => String(model || '').trim().replace(/^models\//, '');
+
+/** The address a reply is asked for at. The Gemini format names the model in the address; the others in the body. */
+export function endpointFor(protocol, baseUrl, model = '') {
   if (protocol === 'anthropic') {
     const base = trimSlash(baseUrl);
     if (base.endsWith('/messages')) return base;
     return `${base.replace(/\/v1$/, '')}/v1/messages`;
   }
+  if (protocol === 'gemini') return `${geminiRoot(baseUrl)}/v1beta/models/${encodeURIComponent(bareModel(model))}:streamGenerateContent?alt=sse`;
   const base = apiBase(baseUrl);
   return base.endsWith('/chat/completions') ? base : `${base}/chat/completions`;
 }
+
+// ---------- Which door of a gateway a Gemini model is called at ----------
+
+// What each gateway offers in the Gemini format, as it last said: `${origin}\n${key hash}` -> { at, models }.
+// Asked once and remembered for a while, so the question costs one short request, not one per call.
+const geminiDoors = new Map();
+const DOOR_TTL_MS = 10 * 60_000;
+const DOOR_ASK_MS = 8_000;
+const doorKey = (config) => `${geminiRoot(config.baseUrl)}\n${createHash('sha256').update(String(config.apiKey || '')).digest('hex').slice(0, 16)}`;
+/** Forget what the gateways said (the tests start clean with this). */
+export const forgetDoors = () => geminiDoors.clear();
+
+/** True for a model that is Gemini's by its name: gemini-2.5-pro, models/gemini-4-carbon-high. Not vendor/gemini-…, which names a route of an aggregator. */
+export const isGeminiModel = (model) => /^gemini[-_.\d]/i.test(bareModel(model));
+
+/**
+ * The Gemini models a gateway offers this key in Gemini's own format: a Set of names, empty when it has no
+ * such door (a 404, or anything that is not a model list). Null when it could not be asked just now.
+ */
+async function geminiModelsAt(config, { signal } = {}) {
+  const key = doorKey(config);
+  const known = geminiDoors.get(key);
+  if (known && Date.now() - known.at < DOOR_TTL_MS) return known.models;
+  let models = null;
+  try {
+    const within = signal ? AbortSignal.any([signal, AbortSignal.timeout(DOOR_ASK_MS)]) : AbortSignal.timeout(DOOR_ASK_MS);
+    const res = await fetch(`${geminiRoot(config.baseUrl)}/v1beta/models?pageSize=1000`, { headers: { accept: 'application/json', ...(config.apiKey && { 'x-goog-api-key': config.apiKey }) }, signal: within });
+    const body = res.ok ? await res.json().catch(() => null) : null;
+    // A gateway that answers but has no list here has no Gemini door; one that is failing right now (5xx, a rate limit) is asked again next time.
+    if (Array.isArray(body?.models)) models = new Set(body.models.filter((m) => !m?.supportedGenerationMethods || m.supportedGenerationMethods.includes('streamGenerateContent') || m.supportedGenerationMethods.includes('generateContent')).map((m) => bareModel(m?.name)));
+    else if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 429 && res.status !== 408)) models = new Set();
+    if (!res.ok) await res.body?.cancel().catch(() => {}); // an answer that was not read is let go
+  } catch (err) {
+    if (signal?.aborted) throw signal.reason;
+    // Unreachable, or slow: nothing is concluded, and the OpenAI-style door is used for this call.
+  }
+  if (models) geminiDoors.set(key, { at: Date.now(), models });
+  return models;
+}
+
+/**
+ * The wire format a gateway is called in for this model: the one its provider preset names, except that a
+ * Gemini model on an OpenAI-compatible gateway is called in Gemini's own format when the gateway offers the
+ * model there. An address that asks for the OpenAI-style door by name (…/openai, …/chat/completions) is
+ * taken at its word.
+ */
+export async function wireFor(config, { signal } = {}) {
+  const protocol = getProvider(config.provider)?.protocol;
+  if (protocol !== 'openai' || !isGeminiModel(config.model) || /\/(openai|chat\/completions)\/?$/.test(String(config.baseUrl || '').trim())) return protocol;
+  const offered = await geminiModelsAt(config, { signal });
+  return offered?.has(bareModel(config.model)) ? 'gemini' : 'openai';
+}
+
+/** A door that turned out not to work for a reply is not tried again for a while. */
+const closeDoor = (config) => geminiDoors.set(doorKey(config), { at: Date.now(), models: new Set() });
 
 /**
  * What the model is told when its reply broke off: it sees what it had written (as its own turn) and is asked
@@ -101,10 +180,16 @@ function withImages(protocol, user, images) {
   if (!images?.length) return user;
   const data = (img) => Buffer.from(img.bytes).toString('base64');
   if (protocol === 'anthropic') return [...images.map((img) => ({ type: 'image', source: { type: 'base64', media_type: img.type, data: data(img) } })), { type: 'text', text: user }];
+  if (protocol === 'gemini') return [{ text: user }, ...images.map((img) => ({ inlineData: { mimeType: img.type, data: data(img) } }))];
   return [{ type: 'text', text: user }, ...images.map((img) => ({ type: 'image_url', image_url: { url: `data:${img.type};base64,${data(img)}` } }))];
 }
 
-function buildRequest(protocol, config, { system, user, images, maxTokens, partial = '', history = [] }, withUsage = true) {
+/**
+ * One request in a protocol's own shape. `extras` asks for what a provider may refuse and the request works
+ * without: token counts in the stream (OpenAI), the model's thoughts in the stream (Gemini).
+ */
+function buildRequest(protocol, config, { system, user, images, maxTokens, partial = '', history = [] }, extras = true) {
+  const withUsage = extras;
   const headers = { 'content-type': 'application/json', accept: 'text/event-stream' };
   // The turns of a conversation so far, then this one. A reply that is being picked up: the model's own unfinished turn, then the request for the rest.
   const turns = [...history, { role: 'user', content: withImages(protocol, user, images) }, ...(partial ? [{ role: 'assistant', content: partial }, { role: 'user', content: continueFrom(partial) }] : [])];
@@ -114,6 +199,24 @@ function buildRequest(protocol, config, { system, user, images, maxTokens, parti
     return {
       headers,
       body: { model: config.model, max_tokens: maxTokens || 8192, system, messages: turns, stream: true },
+    };
+  }
+  if (protocol === 'gemini') {
+    if (config.apiKey) headers['x-goog-api-key'] = config.apiKey;
+    // The model is named in the address. No output limit is sent: a thinking model spends it on its thoughts
+    // first, and a small one leaves nothing for the reply.
+    const parts = (content) => (typeof content === 'string' ? [{ text: content }] : content);
+    return {
+      headers,
+      body: {
+        ...(system && { systemInstruction: { parts: [{ text: system }] } }),
+        contents: turns.map((t) => ({ role: t.role === 'assistant' ? 'model' : 'user', parts: parts(t.content) })),
+        // The thoughts are asked for so that the stream starts at once and keeps moving. Without them a model
+        // that thinks for two minutes sends nothing for two minutes, and the network in front of a gateway
+        // gives up on a silent connection after about 100 seconds (Cloudflare's 524). They are not part of
+        // the reply (deltaText drops them). A model that cannot think refuses the option; streamOnce asks again without it.
+        ...(extras && { generationConfig: { thinkingConfig: { includeThoughts: true } } }),
+      },
     };
   }
   if (config.apiKey) headers.authorization = `Bearer ${config.apiKey}`;
@@ -134,6 +237,11 @@ function deltaText(protocol, evt) {
     if (evt.type === 'error') throw Object.assign(new GatewayError(evt.error?.message || 'Upstream stream error'), { kind: evt.error?.type || '' });
     return evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta' ? evt.delta.text : '';
   }
+  if (protocol === 'gemini') {
+    if (evt.error) throw Object.assign(new GatewayError(evt.error.message || 'Upstream stream error'), { kind: `${evt.error.status || ''} ${evt.error.code || ''}` });
+    // A part marked `thought` is the model thinking aloud, and one with only a signature carries no text: neither is the reply.
+    return (evt.candidates?.[0]?.content?.parts || []).map((p) => (p?.thought ? '' : p?.text || '')).join('');
+  }
   if (evt.error) throw Object.assign(new GatewayError(evt.error.message || 'Upstream stream error'), { kind: `${evt.error.type || ''} ${evt.error.code || ''}` });
   return evt.choices?.[0]?.delta?.content || '';
 }
@@ -141,6 +249,8 @@ function deltaText(protocol, evt) {
 /** Why the provider says a reply ended, when a stream event says so ('' otherwise): "stop", "end_turn", "length", "max_tokens"... */
 function stopReason(protocol, evt) {
   if (protocol === 'anthropic') return evt.type === 'message_stop' ? 'stop' : (evt.type === 'message_delta' && evt.delta?.stop_reason) || '';
+  // Gemini: STOP, MAX_TOKENS, SAFETY, RECITATION…, or a prompt it would not take at all (blockReason).
+  if (protocol === 'gemini') return evt.promptFeedback?.blockReason ? `blocked: ${evt.promptFeedback.blockReason}`.toLowerCase() : String(evt.candidates?.[0]?.finishReason || '').toLowerCase();
   return evt.choices?.[0]?.finish_reason || '';
 }
 
@@ -212,6 +322,12 @@ function usageOf(protocol, evt) {
     const u = evt.message?.usage || evt.usage;
     if (!u) return null;
     return { ...(u.input_tokens != null && { inputTokens: u.input_tokens }), ...(u.output_tokens != null && { outputTokens: u.output_tokens }) };
+  }
+  if (protocol === 'gemini') {
+    // Every chunk carries the counts so far. What the model thought is output it is billed for, though it is not in the reply.
+    const u = evt.usageMetadata;
+    if (!u) return null;
+    return { ...(u.promptTokenCount != null && { inputTokens: u.promptTokenCount }), ...((u.candidatesTokenCount != null || u.thoughtsTokenCount != null) && { outputTokens: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0) }) };
   }
   const u = evt.usage;
   if (!u) return null;
@@ -313,6 +429,7 @@ export async function request(url, init = {}, { retries = retryPolicy.retries, t
 export function modelsEndpointFor(protocol, baseUrl) {
   const base = trimSlash(baseUrl);
   if (protocol === 'anthropic') return `${base.replace(/\/messages$/, '').replace(/\/v1$/, '')}/v1/models?limit=1000`;
+  if (protocol === 'gemini') return `${geminiRoot(base)}/v1beta/models?pageSize=1000`;
   return `${apiBase(base.replace(/\/chat\/completions$/, ''))}/models`;
 }
 
@@ -327,6 +444,8 @@ export async function listModels(config, { signal } = {}) {
   if (protocol === 'anthropic') {
     if (config.apiKey) headers['x-api-key'] = config.apiKey;
     headers['anthropic-version'] = '2023-06-01';
+  } else if (protocol === 'gemini') {
+    if (config.apiKey) headers['x-goog-api-key'] = config.apiKey;
   } else if (config.apiKey) headers.authorization = `Bearer ${config.apiKey}`;
 
   const url = modelsEndpointFor(protocol, config.baseUrl);
@@ -335,6 +454,8 @@ export async function listModels(config, { signal } = {}) {
   const rows = Array.isArray(body) ? body : body?.data || body?.models;
   if (!Array.isArray(rows)) throw new GatewayError(`${new URL(url).host} did not return a model list`, 502);
   const ids = rows
+    // Gemini's list says what each model can do: one that only embeds text cannot write a script.
+    .filter((m) => !Array.isArray(m?.supportedGenerationMethods) || m.supportedGenerationMethods.some((how) => /generateContent$/i.test(how)))
     .map((m) => (typeof m === 'string' ? m : m?.id || m?.name || ''))
     .map((id) => String(id).replace(/^models\//, ''))
     .filter(Boolean);
@@ -356,7 +477,9 @@ async function* streamOnce(protocol, url, config, { system, user, images, maxTok
   try {
     res = await send(true);
   } catch (err) {
-    if (protocol !== 'openai' || err.status !== 400 || !/stream_options|include_usage|unrecognized|unknown|extra/i.test(err.message)) throw err;
+    // An option this request can do without, refused: token counts in the stream, or a Gemini model's thoughts.
+    const optional = protocol === 'openai' ? /stream_options|include_usage|unrecognized|unknown|extra/i : protocol === 'gemini' ? /think|generationConfig|generation_config|unknown name|unrecognized|invalid json payload/i : null;
+    if (err.status !== 400 || !optional?.test(err.message)) throw err;
     res = await send(false);
   }
 
@@ -434,14 +557,16 @@ async function* streamOnce(protocol, url, config, { system, user, images, maxTok
 export async function* streamChat(config, { system, user, images, signal, maxTokens, meta, onUsage, onRetry, partial = '', history = [], json = true }) {
   const invalid = validateConfig(config);
   if (invalid) throw new GatewayError(invalid, 400);
-  const { protocol } = getProvider(config.provider);
+  const preset = getProvider(config.provider).protocol;
 
-  if (protocol === 'mock') {
+  if (preset === 'mock') {
     yield* mockStream({ signal, meta, partial });
     return;
   }
 
-  const url = endpointFor(protocol, config.baseUrl);
+  // The format the preset names, or Gemini's own for a Gemini model the gateway offers there (wireFor).
+  let protocol = await wireFor(config, { signal });
+  let url = endpointFor(protocol, config.baseUrl, config.model);
   const usage = {};
   let said = String(partial || '');
   let idle = 0; // attempts in a row that added nothing
@@ -454,10 +579,30 @@ export async function* streamChat(config, { system, user, images, signal, maxTok
       }
       break;
     } catch (err) {
+      // The Gemini door was chosen here, not by the preset, and the gateway has no reply to give at it (no such
+      // route): the door the preset names is used instead, and this one is left alone for a while.
+      if (protocol !== preset && !said && !err.midstream && err.upstream && [404, 405, 501].includes(err.status)) {
+        closeDoor(config);
+        protocol = preset;
+        url = endpointFor(protocol, config.baseUrl, config.model);
+        resumes--;
+        continue;
+      }
       idle = said.length - had >= PROGRESS ? 0 : idle + 1;
       // Once part of a reply is in hand it is not given up lightly: a provider that refuses the request for the rest
       // (no capacity, again) is asked again like one that broke off, where a reply that never began would end here.
       const again = (err.midstream || said) && isTransient(err) && idle <= retryPolicy.resumes && resumes < retryPolicy.maxResumes && !signal?.aborted;
+      // The Gemini door stayed shut through every try (no capacity, a rate limit of its own) and nothing was
+      // written: the gateway's other door is asked, for this reply only. Each door of a gateway has its own bad
+      // moments, and they seldom share one.
+      if (!again && protocol !== preset && !said && isTransient(err) && !signal?.aborted) {
+        onRetry?.({ attempt: 1, of: retryPolicy.retries, status: err.status, host: err.host, waitMs: 0, resumed: false, reason: err.message.slice(0, 200) });
+        protocol = preset;
+        url = endpointFor(protocol, config.baseUrl, config.model);
+        resumes = -1;
+        idle = 0;
+        continue;
+      }
       if (!again) throw resumes ? Object.assign(err, { attempts: resumes + 1 }) : err;
       const waitMs = pauseFor(err, 0);
       onRetry?.({ attempt: resumes + 1, of: retryPolicy.maxResumes, host: err.host, waitMs, resumed: Boolean(said), cut: Boolean(err.cut), written: said.length, reason: err.message.slice(0, 200) });
@@ -465,6 +610,14 @@ export async function* streamChat(config, { system, user, images, signal, maxTok
     }
   }
   if (onUsage && (usage.inputTokens != null || usage.outputTokens != null)) onUsage(usage);
+}
+
+/** Where a reply from this gateway and model is asked for: { protocol, url } (the address without its query). */
+export async function endpointOf(config, { signal } = {}) {
+  const preset = getProvider(config.provider)?.protocol;
+  if (!preset || preset === 'mock') return { protocol: preset || '', url: '' };
+  const protocol = await wireFor(config, { signal });
+  return { protocol, url: endpointFor(protocol, config.baseUrl, config.model).split('?')[0] };
 }
 
 export async function completeChat(config, opts) {

@@ -2,8 +2,11 @@
 // `protocol` decides which wire adapter is used:
 //   - "openai"    : POST {baseUrl}/chat/completions  (OpenAI-compatible; most vendors)
 //   - "anthropic" : POST {baseUrl}/v1/messages       (Anthropic Messages API)
+//   - "gemini"    : POST {baseUrl}/v1beta/models/{model}:streamGenerateContent   (Gemini API)
 //   - "mock"      : offline canned output, for trying the UI without a key
 // baseUrl and model are only defaults; both are editable in Settings.
+// A Gemini model on an OpenAI-compatible gateway is called in Gemini's format wherever the gateway offers it
+// there, whatever the preset says (wireFor in client.mjs): no setting has to be changed for that.
 
 export const PROVIDERS = [
   { id: 'openai', label: 'OpenAI', protocol: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o', needsKey: true },
@@ -18,6 +21,7 @@ export const PROVIDERS = [
   { id: 'ollama', label: 'Ollama (local)', protocol: 'openai', baseUrl: 'http://localhost:11434/v1', model: '', modelHint: 'a model you have pulled', needsKey: false },
   { id: 'custom', label: 'Custom (OpenAI-compatible)', protocol: 'openai', baseUrl: '', model: '', needsKey: false },
   { id: 'custom-anthropic', label: 'Custom (Anthropic-compatible)', protocol: 'anthropic', baseUrl: '', model: '', needsKey: false },
+  { id: 'custom-gemini', label: 'Custom (Gemini-compatible)', protocol: 'gemini', baseUrl: '', model: '', modelHint: 'e.g. gemini-2.5-flash', needsKey: false },
   { id: 'mock', label: 'Demo (offline, no key)', protocol: 'mock', baseUrl: '', model: 'demo', needsKey: false },
 ];
 

@@ -424,7 +424,7 @@ Generation goes through a **gateway**: a provider, its base URL, an API key and 
 
 ### Supported providers
 
-OpenAI, Anthropic (Claude), DeepSeek, 通义千问 Qwen, 豆包 Doubao, Moonshot Kimi, 智谱 GLM, Google Gemini, OpenRouter and Ollama (local), plus custom OpenAI-compatible and Anthropic-compatible endpoints and the offline demo.
+OpenAI, Anthropic (Claude), DeepSeek, 通义千问 Qwen, 豆包 Doubao, Moonshot Kimi, 智谱 GLM, Google Gemini, OpenRouter and Ollama (local), plus custom OpenAI-compatible, Anthropic-compatible and Gemini-compatible endpoints and the offline demo.
 
 Preset base URLs and model names are starting points; edit them to match your account.
 
@@ -450,6 +450,24 @@ Each gateway has an **Images and videos** section with a separate BASE_URL_API, 
 - Size is sent only if you fill it in.
 - **List available image models** and **video models** ask that address for its models. Providers return every model they have, so names that look like image or video models are listed first.
 
+### Gemini models behind a gateway
+
+A gateway that fronts several vendors (Sub2API, new-api and the like) serves each key in its upstream's own format. For a key of a Gemini group that format is Gemini's (`/v1beta/models/{model}:streamGenerateContent`); the gateway's OpenAI-style address may answer the same key with a rate limit, a refusal to convert, or nothing at all. So the app picks the door itself:
+
+- A model whose name starts with `gemini`, on a gateway saved as OpenAI-compatible, is called in Gemini's format when the gateway lists that model at `/v1beta/models` for the key. The gateway is asked once and the answer is kept for ten minutes. Nothing has to be changed in LLM settings, and a gateway with no such door is called as before.
+- When the Gemini door stays shut through every retry (no capacity, a rate limit of its own) and nothing has been written, the gateway's OpenAI-style door is asked for that one reply. Each door has its own bad spells, and they seldom coincide.
+- An address that names the OpenAI-style door (`…/v1beta/openai`, `…/chat/completions`) is taken at its word, and so is a model named as an aggregator names it (`google/gemini-2.5-pro`).
+- The **Custom (Gemini-compatible)** preset speaks Gemini's format outright, for Google's own API or a proxy of it.
+- Every Gemini request asks for the model's thoughts to be streamed. They are not part of the reply; they keep the connection moving while a model thinks for a minute or two, which a network in front of the gateway would otherwise cut off as silent (Cloudflare's `524`).
+
+**Test connection** says which address answered. When a provider starts failing, check the doors before changing a setting:
+
+```bash
+npm run check:gateways -- --doors
+```
+
+It puts one short question to the gateway in use through the app's own client, then to each wire format the gateway might speak, and prints the status of each. `--all` checks every saved gateway and every enabled model.
+
 ### When the provider is unsteady
 
 Providers, and the gateways in front of them, fail in passing: no capacity for a moment, a timeout, a reply that stops half-way. The app rides these out by itself.
@@ -459,6 +477,7 @@ Providers, and the gateways in front of them, fail in passing: no capacity for a
 | `502`, `503`, `504`, `529`, a rate limit (`429`) or a dropped connection before the reply starts | Asks again, up to three more times, with a pause that grows each time (about 1, 2 and 6 seconds, or what the provider asks for, never more than 10) |
 | The stream breaks in the middle of a reply, or ends before the reply is finished (some gateways stop every reply after about a minute) | Picks the reply up where it stopped: the model is shown what it had written and asked for the rest, and the pieces are joined into one reply. This goes on while each attempt adds to the reply, eight times at most |
 | The reply runs out of room (`length`, `max_tokens`) | The same: it is continued |
+| The model thinks for minutes before it writes a word | The connection to your browser is kept open with a line every 15 seconds that carries nothing, so no proxy on the way drops it as idle |
 | An image request times out at the gateway (`504`) | One more try. A video job is never asked for twice after a timeout, since it may have started |
 | A wrong key, a model the provider does not offer, no credit, a wrong address | Nothing is tried again: the message says what to fix |
 
@@ -696,7 +715,8 @@ public/                 the web UI: index.html and zh.html are the home page (En
                         administration page
 src/site.mjs            the site's public address, for canonical links, the sitemap and robots.txt
 src/visitors.mjs        visitors and the sign-up funnel (the Visitors tab on the admin page)
-scripts/                stamp-site-url.mjs, the build step that writes that address into public/ on a static host
+scripts/                stamp-site-url.mjs, the build step that writes that address into public/ on a static host;
+                        check-gateways.mjs, a live check of the saved gateways and their doors (npm run check:gateways)
 test/                   node --test
 ```
 
@@ -722,11 +742,11 @@ The Golden retention structure comes from the B2B 4K short-video skill (hook, su
 
 ### Wire protocols
 
-Two protocols are implemented in `src/gateway/client.mjs`, both streaming: OpenAI-compatible `chat/completions` and Anthropic `messages`.
+Three protocols are implemented in `src/gateway/client.mjs`, all streaming: OpenAI-compatible `chat/completions`, Anthropic `messages` and Gemini `streamGenerateContent`. Which one a call uses follows the provider preset, except for [a Gemini model behind a gateway](#gemini-models-behind-a-gateway); `test/gemini.test.mjs` holds that rule in place against a stand-in that answers each door as a real gateway did.
 
 | Purpose | Request |
 | --- | --- |
-| List models | `GET {base}/models`, or `/v1/models` for Anthropic |
+| List models | `GET {base}/models`, `/v1/models` for Anthropic, `/v1beta/models` for Gemini |
 | Generate an image | `POST {base}/images/generations` |
 | Generate an image from a host portrait | `POST {base}/images/edits` (multipart), where the provider has it |
 | Start a video | `POST {base}/videos` |

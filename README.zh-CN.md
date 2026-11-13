@@ -421,7 +421,7 @@ steps: plan, write, review   # plan、write、review（旁白的三步）和 scr
 
 ### 支持的服务商
 
-OpenAI、Anthropic (Claude)、DeepSeek、通义千问、豆包、Moonshot Kimi、智谱 GLM、Google Gemini、OpenRouter、Ollama（本地），以及自定义的 OpenAI 兼容接口、Anthropic 兼容接口和离线演示。
+OpenAI、Anthropic (Claude)、DeepSeek、通义千问、豆包、Moonshot Kimi、智谱 GLM、Google Gemini、OpenRouter、Ollama（本地），以及自定义的 OpenAI 兼容接口、Anthropic 兼容接口、Gemini 兼容接口和离线演示。
 
 预设的接口地址和模型名称只是起点，请按你的账号实际情况修改。
 
@@ -447,6 +447,24 @@ OpenAI、Anthropic (Claude)、DeepSeek、通义千问、豆包、Moonshot Kimi�
 - 尺寸只在填写后才会发送。
 - **列出可用图像模型** 和 **列出可用视频模型** 会向对应地址查询模型。服务商会返回它的全部模型，名称看起来像图像或视频模型的会排在前面。
 
+### 网关后面的 Gemini 模型
+
+同时接入多家厂商的网关（Sub2API、new-api 等）会按上游自己的协议为每个密钥提供服务。Gemini 分组的密钥，原生协议是 Gemini 的（`/v1beta/models/{model}:streamGenerateContent`）；同一个密钥走网关的 OpenAI 风格地址，可能得到限流、拒绝协议转换，或者干脆没有响应。所以应用会自己选对入口：
+
+- 网关保存为 OpenAI 兼容、模型名以 `gemini` 开头时，只要网关在 `/v1beta/models` 里为这个密钥列出了该模型，就用 Gemini 协议调用。只询问一次，结果保留十分钟。模型设置里什么都不用改；没有这个入口的网关照旧调用。
+- Gemini 入口在所有重试之后仍然不通（没有容量、它自己的限流），而且还没写出任何内容时，这一次答复会改走网关的 OpenAI 风格入口。两个入口各有各的故障时段，很少同时出问题。
+- 地址里写明了 OpenAI 风格入口的（`…/v1beta/openai`、`…/chat/completions`）按所写的来；聚合平台式的模型名（`google/gemini-2.5-pro`）也一样。
+- **自定义（Gemini 兼容）** 预设直接使用 Gemini 协议，用于 Google 自己的接口或它的代理。
+- 每个 Gemini 请求都会要求把模型的思考过程一并流式返回。思考内容不算答复，只是让连接保持有数据：模型思考一两分钟时，网关前面的网络否则会把没有数据的连接掐断（Cloudflare 的 `524`）。
+
+**测试连接** 会显示实际调用的地址。服务商开始报错时，先检查各个入口，再决定要不要改设置：
+
+```bash
+npm run check:gateways -- --doors
+```
+
+它会通过应用自己的客户端向当前使用的网关问一个简短的问题，再分别用网关可能支持的每种协议问一遍，并打印各自的状态。加 `--all` 会检查所有已保存的网关和已启用的模型。
+
 ### 服务商不稳定的时候
 
 模型服务商和它前面的网关会出现一过性的故障：一时没有容量、超时、答复写到一半就断了。这些情况应用会自己扛过去。
@@ -456,6 +474,7 @@ OpenAI、Anthropic (Claude)、DeepSeek、通义千问、豆包、Moonshot Kimi�
 | 答复开始之前遇到 `502`、`503`、`504`、`529`、限流（`429`）或连接中断 | 自动重试，最多再试三次，每次等待的时间逐渐加长（大约 1 秒、2 秒、6 秒，或按服务商要求的时间，最长不超过 10 秒） |
 | 答复写到一半流断开，或者还没写完流就结束了（有些网关会在一分钟左右掐断每一次答复） | 从断点接着写：把已经写出的内容交还给模型，请它写出剩下的部分，再拼成一份完整的答复。只要每次都有新内容就继续，最多八次 |
 | 答复因为长度上限被截断（`length`、`max_tokens`） | 同上，接着写完 |
+| 模型先思考好几分钟才开始写 | 应用每 15 秒向浏览器发一行不含内容的数据，保持连接不断，途中的代理不会把它当作空闲连接掐掉 |
 | 图片请求在网关处超时（`504`） | 只再试一次。视频任务超时后不会重复提交，因为它可能已经开始 |
 | 密钥错误、服务商没有这个模型、余额不足、地址填错 | 不重试：错误信息会说明该改什么 |
 
@@ -665,7 +684,8 @@ public/                 网页界面：index.html 和 zh.html 是首页（英文
                         chat.html 是对话页（markdown.js 负责读取和渲染回复）
 src/site.mjs            站点的公开地址，用于 canonical 链接、sitemap 和 robots.txt
 src/visitors.mjs        访客与注册转化漏斗（管理页的访客标签）
-scripts/                stamp-site-url.mjs：在静态托管平台构建时把该地址写入 public/
+scripts/                stamp-site-url.mjs：在静态托管平台构建时把该地址写入 public/；
+                        check-gateways.mjs：实际检查已保存的网关及其各个入口（npm run check:gateways）
 test/                   node --test
 ```
 
@@ -691,11 +711,11 @@ test/                   node --test
 
 ### 接口协议
 
-`src/gateway/client.mjs` 实现了两种协议，均为流式：OpenAI 兼容的 `chat/completions` 和 Anthropic 的 `messages`。
+`src/gateway/client.mjs` 实现了三种协议，均为流式：OpenAI 兼容的 `chat/completions`、Anthropic 的 `messages` 和 Gemini 的 `streamGenerateContent`。一次调用用哪种由服务商预设决定，[网关后面的 Gemini 模型](#网关后面的-gemini-模型)除外；`test/gemini.test.mjs` 用一个按真实网关的回答逐个入口作答的替身，把这条规则固定下来。
 
 | 用途 | 请求 |
 | --- | --- |
-| 列出模型 | `GET {base}/models`，Anthropic 为 `/v1/models` |
+| 列出模型 | `GET {base}/models`，Anthropic 为 `/v1/models`，Gemini 为 `/v1beta/models` |
 | 生成图片 | `POST {base}/images/generations` |
 | 以主播定妆照为参考生成图片 | `POST {base}/images/edits`（multipart），服务商提供这个接口时 |
 | 发起视频任务 | `POST {base}/videos` |
