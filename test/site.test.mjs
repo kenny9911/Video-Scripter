@@ -79,3 +79,17 @@ for (const [name, lang, self] of [
 test('the app and the admin page stay out of search results', async () => {
   for (const name of ['app.html', 'admin.html']) assert.match(await page(name), /<meta name="robots" content="noindex">/, name);
 });
+
+// The page's script sends every form itself. Should a form ever be sent by the browser instead (a password
+// manager that submits as the page loads, a script that fails to load), a form without a method is sent with
+// GET, and what was typed lands in the address bar, the history and the server's logs.
+test('a form with a password field is never one the browser would send in the address', async () => {
+  for (const name of ['app.html', 'admin.html', 'chat.html']) {
+    const html = await page(name);
+    for (const [form] of html.matchAll(/<form\b[\s\S]*?<\/form>/g)) {
+      if (!/type="password"/.test(form)) continue;
+      const tag = /<form\b[^>]*>/.exec(form)[0];
+      assert.match(tag, /\bmethod="(?:post|dialog)"/, `${name}: ${tag} holds a password and would be sent with GET`);
+    }
+  }
+});
