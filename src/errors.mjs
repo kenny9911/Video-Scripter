@@ -17,7 +17,7 @@
 
 const OUT_OF_CREDIT = /quota|balance|insufficient|credit|billing|payment|exceeded your current|欠费|余额/i;
 // A gateway that fronts shared upstream accounts (Sub2API, new-api) saying it has none free for this model's group.
-const NO_ACCOUNTS = /no available (\w+ )?accounts?|no (\w+ )?accounts? available|无可用账号|没有可用(的)?账号|无可用渠道|no available channel/i;
+const NO_ACCOUNTS = /not supported by any configured account|no available (\w+ )?accounts?|no (\w+ )?accounts? available|无可用账号|没有可用(的)?账号|无可用渠道|no available channel/i;
 const BUGS = [TypeError, ReferenceError, RangeError];
 
 /** True when a provider's message says the account has run out, which no amount of waiting fixes. */
@@ -27,6 +27,8 @@ export const outOfCredit = (message) => OUT_OF_CREDIT.test(String(message || '')
 function upstreamCode(status, message) {
   if (status === 401 || status === 403) return ['settings', 'key'];
   if (status === 402 || (status === 429 && OUT_OF_CREDIT.test(message))) return ['settings', 'credit'];
+  // The same gateway answers 404 when none of the group's accounts offers the model: the name is right, the group cannot serve it.
+  if (status === 404 && NO_ACCOUNTS.test(message)) return ['provider', 'accounts'];
   if (status === 404) return ['settings', 'model'];
   if (status === 429) return ['provider', 'busy'];
   if (status >= 500 && NO_ACCOUNTS.test(message)) return ['provider', 'accounts'];

@@ -316,6 +316,10 @@ test('when no door has a reply, the failure says what the gateway said: it has n
   assert.match(other.message, /responded 503: Service temporarily unavailable/);
   assert.deepEqual([causeOf(other).side, causeOf(other).code], ['provider', 'outage']);
   assert.ok(!plain.posts().includes(NATIVE)); // its list said 404: there is no door to ask
+  // The same gateway, minutes later, answered 404 for the same model: no account of the group offered it. That is its end too, not a wrong model name.
+  const dropped = Object.assign(new GatewayError('aigw.store responded 404: Model "gemini-4-carbon-high" is not supported by any configured account in this group', 404), { upstream: true, host: 'aigw.store' });
+  assert.deepEqual([causeOf(dropped).side, causeOf(dropped).code], ['provider', 'accounts']);
+  assert.deepEqual([causeOf(Object.assign(new GatewayError('x.test responded 404: model not found', 404), { upstream: true })).side, causeOf(Object.assign(new GatewayError('x.test responded 404: model not found', 404), { upstream: true })).code], ['settings', 'model']);
   for (const said of ['No available accounts: no available accounts', '当前分组无可用账号', 'no available channel for model x']) assert.equal(causeOf(Object.assign(new GatewayError(`gw.test responded 503: ${said}`, 503), { upstream: true, host: 'gw.test' })).code, 'accounts', said);
 });
 
