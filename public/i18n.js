@@ -638,7 +638,8 @@ const ZH = {
   'Cause: the connection between this server and {host}.': '原因：本服务器与 {host} 之间的网络。',
   'Cause: the connection between this server and the provider.': '原因：本服务器与模型服务商之间的网络。',
   'Cause: our end, in Video Scripter itself.': '原因：在我们这一端，是 Video Scripter 自身的问题。',
-  'It is down or has no capacity for this model right now. Nothing here needs fixing: try again later, or switch to another model or gateway.': '服务商暂时不可用，或这个模型当前没有可用额度。这里不需要改任何设置：稍后重试，或换一个模型或网关。',
+  'It is down or has no capacity for this model right now. Nothing here needs fixing: try again later, or switch to another model or gateway.': '服务商暂时不可用，或它眼下没有余力处理这个模型的请求。这不是你的密钥、余额或额度的问题，这里也不需要改任何设置：稍后重试，或换一个模型或网关。',
+  'The gateway has no upstream account free for this model right now: the accounts behind its group are busy, paused or failing. Your key, balance and quota are not the problem. Whoever runs the gateway can see it under its accounts; until then, try again later or switch to another model or gateway.': '网关眼下没有可用的上游账号来处理这个模型：这个分组背后的账号正忙、被暂停或在报错。你的密钥、余额和额度都没有问题。网关的管理员可以在后台的“账号管理”里看到原因；在那之前，请稍后重试，或换一个模型或网关。',
   'It is rate-limiting this key. Wait a minute and try again.': '服务商正在对这个密钥限流。等一分钟再试。',
   'It did not answer in time. Try again, or pick a faster model.': '服务商没有在限定时间内答复。请重试，或换一个更快的模型。',
   'It broke off in the middle of its reply. Try again.': '服务商在答复中途断开了。请重试。',
@@ -1173,6 +1174,7 @@ const CAUSE_SIDE = {
 const TRIED = 'It was tried {n} times before giving up.';
 const CAUSE_CODE = {
   outage: 'It is down or has no capacity for this model right now. Nothing here needs fixing: try again later, or switch to another model or gateway.',
+  accounts: 'The gateway has no upstream account free for this model right now: the accounts behind its group are busy, paused or failing. Your key, balance and quota are not the problem. Whoever runs the gateway can see it under its accounts; until then, try again later or switch to another model or gateway.',
   busy: 'It is rate-limiting this key. Wait a minute and try again.',
   timeout: 'It did not answer in time. Try again, or pick a faster model.',
   stream: 'It broke off in the middle of its reply. Try again.',

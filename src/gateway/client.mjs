@@ -166,6 +166,17 @@ export async function wireFor(config, { signal } = {}) {
   return offered?.has(bareModel(config.model)) ? 'gemini' : 'openai';
 }
 
+/**
+ * True when a Gemini model is about to be called at the OpenAI-style door only because the gateway could not
+ * say, just now, what its Gemini door offers (the list answered 5xx, or not in time). The Gemini door may
+ * well be there: it is the one to ask when the OpenAI-style door has no reply to give.
+ */
+const geminiDoorUnasked = (config) => {
+  if (getProvider(config.provider)?.protocol !== 'openai' || !isGeminiModel(config.model) || /\/(openai|chat\/completions)\/?$/.test(String(config.baseUrl || '').trim())) return false;
+  const known = geminiDoors.get(doorKey(config));
+  return !(known && Date.now() - known.at < DOOR_TTL_MS);
+};
+
 /** A door that turned out not to work for a reply is not tried again for a while. */
 const closeDoor = (config) => geminiDoors.set(doorKey(config), { at: Date.now(), models: new Set() });
 
@@ -579,6 +590,10 @@ export async function* streamChat(config, { system, user, images, signal, maxTok
   // The format the preset names, or Gemini's own for a Gemini model the gateway offers there (wireFor).
   let protocol = await wireFor(config, { signal });
   let url = endpointFor(protocol, config.baseUrl, config.model);
+  // The gateway could not say whether it has a Gemini door for this model: if the door the preset names has no
+  // reply to give, the Gemini door is asked before giving up.
+  let unasked = protocol === preset && geminiDoorUnasked(config);
+  let first = null; // what the preset's door said, when the Gemini door was then asked in its place
   const usage = {};
   let said = String(partial || '');
   let idle = 0; // attempts in a row that added nothing
@@ -606,7 +621,12 @@ export async function* streamChat(config, { system, user, images, signal, maxTok
       if (isAbort(err)) failed(err);
       // The Gemini door was chosen here, not by the preset, and the gateway has no reply to give at it (no such
       // route): the door the preset names is used instead, and this one is left alone for a while.
-      if (protocol !== preset && !said && !err.midstream && err.upstream && [404, 405, 501].includes(err.status)) {
+      if (first && !said && !err.midstream && err.upstream && [404, 405, 501].includes(err.status)) {
+        closeDoor(config); // there is no Gemini door after all: what the preset's door said is the answer
+        failed(first);
+        throw first;
+      }
+      if (protocol !== preset && !first && !said && !err.midstream && err.upstream && [404, 405, 501].includes(err.status)) {
         closeDoor(config);
         debug('llm', 'the Gemini door has no such route: using the door the preset names', { model: config.model, status: err.status, wire: preset });
         protocol = preset;
@@ -621,7 +641,18 @@ export async function* streamChat(config, { system, user, images, signal, maxTok
       // The Gemini door stayed shut through every try (no capacity, a rate limit of its own) and nothing was
       // written: the gateway's other door is asked, for this reply only. Each door of a gateway has its own bad
       // moments, and they seldom share one.
-      if (!again && protocol !== preset && !said && isTransient(err) && !signal?.aborted) {
+      if (!again && unasked && protocol === preset && !said && isTransient(err) && !signal?.aborted) {
+        unasked = false;
+        first = err;
+        onRetry?.({ attempt: 1, of: retryPolicy.retries, status: err.status, host: err.host, waitMs: 0, resumed: false, reason: err.message.slice(0, 200) });
+        debug('llm', 'this door has no reply to give, and the gateway never said whether it has a Gemini door: asking there', { model: config.model, status: err.status, why: err.message });
+        protocol = 'gemini';
+        url = endpointFor(protocol, config.baseUrl, config.model);
+        resumes = -1;
+        idle = 0;
+        continue;
+      }
+      if (!again && protocol !== preset && !first && !said && isTransient(err) && !signal?.aborted) {
         onRetry?.({ attempt: 1, of: retryPolicy.retries, status: err.status, host: err.host, waitMs: 0, resumed: false, reason: err.message.slice(0, 200) });
         debug('llm', 'the Gemini door stayed shut: asking at the other door for this reply', { model: config.model, status: err.status, wire: preset, why: err.message });
         protocol = preset;

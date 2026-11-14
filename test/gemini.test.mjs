@@ -30,7 +30,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { streamChat, completeChat, listModels, endpointFor, modelsEndpointFor, endpointOf, wireFor, geminiRoot, isGeminiModel, forgetDoors, retryPolicy, isTransient } from '../src/gateway/client.mjs';
+import { GatewayError, streamChat, completeChat, listModels, endpointFor, modelsEndpointFor, endpointOf, wireFor, geminiRoot, isGeminiModel, forgetDoors, retryPolicy, isTransient } from '../src/gateway/client.mjs';
 import { getProvider } from '../src/gateway/providers.mjs';
 import { validateConfig } from '../src/gateway/config.mjs';
 import { causeOf } from '../src/errors.mjs';
@@ -289,6 +289,34 @@ test('a gateway that cannot say what it offers just now is asked again on the ne
   assert.equal((await ask(saved(gw.base))).text, 'from the chat door'); // nothing is concluded from a 503
   assert.equal((await ask(saved(gw.base))).text, 'from the chat door');
   assert.equal(gw.asked(), 2);
+});
+
+// 2026-11-14: every upstream account of the Gemini group was out. The list at the Gemini door answered 503, so
+// the app went to the OpenAI-style door, which said only "Service temporarily unavailable"; the Gemini door,
+// never asked, was saying what was wrong: "No available Gemini accounts".
+const NO_ACCOUNTS = { status: 503, body: { error: { code: 503, message: 'No available Gemini accounts: no available accounts', status: 'UNAVAILABLE' } }, headers: { 'retry-after': '0' } };
+const UNAVAILABLE = { status: 503, body: { error: { message: 'Service temporarily unavailable', type: 'api_error' } }, headers: { 'retry-after': '0' } };
+
+test('a gateway that could not say what it offers is still asked at its Gemini door when the other door has no reply', async (t) => {
+  const gw = await gateway(t, { listStatus: 503, chat: [UNAVAILABLE] });
+  const { text, retries } = await ask(saved(gw.base));
+  assert.equal(text, '{"lines":["每天背电脑挤地铁"]}');
+  assert.deepEqual([...new Set(gw.posts())], ['/v1/chat/completions', NATIVE]); // the door the preset names first, then the Gemini door
+  assert.ok(retries.length >= 1);
+});
+
+test('when no door has a reply, the failure says what the gateway said: it has no account free, which is not the key or its quota', async (t) => {
+  const gw = await gateway(t, { listStatus: 503, chat: [UNAVAILABLE], gemini: [NO_ACCOUNTS] });
+  const err = await ask(saved(gw.base)).catch((e) => e);
+  assert.match(err.message, /responded 503: No available Gemini accounts/);
+  assert.deepEqual([causeOf(err).side, causeOf(err).code], ['provider', 'accounts']);
+  // A gateway with no Gemini door at all keeps the answer of the door it has.
+  const plain = await gateway(t, { hasGeminiDoor: false, chat: [UNAVAILABLE] });
+  const other = await ask(saved(plain.base)).catch((e) => e);
+  assert.match(other.message, /responded 503: Service temporarily unavailable/);
+  assert.deepEqual([causeOf(other).side, causeOf(other).code], ['provider', 'outage']);
+  assert.ok(!plain.posts().includes(NATIVE)); // its list said 404: there is no door to ask
+  for (const said of ['No available accounts: no available accounts', '当前分组无可用账号', 'no available channel for model x']) assert.equal(causeOf(Object.assign(new GatewayError(`gw.test responded 503: ${said}`, 503), { upstream: true, host: 'gw.test' })).code, 'accounts', said);
 });
 
 test('the Gemini-compatible preset speaks Gemini\'s format outright, and lists the models that can write', async (t) => {

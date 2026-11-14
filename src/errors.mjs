@@ -6,7 +6,8 @@
 //     settings   our end: something in LLM settings (key, model name, address, account credit)
 //     network    between this server and the provider: the provider could not be reached
 //     app        our end: a fault in Video Scripter itself
-//   code      what happened, in one word: the page has a sentence for each (public/i18n.js)
+//   code      what happened, in one word: the page has a sentence for each (public/i18n.js). `accounts` is a
+//             gateway saying it has no upstream account free for the model: not the key, its balance or its quota
 //   host      the provider's host, when there is one
 //   status    the HTTP status the provider answered with, when it answered
 //
@@ -15,6 +16,8 @@
 // errorBody(err, message?) -> { error, cause? }             what a route answers with
 
 const OUT_OF_CREDIT = /quota|balance|insufficient|credit|billing|payment|exceeded your current|欠费|余额/i;
+// A gateway that fronts shared upstream accounts (Sub2API, new-api) saying it has none free for this model's group.
+const NO_ACCOUNTS = /no available (\w+ )?accounts?|no (\w+ )?accounts? available|无可用账号|没有可用(的)?账号|无可用渠道|no available channel/i;
 const BUGS = [TypeError, ReferenceError, RangeError];
 
 /** True when a provider's message says the account has run out, which no amount of waiting fixes. */
@@ -26,6 +29,7 @@ function upstreamCode(status, message) {
   if (status === 402 || (status === 429 && OUT_OF_CREDIT.test(message))) return ['settings', 'credit'];
   if (status === 404) return ['settings', 'model'];
   if (status === 429) return ['provider', 'busy'];
+  if (status >= 500 && NO_ACCOUNTS.test(message)) return ['provider', 'accounts'];
   if (status === 408 || status >= 500) return ['provider', 'outage'];
   return ['settings', 'request']; // 400, 422...: the provider understood the address and the key, and refused what was sent
 }

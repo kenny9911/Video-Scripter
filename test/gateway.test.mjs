@@ -222,8 +222,8 @@ test('request() says where a failure came from', async () => {
     globalThis.fetch = async () => new Response(JSON.stringify({ error: { message: 'No available accounts' } }), { status: 503 });
     const down = await request('https://gw.test/v1/chat/completions', {}).catch((e) => e);
     assert.equal(down.message, 'gw.test responded 503: No available accounts');
-    assert.deepEqual(causeOf(down), { side: 'provider', code: 'outage', host: 'gw.test', status: 503, attempts: 4 });
-    assert.deepEqual(causeOf(await request('https://gw.test/v1/chat/completions', {}, { retries: 0 }).catch((e) => e)), { side: 'provider', code: 'outage', host: 'gw.test', status: 503 });
+    assert.deepEqual(causeOf(down), { side: 'provider', code: 'accounts', host: 'gw.test', status: 503, attempts: 4 }); // the gateway said it has no account free: that is what the page is told
+    assert.deepEqual(causeOf(await request('https://gw.test/v1/chat/completions', {}, { retries: 0 }).catch((e) => e)), { side: 'provider', code: 'accounts', host: 'gw.test', status: 503 });
     globalThis.fetch = async () => { throw new TypeError('fetch failed', { cause: new Error('getaddrinfo ENOTFOUND gw.test') }); };
     assert.deepEqual(causeOf(await request('https://gw.test/v1', {}).catch((e) => e)), { side: 'network', code: 'unreachable', host: 'gw.test' });
   } finally {

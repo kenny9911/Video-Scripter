@@ -75,7 +75,7 @@ test('a provider without capacity is asked again: 502, 503, 504 and 529, a rate 
   const down = await up(t, [{ status: 503 }]);
   const err = await request(`${down.base}/x`, {}).catch((e) => e);
   assert.deepEqual([down.seen.length, err.status, err.attempts], [4, 503, 4]);
-  assert.deepEqual(causeOf(err), { side: 'provider', code: 'outage', host: new URL(down.base).host, status: 503, attempts: 4 });
+  assert.deepEqual(causeOf(err), { side: 'provider', code: 'accounts', host: new URL(down.base).host, status: 503, attempts: 4 }); // the gateway said it has no account free: that is what the page is told
 });
 
 test('what asking again cannot fix is not asked again', async (t) => {
