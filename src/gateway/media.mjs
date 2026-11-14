@@ -34,6 +34,19 @@ function target(config, kind) {
   return { ...t, base: apiBase(t.baseUrl), headers }; // a bare host gets its /v1, as for text
 }
 
+/**
+ * A media request. A provider that turns away one sent without a key, because the address has none of its
+ * own and the gateway's was kept back (mediaTarget), is marked `withheld`: the page then says to enter one.
+ */
+async function send(t, url, init, options) {
+  try {
+    return await request(url, init, options);
+  } catch (err) {
+    if (t.withheld && err.upstream && (err.status === 401 || err.status === 403)) err.withheld = true;
+    throw err;
+  }
+}
+
 async function json(res, what) {
   const body = await res.json().catch(() => null);
   if (!body || typeof body !== 'object') throw new GatewayError(`${new URL(res.url).host} did not return ${what}`, 502);
@@ -85,7 +98,7 @@ export async function generateImage(config, { prompt, aspectRatio, signal, refer
     if (size) form.set('size', size);
     for (const [i, r] of references.entries()) form.append(references.length > 1 ? 'image[]' : 'image', new Blob([r.bytes], { type: r.type || 'image/png' }), `reference-${i + 1}.${(r.type || 'image/png').split('/')[1].replace('jpeg', 'jpg')}`);
     try {
-      const made = await imageOf(await request(`${root}/images/edits`, { method: 'POST', headers: t.headers, body: form, signal }, { timeouts: 1 }));
+      const made = await imageOf(await send(t, `${root}/images/edits`, { method: 'POST', headers: t.headers, body: form, signal }, { timeouts: 1 }));
       refused.delete(key);
       return { ...made, referenced: true };
     } catch (err) {
@@ -96,7 +109,7 @@ export async function generateImage(config, { prompt, aspectRatio, signal, refer
   }
 
   const body = { model: t.model, prompt, n: 1, ...(size && { size }) };
-  const res = await request(`${root}/images/generations`, { method: 'POST', headers: { ...t.headers, 'content-type': 'application/json' }, body: JSON.stringify(body), signal }, { timeouts: 1 });
+  const res = await send(t, `${root}/images/generations`, { method: 'POST', headers: { ...t.headers, 'content-type': 'application/json' }, body: JSON.stringify(body), signal }, { timeouts: 1 });
   return imageOf(res);
 }
 
@@ -125,7 +138,7 @@ export async function createVideo(config, { prompt, seconds, aspectRatio, signal
   const size = sizeFor(t.size, aspectRatio);
   const body = { model: t.model, prompt, seconds: String(clipSeconds(Number(seconds) || 4)), ...(size && { size }) };
   // A video job that timed out at the gateway may have been started all the same: it is not asked for twice.
-  const res = await request(`${t.base.replace(/\/videos$/, '')}/videos`, { method: 'POST', headers: { ...t.headers, 'content-type': 'application/json' }, body: JSON.stringify(body), signal }, { timeouts: 0 });
+  const res = await send(t, `${t.base.replace(/\/videos$/, '')}/videos`, { method: 'POST', headers: { ...t.headers, 'content-type': 'application/json' }, body: JSON.stringify(body), signal }, { timeouts: 0 });
   return videoJob(await json(res, 'a video job'));
 }
 

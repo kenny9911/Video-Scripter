@@ -7,7 +7,9 @@
 //     network    between this server and the provider: the provider could not be reached
 //     app        our end: a fault in Video Scripter itself
 //   code      what happened, in one word: the page has a sentence for each (public/i18n.js). `accounts` is a
-//             gateway saying it has no upstream account free for the model: not the key, its balance or its quota
+//             gateway saying it has no upstream account free for the model: not the key, its balance or its quota.
+//             `group`: the gateway does not allow this for the group of the key (image generation, say).
+//             `nokey`: an image or video address with no key of its own, called without one and turned away
 //   host      the provider's host, when there is one
 //   status    the HTTP status the provider answered with, when it answered
 //
@@ -18,6 +20,9 @@
 const OUT_OF_CREDIT = /quota|balance|insufficient|credit|billing|payment|exceeded your current|欠费|余额/i;
 // A gateway that fronts shared upstream accounts (Sub2API, new-api) saying it has none free for this model's group.
 const NO_ACCOUNTS = /not supported by any configured account|no available (\w+ )?accounts?|no (\w+ )?accounts? available|无可用账号|没有可用(的)?账号|无可用渠道|no available channel/i;
+// A gateway saying the group of this key may not do this (make images, cross from one wire format to another):
+// the key is good, the group it is in does not allow it.
+const GROUP_DENIED = /not (?:enabled|allowed|permitted|available) for (?:this|the|your) group|group does not allow|分组(?:未开启|未开通|不允许|不支持)/i;
 const BUGS = [TypeError, ReferenceError, RangeError];
 
 /** True when a provider's message says the account has run out, which no amount of waiting fixes. */
@@ -25,6 +30,7 @@ export const outOfCredit = (message) => OUT_OF_CREDIT.test(String(message || '')
 
 /** The cause of an HTTP reply from a provider, from its status and what it said. */
 function upstreamCode(status, message) {
+  if ((status === 400 || status === 403) && GROUP_DENIED.test(message)) return ['settings', 'group'];
   if (status === 401 || status === 403) return ['settings', 'key'];
   if (status === 402 || (status === 429 && OUT_OF_CREDIT.test(message))) return ['settings', 'credit'];
   // The same gateway answers 404 when none of the group's accounts offers the model: the name is right, the group cannot serve it.
@@ -43,6 +49,8 @@ export function causeOf(err) {
   if (err.unreadable) return at('provider', 'reply');
   if (err.name === 'GatewayError') {
     if (err.unreachable) return at('network', 'unreachable');
+    // Sent with no key, because the image or video address has none of its own (src/gateway/media.mjs), and turned away for it.
+    if (err.upstream && err.withheld) return at('settings', 'nokey');
     if (err.upstream) return at(...(Number.isFinite(err.status) ? upstreamCode(err.status, err.message) : ['provider', 'stream']));
     if (err.status >= 500) return at('provider', 'reply'); // it answered, but not with what was asked for
     return at('settings', 'setup'); // refused before any call: a setting is missing or wrong

@@ -652,6 +652,10 @@ const ZH = {
   'The connection closed in the middle of the script. Picking it up where it stopped: part {n}.': '脚本写到一半时连接断开了，正在从断点接着写：第 {n} 段。',
   'The model answered, but not in the format it was asked for. Try again, or pick another model.': '模型有答复，但没有按要求的格式返回。请重试，或换一个模型。',
   'The provider rejected the API key. Check the key of this gateway.': '服务商拒绝了 API 密钥。请检查这个网关的密钥。',
+  'The gateway does not allow this for the group this key is in: for images, image generation is not turned on for it. The key itself is fine. Use a key from a group that allows it; for images, enter it under LLM settings → Images and videos.': '网关不允许这个密钥所在的分组做这件事：生成图片时，就是这个分组没有开通生图。密钥本身没有问题。请换用一个允许这样做的分组的密钥；图片的话，在“模型设置 → 图片和视频”里填写。',
+  'No API key was sent: this image or video address has no key of its own, and the key of the gateway is only ever sent to the gateway’s own address. Enter the key for this address under LLM settings → Images and videos.': '没有发送密钥：这个图片或视频地址没有填写自己的密钥，而网关的密钥只会发往网关自己的地址。请在“模型设置 → 图片和视频”里填写这个地址的密钥。',
+  'Enter the key for this address: the key of the gateway is only sent to its own address': '请填写这个地址的密钥：网关的密钥只会发往网关自己的地址',
+  'Stopped making images: the other scenes would fail the same way.': '已停止生成图片：其余场景也会遇到同样的问题。',
   'The provider account is out of credit or quota. Top it up, or use another key.': '服务商账户的余额或配额已用完。请充值，或换一个密钥。',
   'The provider does not offer this model at this address. Check the model name and BASE_URL_API, or pick another model.': '服务商在这个地址下不提供这个模型。请检查模型名称和 BASE_URL_API，或换一个模型。',
   'The provider refused the request as it was sent. Check the model name and the other settings of this gateway.': '服务商拒绝了发出的请求。请检查这个网关的模型名称和其他设置。',
@@ -800,7 +804,7 @@ const ZH = {
 
   // Images and videos settings
   'Images and videos': '图片和视频',
-  'Scene images and clips are made by separate models, often at a different address. Give each its own BASE_URL_API and model; leave a model blank to turn that off. A blank base URL or key uses the gateway\'s.': '场景图片和视频片段由单独的模型生成，接口地址通常也不同。请分别填写各自的 BASE_URL_API 和模型；模型留空即关闭该功能。接口地址或密钥留空时使用网关的设置。',
+  'Scene images and clips are made by separate models, often at a different address. Give each its own BASE_URL_API and model; leave a model blank to turn that off. A blank base URL uses the gateway\'s address and key. An address on another server needs a key of its own: the key of the gateway is only sent to the gateway\'s own address.': '场景图片和视频片段由单独的模型生成，接口地址通常也不同。请分别填写各自的 BASE_URL_API 和模型；模型留空即关闭该功能。接口地址留空时使用网关的地址和密钥。填写了其他服务器的地址时，需要填写它自己的密钥：网关的密钥只会发往网关自己的地址。',
   Images: '图片',
   Videos: '视频',
   image: '图片',
@@ -1180,6 +1184,8 @@ const CAUSE_CODE = {
   stream: 'It broke off in the middle of its reply. Try again.',
   reply: 'The model answered, but not in the format it was asked for. Try again, or pick another model.',
   key: 'The provider rejected the API key. Check the key of this gateway.',
+  group: 'The gateway does not allow this for the group this key is in: for images, image generation is not turned on for it. The key itself is fine. Use a key from a group that allows it; for images, enter it under LLM settings → Images and videos.',
+  nokey: 'No API key was sent: this image or video address has no key of its own, and the key of the gateway is only ever sent to the gateway’s own address. Enter the key for this address under LLM settings → Images and videos.',
   credit: 'The provider account is out of credit or quota. Top it up, or use another key.',
   model: 'The provider does not offer this model at this address. Check the model name and BASE_URL_API, or pick another model.',
   request: 'The provider refused the request as it was sent. Check the model name and the other settings of this gateway.',

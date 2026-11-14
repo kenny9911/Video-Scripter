@@ -38,7 +38,7 @@ test('images and videos go to their own base URL and model', async (t) => {
 
   assert.deepEqual(await generateImage(config, { prompt: 'a cat' }), { url: 'data:image/png;base64,QUJD', usage: null });
   assert.deepEqual(up.seen[0].body, { model: 'painter', prompt: 'a cat', n: 1, size: '1024x1536' });
-  assert.equal(up.seen[0].auth, 'Bearer text-key'); // no image key: the gateway's is used
+  assert.equal(up.seen[0].auth, undefined); // another server, and no key of its own: the gateway's key is not lent to it
 
   const job = await createVideo(config, { prompt: 'a cat walks', seconds: 5 });
   assert.deepEqual([job.id, job.status], ['video_1', 'running']);
@@ -47,6 +47,44 @@ test('images and videos go to their own base URL and model', async (t) => {
   assert.deepEqual([(await videoStatus(config, job.id)).progress, (await videoStatus(config, job.id)).status], [40, 'done']);
   assert.equal(await (await videoContent(config, job.id)).text(), 'MP4DATA');
   assert.deepEqual([clipSeconds(3), clipSeconds(8), clipSeconds(30)], [4, 8, 12]);
+});
+
+test('the key of a gateway is only lent to its own server, and a refusal for want of a key says so', async (t) => {
+  const { sameServer } = await import('../src/gateway/config.mjs');
+  const { causeOf } = await import('../src/errors.mjs');
+  assert.deepEqual([sameServer('https://aigw.store', 'https://aigw.store/v1'), sameServer('https://aigw.store', 'https://api.aigw.store'), sameServer('http://127.0.0.1:1/v1', 'http://127.0.0.1:2/v1'), sameServer('', 'https://x.test')], [true, false, false, false]);
+
+  // 2026-11-14: the image address of a gateway was moved to another host of the same service. The image key was dropped
+  // with the old address (mergeMedia), the text key went in its place, and the group of the text key may not draw.
+  const gw = { provider: 'custom', baseUrl: 'https://aigw.store', apiKey: 'text-key', model: 'writer' };
+  const at = (image, extra = {}) => mediaTarget(mergeConfig({ ...gw, ...extra, image: { model: 'painter', ...image } }), 'image');
+  assert.deepEqual([at({}).apiKey, at({ baseUrl: 'https://aigw.store/v1' }).apiKey, at({ baseUrl: 'https://canvas.aigw.store' }).apiKey, at({ baseUrl: 'https://canvas.aigw.store', apiKey: 'img-key' }).apiKey], ['text-key', 'text-key', '', 'img-key']);
+  assert.deepEqual([at({}).withheld, at({ baseUrl: 'https://canvas.aigw.store' }).withheld, at({ baseUrl: 'http://localhost:7860' }, { apiKey: '' }).withheld], [false, true, false]); // a gateway without a key has nothing to keep back
+
+  // A stand-in that wants a key, and draws only for the key of its image group.
+  const asked = [];
+  const server = http.createServer(async (req, res) => {
+    for await (const _ of req);
+    asked.push(req.headers.authorization);
+    const json = (status, body) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+    if (!req.headers.authorization) return json(401, { error: { message: 'API key is required', type: 'authentication_error' } });
+    if (req.headers.authorization === 'Bearer img-key') return json(200, { data: [{ b64_json: 'QUJD' }] });
+    return json(403, { error: { message: 'Image generation is not enabled for this group', type: 'permission_error' } });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const keyless = await generateImage(mergeConfig({ ...gw, image: { baseUrl: base, model: 'painter' } }), { prompt: 'x' }).catch((e) => e);
+  assert.deepEqual([asked.at(-1), keyless.withheld, causeOf(keyless).side, causeOf(keyless).code], [undefined, true, 'settings', 'nokey']);
+  assert.equal((await generateImage(mergeConfig({ ...gw, image: { baseUrl: base, model: 'painter', apiKey: 'img-key' } }), { prompt: 'x' })).url, 'data:image/png;base64,QUJD');
+  // On the gateway's own server the gateway's key is used, and a group that may not draw is told as that, not as a bad key.
+  const denied = await generateImage(mergeConfig({ ...gw, baseUrl: base, image: { model: 'painter' } }), { prompt: 'x' }).catch((e) => e);
+  assert.deepEqual([asked.at(-1), denied.withheld, causeOf(denied).side, causeOf(denied).code], ['Bearer text-key', undefined, 'settings', 'group']);
+  const upstream = (status, said) => Object.assign(new Error(`aigw.store responded ${status}: ${said}`), { name: 'GatewayError', upstream: true, status, host: 'aigw.store' });
+  assert.equal(causeOf(upstream(400, 'This group does not allow cross-protocol conversion (Anthropic Messages <-> OpenAI Responses/Chat Completions).')).code, 'group');
+  assert.equal(causeOf(upstream(403, 'API Key 所属分组已删除')).code, 'key'); // a key whose group is gone is a dead key
+  assert.equal(causeOf(upstream(503, 'No available compatible accounts')).code, 'accounts');
 });
 
 test('media settings: off until a model is set, keys masked and tied to their base URL', async () => {

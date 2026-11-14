@@ -101,14 +101,28 @@ function mergeMedia(patch, current) {
   return { baseUrl, apiKey, model: String(patch.model ?? cur.model).trim(), size: String(patch.size ?? cur.size).trim().slice(0, 20) };
 }
 
+/** True when two addresses are the same server (scheme, host and port). */
+export function sameServer(a, b) {
+  try {
+    return new URL(String(a).trim()).origin === new URL(String(b).trim()).origin;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Where image or video requests go for this gateway: its own base URL and key when set,
- * otherwise the gateway's. `ready` is false until a model is chosen (demo mode draws placeholder images).
+ * Where image or video requests go for this gateway: its own base URL and key when set, otherwise the
+ * gateway's. The gateway's key is only lent to the gateway's own server: an image or video address on
+ * another server that has no key of its own is called with none (a service run locally needs none), and
+ * `withheld` says the gateway's key was kept back. `ready` is false until a model is chosen (demo mode
+ * draws placeholder images).
  */
 export function mediaTarget(config, kind) {
   const m = { ...MEDIA_BLANK, ...config[kind] };
   const demo = getProvider(config.provider)?.protocol === 'mock' && !m.baseUrl;
-  return { baseUrl: m.baseUrl || config.baseUrl, apiKey: m.apiKey || config.apiKey, model: m.model, size: m.size, demo, ready: demo ? kind === 'image' : Boolean(m.model) };
+  const own = !m.baseUrl || sameServer(m.baseUrl, config.baseUrl);
+  const apiKey = m.apiKey || (own ? config.apiKey : '');
+  return { baseUrl: m.baseUrl || config.baseUrl, apiKey, model: m.model, size: m.size, demo, ready: demo ? kind === 'image' : Boolean(m.model), withheld: !apiKey && Boolean(config.apiKey) };
 }
 
 /** The default model plus every enabled model, default first. */

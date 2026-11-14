@@ -79,7 +79,7 @@ async function api(path, options = {}) {
 }
 
 /** A failure the server answered with, as an Error whose message says whose end it is on (i18n.js explain). */
-const fault = (data, status) => new Error(explain(data.error || t('Request failed ({status})', { status }), data.cause));
+const fault = (data, status) => new Error(explain(data.error || t('Request failed ({status})', { status }), data.cause), { cause: data.cause });
 const DROPPED = { side: 'app', code: 'dropped' };
 const UNREADABLE = { side: 'provider', code: 'reply' };
 /** What to show for a caught error: a request the browser could not finish is our end, and says so. */
@@ -87,12 +87,12 @@ const UNREADABLE = { side: 'provider', code: 'reply' };
 const offline = (err) => err instanceof TypeError && /fetch|network|load failed|input stream/i.test(err.message);
 const shown = (err) => (offline(err) ? explain(err.message, DROPPED) : err.message);
 
-function toast(msg) {
+function toast(msg, ms = 1800) {
   const el = $('toast');
   el.textContent = msg;
   el.hidden = false;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => (el.hidden = true), 1800);
+  toast.timer = setTimeout(() => (el.hidden = true), ms);
 }
 
 async function copy(text, label = t('Copied')) {
@@ -1183,6 +1183,7 @@ async function startMedia(run, sc, kind, asset = null) {
   } catch (err) {
     m.status = 'error';
     m.error = err.message;
+    m.cause = err.cause; // whose end it is on (src/errors.mjs): an image run stops on one that every scene would meet
   }
   paint();
 }
@@ -1239,17 +1240,28 @@ async function autoImages(run) {
   refreshMediaStatus();
   // The hosts' portraits come first: every scene with a host is then drawn from them.
   for (const c of run.script.cast || []) if (c.look && !hostStore(run, c).image) await startHost(run, c);
+  let stopped = '';
   const worker = async () => {
     for (let sc; (sc = todo.shift()); ) {
       await startMedia(run, sc, 'image');
       state.autoRun.done += 1;
       refreshMediaStatus();
+      // A failure every other scene would meet as well (a setting, a key, a gateway with no account free) ends the run.
+      const m = mediaOf(run, sc).image;
+      if (m?.status === 'error' && everyScene(m.cause)) {
+        stopped ||= m.error;
+        todo.length = 0;
+      }
     }
   };
   await Promise.all([worker(), worker()]);
   state.autoRun = null;
   refreshMediaStatus();
+  if (stopped) toast(`${t('Stopped making images: the other scenes would fail the same way.')}\n${stopped}`, 8000);
 }
+
+/** True for a failure that is not the scene's: asking again for the next scene would only meet it again. */
+const everyScene = (cause) => Boolean(cause) && (cause.side === 'settings' || cause.side === 'network' || ['accounts', 'outage', 'credit'].includes(cause.code));
 
 /** The pill in the script header (and the dot on the mobile Script tab) while any image or video is still being made. */
 function refreshMediaStatus() {
@@ -2657,14 +2669,26 @@ function applyPriceGroup(group, host) {
 
 const pricingPayload = () => ({ currency: $('priceCurrency').value, source: ui.priceSource, models: Object.fromEntries(ui.prices) });
 
+/** True when two addresses are the same server (scheme, host and port), as src/gateway/config.mjs decides it. */
+function sameServer(a, b) {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
+}
+
 /** Key placeholders and the one-line summary for the "Images and videos" section. */
 function syncMediaFields() {
   const g = editing();
   const on = [];
   for (const kind of ['image', 'video']) {
     const saved = g?.[kind];
-    const stored = Boolean(saved?.hasKey) && saved.baseUrl === $(`${kind}BaseUrl`).value.trim();
-    $(`${kind}Key`).placeholder = stored ? t('Saved: {key}', { key: saved.keyPreview }) : t("Blank uses the gateway's key");
+    const address = $(`${kind}BaseUrl`).value.trim();
+    const stored = Boolean(saved?.hasKey) && saved.baseUrl === address;
+    // The key of the gateway is only lent to the gateway's own server (mediaTarget): another one needs its own.
+    const own = !address || sameServer(address, $('baseUrl').value.trim());
+    $(`${kind}Key`).placeholder = stored ? t('Saved: {key}', { key: saved.keyPreview }) : own ? t("Blank uses the gateway's key") : t('Enter the key for this address: the key of the gateway is only sent to its own address');
     if ($(`${kind}Model`).value.trim()) on.push(`${t(kind)}: ${$(`${kind}Model`).value.trim()}`);
   }
   $('mediaSummary').textContent = on.length ? `· ${on.join(' · ')}` : `· ${t('not set')}`;
